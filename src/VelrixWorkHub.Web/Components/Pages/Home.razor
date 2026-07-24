@@ -1,0 +1,116 @@
+@page "/"
+@inject IAdminContext Admin
+@inject ILogger<Home> Logger
+@inject VelrixWorkHub.Application.Tasks.WorkTaskService TaskService
+@inject VelrixWorkHub.Application.Announcements.AnnouncementService AnnouncementService
+@inject VelrixWorkHub.Application.Schedules.WorkScheduleService ScheduleService
+@inject VelrixWorkHub.Application.FollowUps.CustomerFollowUpService FollowUpService
+@inject VelrixWorkHub.Application.Contracts.SalesContractService ContractService
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectIssueService IssueService
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectPhaseService PhaseService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@inject VelrixWorkHub.Application.Inventory.InventoryService InventoryService
+@inject VelrixWorkHub.Application.Settlements.SettlementService SettlementService
+@inject VelrixWorkHub.Application.Workflow.WorkflowTaskService WorkflowTaskService
+@inject VelrixWorkHub.Application.Lms.LmsLicenseOperationsSnapshotService LmsSnapshotService
+@using VelrixWorkHub.Application.Announcements
+@using VelrixWorkHub.Application.Schedules
+@using VelrixWorkHub.Application.Tasks
+@using VelrixWorkHub.Application.WorkItems
+@using VelrixWorkHub.Domain
+
+<PageTitle>Velrix Work Hub</PageTitle>
+
+@if (LoadError is not null)
+{
+    <div class="alert alert-warning workhub-home-load-warning" role="alert">@LoadError</div>
+}
+
+<div class="workhub-home">
+    <header class="workhub-hero"><div><p class="eyebrow">Velrix Work Hub · 今日工作台</p><h1>把重要的事，放在今天完成。</h1><p class="lead">任务、公告和日程集中在这里，打开首页就能知道下一步做什么。</p></div><div class="workhub-hero__date"><strong>@DateTime.Today.ToString("MM月dd日")</strong><span>@DateTime.Today.ToString("dddd", new System.Globalization.CultureInfo("zh-CN"))</span></div></header>
+    <section class="workhub-summary-grid" aria-label="今日工作摘要">
+        <a class="workhub-summary-card workhub-summary-card--green" href="Oa/Task"><span>待处理任务</span><strong>@OpenTasks.Count</strong><small>查看我的任务 <i class="fa fa-arrow-right" aria-hidden="true"></i></small></a>
+        <a class="workhub-summary-card workhub-summary-card--blue" href="Oa/Announcement"><span>已发布公告</span><strong>@PublishedAnnouncements.Count</strong><small>查看公告中心 <i class="fa fa-arrow-right" aria-hidden="true"></i></small></a>
+        <a class="workhub-summary-card workhub-summary-card--amber" href="Oa/Schedule"><span>即将到来的日程</span><strong>@UpcomingSchedules.Count</strong><small>查看我的日程 <i class="fa fa-arrow-right" aria-hidden="true"></i></small></a>
+    </section>
+    <section class="workhub-summary-grid" aria-label="ERP 与 LMS 摘要">
+        <a class="workhub-summary-card workhub-summary-card--blue" href="Erp/Settlement?kind=Receivable"><span>客户待收应收</span><strong>¥@PendingReceivableAmount.ToString("N2")</strong><small>进入收款核销 <i class="fa fa-arrow-right" aria-hidden="true"></i></small></a>
+        <a class="workhub-summary-card workhub-summary-card--amber" href="Erp/Settlement?kind=Payable"><span>供应商待付应付</span><strong>¥@PendingPayableAmount.ToString("N2")</strong><small>进入付款核销 <i class="fa fa-arrow-right" aria-hidden="true"></i></small></a>
+        <a class="workhub-summary-card workhub-summary-card--green" href="Lms/License"><span>LMS 许可证申请</span><strong>@LmsSnapshot.RequestCount</strong><small>查看许可证申请 <i class="fa fa-arrow-right" aria-hidden="true"></i></small></a>
+        <a class="workhub-summary-card workhub-summary-card--amber" href="Lms/License?authorizationStatus=Expiring"><span>LMS 即将到期</span><strong>@LmsSnapshot.ExpiringAuthorizationCount</strong><small>查看到期风险 <i class="fa fa-arrow-right" aria-hidden="true"></i></small></a>
+    </section>
+    <section class="workhub-dashboard-grid" aria-label="LMS 许可证状态分布">
+        <article class="workhub-dashboard-card"><div class="workhub-dashboard-card__header"><div><p class="eyebrow">LMS 许可证运营</p><h2>申请与授权状态分布</h2></div><a href="Lms/Overview">运营概览</a></div><ul class="workhub-list workhub-list--news">@foreach (var card in LmsStatusCards) { <li><div><strong><a href="@card.Href">@card.Label</a></strong><small>@card.Count 项 · 进入明细</small></div></li> }</ul></article>
+        <article class="workhub-dashboard-card"><div class="workhub-dashboard-card__header"><div><p class="eyebrow">LMS 近期活动</p><h2>授权生命周期</h2></div><a href="Lms/License">全部授权</a></div>@if (!LmsSnapshot.Activities.Any()) { <p class="workhub-empty-line">暂时没有授权生命周期活动。</p> } else { <ul class="workhub-list workhub-list--news">@foreach (var activity in LmsSnapshot.Activities) { <li><div><strong><a href="@($"Lms/License?authorizationId={activity.AuthorizationId}")">@activity.LicenseNo · @LmsActionLabel(activity.Action)</a></strong><small>@activity.Actor · @activity.OccurredAt.ToString("MM月dd日 HH:mm") · @activity.Reason</small></div></li> }</ul> }</article>
+    </section>
+    <section class="workhub-dashboard-grid" aria-label="工作台信息">
+        <article class="workhub-dashboard-card"><div class="workhub-dashboard-card__header"><div><p class="eyebrow">下一步</p><h2>待处理任务</h2></div><a href="Oa/Task">全部任务</a></div>@if (!OpenTasks.Any()) { <p class="workhub-empty-line">今天没有待处理任务，可以保持节奏。</p> } else { <ul class="workhub-list">@foreach (var task in OpenTasks.Take(4)) { <li><span class="workhub-list__marker"></span><div><strong>@task.Title</strong><small>@(task.DueDate is null ? "暂无截止日期" : $"截止 {task.DueDate:MM月dd日}")</small></div></li>}</ul> }</article>
+        <article class="workhub-dashboard-card"><div class="workhub-dashboard-card__header"><div><p class="eyebrow">组织信息</p><h2>最新公告</h2></div><a href="Oa/Announcement">全部公告</a></div>@if (!PublishedAnnouncements.Any()) { <p class="workhub-empty-line">暂时没有已发布公告。</p> } else { <ul class="workhub-list workhub-list--news">@foreach (var announcement in PublishedAnnouncements.Take(3)) { <li><div><strong>@announcement.Title</strong><small>@announcement.PublishedTime?.ToString("MM月dd日 HH:mm")</small></div></li>}</ul> }</article>
+        <article class="workhub-dashboard-card"><div class="workhub-dashboard-card__header"><div><p class="eyebrow">时间安排</p><h2>即将到来的日程</h2></div><a href="Oa/Schedule">全部日程</a></div>@if (!UpcomingSchedules.Any()) { <p class="workhub-empty-line">暂时没有即将到来的日程。</p> } else { <ul class="workhub-list workhub-list--schedule">@foreach (var schedule in UpcomingSchedules.Take(3)) { <li><time><strong>@schedule.StartTime.ToString("dd")</strong><small>@schedule.StartTime.ToString("MMM", new System.Globalization.CultureInfo("zh-CN"))</small></time><div><strong>@schedule.Title</strong><small>@schedule.StartTime.ToString("HH:mm") · @(schedule.Location ?? "未设置地点")</small></div></li>}</ul> }</article>
+    </section>
+    <section class="workhub-dashboard-grid workhub-dashboard-grid--todos" aria-label="跨模块待办">
+        <article class="workhub-dashboard-card"><div class="workhub-dashboard-card__header"><div><p class="eyebrow">跨模块待办</p><h2>任务、审批、客户跟进、合同、ERP、PMP 节点与 LMS 风险</h2></div><span>@VisibleUnifiedTodos.Count 项</span></div><div class="task-filters" role="tablist" aria-label="跨模块待办模块筛选">@foreach (var filter in TodoModuleFilters) { <button class="task-filter @(SelectedTodoModule == filter.Module ? "is-active" : "")" role="tab" aria-selected="@(SelectedTodoModule == filter.Module)" @onclick="() => SelectedTodoModule = filter.Module">@filter.Label <span>@CountTodo(filter.Module)</span></button> }</div><div class="task-filters workhub-todo-priority-filters" role="tablist" aria-label="跨模块待办优先级筛选">@foreach (var filter in TodoPriorityFilters) { <button class="task-filter @(SelectedTodoPriority == filter.Priority ? "is-active" : "")" role="tab" aria-selected="@(SelectedTodoPriority == filter.Priority)" @onclick="() => SelectedTodoPriority = filter.Priority">@filter.Label <span>@CountTodo(filter.Priority)</span></button> }</div>@if (!VisibleUnifiedTodos.Any()) { <p class="workhub-empty-line">当前没有需要跟进的跨模块事项。</p> } else { <ul class="workhub-list">@foreach (var item in VisibleUnifiedTodos.Take(5)) { <li><span class="workhub-list__marker"></span><div><strong><a href="@item.Href">@item.Title</a></strong><small>@item.Detail · @PriorityLabel(item.Priority) · @(item.IsOverdue(Today) ? $"已逾期 {item.DueDate:MM月dd日}" : $"截止 {item.DueDate:MM月dd日}")</small></div></li>}</ul> }</article>
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<WorkTask> OpenTasks { get; set; } = [];
+    private IReadOnlyList<Announcement> PublishedAnnouncements { get; set; } = [];
+    private IReadOnlyList<WorkSchedule> UpcomingSchedules { get; set; } = [];
+    private IReadOnlyList<UnifiedTodoItem> UnifiedTodos { get; set; } = [];
+    private UnifiedTodoModule? SelectedTodoModule { get; set; }
+    private UnifiedTodoPriority? SelectedTodoPriority { get; set; }
+    private static readonly (UnifiedTodoModule? Module, string Label)[] TodoModuleFilters = [(null, "全部"), (UnifiedTodoModule.Oa, "OA"), (UnifiedTodoModule.Crm, "CRM"), (UnifiedTodoModule.Erp, "ERP"), (UnifiedTodoModule.Pmp, "PMP"), (UnifiedTodoModule.Lms, "LMS")];
+    private static readonly (UnifiedTodoPriority? Priority, string Label)[] TodoPriorityFilters = [(null, "全部优先级"), (UnifiedTodoPriority.Critical, "紧急"), (UnifiedTodoPriority.High, "高"), (UnifiedTodoPriority.Normal, "普通")];
+    private VelrixWorkHub.Application.Lms.LmsLicenseOperationsSnapshot LmsSnapshot { get; set; } = new(0, 0, 0, 0, 0, 0, 0, 0, 0);
+    private IReadOnlyList<(string Label, int Count, string Href)> LmsStatusCards =>
+    [
+        ("申请总数", LmsSnapshot.RequestCount, "Lms/License"),
+        ("待审批申请", LmsSnapshot.PendingApprovalCount, "Lms/License?requestStatus=Submitted"),
+        ("已批准申请", LmsSnapshot.ApprovedRequestCount, "Lms/License?requestStatus=Approved"),
+        ("已取消申请", LmsSnapshot.CancelledRequestCount, "Lms/License?requestStatus=Cancelled"),
+        ("有效授权", LmsSnapshot.ActiveAuthorizationCount, "Lms/License?authorizationStatus=Active"),
+        ("即将到期", LmsSnapshot.ExpiringAuthorizationCount, "Lms/License?authorizationStatus=Expiring"),
+        ("已到期", LmsSnapshot.ExpiredAuthorizationCount, "Lms/License?authorizationStatus=Expired"),
+        ("已停用", LmsSnapshot.DisabledAuthorizationCount, "Lms/License?authorizationStatus=Disabled"),
+        ("已作废", LmsSnapshot.RevokedAuthorizationCount, "Lms/License?authorizationStatus=Revoked")
+    ];
+    private decimal PendingReceivableAmount { get; set; }
+    private decimal PendingPayableAmount { get; set; }
+    private string? LoadError { get; set; }
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+    protected override void OnInitialized()
+    {
+        try
+        {
+            OpenTasks = TaskService.List(WorkTaskFilter.Open);
+            PublishedAnnouncements = AnnouncementService.List(AnnouncementFilter.Published);
+            UpcomingSchedules = ScheduleService.List(ScheduleFilter.Upcoming);
+            var payableBalances = SettlementService.OrderBalances(ErpSettlementKind.Payable);
+            var receivableBalances = SettlementService.OrderBalances(ErpSettlementKind.Receivable);
+            PendingPayableAmount = payableBalances.Sum(x => x.RemainingAmount);
+            PendingReceivableAmount = receivableBalances.Sum(x => x.RemainingAmount);
+            LmsSnapshot = LmsSnapshotService.Get();
+            IReadOnlyList<WorkflowTask> workflowTasks = string.IsNullOrWhiteSpace(Admin.User?.Username)
+                ? []
+                : WorkflowTaskService.List(assignee: Admin.User.Username, status: WorkflowTaskStatus.Pending);
+            var inventoryByProduct = InventoryService.Balances().GroupBy(x => x.ProductId).ToDictionary(x => x.Key, x => x.Sum(y => y.Quantity));
+            var inventoryRisks = ProductService.List(status: ProductStatus.Active)
+                .Where(x => x.SafetyStock is > 0)
+                .Select(x => new InventoryRiskTodo(x.Id, x.Name, x.SafetyStock!.Value, inventoryByProduct.GetValueOrDefault(x.Id)))
+                .ToArray();
+            UnifiedTodos = UnifiedTodoService.Build(Today, TaskService.List(), FollowUpService.List(), ContractService.List(), IssueService.List(), settlementBalances: payableBalances.Concat(receivableBalances), workflowTasks: workflowTasks, phases: PhaseService.List(), inventoryRisks: inventoryRisks);
+        }
+        catch (Exception exception)
+        {
+            LoadError = "部分工作台摘要暂时不可用，请稍后重试。";
+            Logger.LogError(exception, "首页工作台摘要加载失败");
+        }
+    }
+
+    private IReadOnlyList<UnifiedTodoItem> VisibleUnifiedTodos => UnifiedTodoService.Filter(UnifiedTodos, SelectedTodoModule, SelectedTodoPriority);
+    private int CountTodo(UnifiedTodoModule? module) => UnifiedTodoService.Filter(UnifiedTodos, module, SelectedTodoPriority).Count;
+    private int CountTodo(UnifiedTodoPriority? priority) => UnifiedTodoService.Filter(UnifiedTodos, SelectedTodoModule, priority).Count;
+    private static string PriorityLabel(UnifiedTodoPriority priority) => priority switch { UnifiedTodoPriority.Critical => "紧急", UnifiedTodoPriority.High => "高优先级", _ => "普通" };
+    private static string LmsActionLabel(VelrixWorkHub.Domain.LmsLicenseLifecycleAction action) => action switch { VelrixWorkHub.Domain.LmsLicenseLifecycleAction.Disabled => "停用", VelrixWorkHub.Domain.LmsLicenseLifecycleAction.Enabled => "开启", VelrixWorkHub.Domain.LmsLicenseLifecycleAction.Revoked => "作废", _ => action.ToString() };
+}

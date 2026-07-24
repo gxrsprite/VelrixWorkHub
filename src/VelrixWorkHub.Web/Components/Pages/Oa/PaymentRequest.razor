@@ -1,0 +1,168 @@
+@page "/Oa/PaymentRequest"
+@using VelrixWorkHub.Application.PaymentRequests
+@using VelrixWorkHub.Application.PmpProjects
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Domain
+@inject PaymentRequestService PaymentRequestService
+@inject PaymentExecutionService PaymentExecutionService
+@inject PmpProjectService ProjectService
+@inject WorkflowApprovalService WorkflowApprovalService
+@inject AdminBlazor.IAdminContext Admin
+
+<PageTitle>付款申请 - Velrix Work Hub</PageTitle>
+
+<div class="task-page payment-request-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/PaymentRequest</p><h1>付款申请</h1><p class="task-page__intro">记录供应商、员工或其他收款方的付款意图；批准后需财务复核，登记实际付款时供应商采购订单会同步生成 ERP 应付核销。</p></div><div class="task-page__summary"><strong>@Requests.Count</strong><span>份我的付款申请</span></div></div>
+    <section class="task-toolbar" aria-label="付款申请操作"><span class="customer-note">当前申请人：@(Admin.User?.Username ?? "未登录")</span>@if (Admin.AuthButton("Oa/PaymentRequest/Create")) { <button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus" aria-hidden="true"></i> 新建付款申请</button> }</section>
+
+    @if (Admin.AuthButton("Oa/PaymentRequest/FinanceReview") && FinanceReviews.Any())
+    {
+        <section class="task-list" aria-label="待财务复核付款申请">
+            <div class="task-composer__title">待财务复核 · @FinanceReviews.Count 份</div>
+            @foreach (var item in FinanceReviews)
+            {
+                <article class="task-card customer-card">
+                    <div class="customer-avatar"><i class="fa fa-balance-scale"></i></div>
+                    <div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--pending">待财务复核</span><span>@item.DocumentNo</span><span>@item.RequestedPaymentDate.ToString("yyyy-MM-dd")</span></div><h2>@item.PayeeName · @item.Currency @item.Amount.ToString("N2")</h2><p>@item.ApplicantName · @item.DepartmentName · @item.LegalEntity</p><div class="customer-note">@item.Purpose · 前置依据：@(item.PrecedingDocumentNo ?? "未填写")</div><label>复核说明<input value="@FinanceReviewReasons.GetValueOrDefault(item.Id)" @oninput="args => FinanceReviewReasons[item.Id] = args.Value?.ToString() ?? string.Empty" maxlength="1000" placeholder="不通过时必填" /></label></div>
+                    <div class="task-card__actions"><button class="task-primary-button" @onclick="() => ReviewFinance(item, true)">复核通过</button><button class="danger" @onclick="() => ReviewFinance(item, false)">复核不通过</button></div>
+                </article>
+            }
+        </section>
+    }
+
+    @if (Admin.AuthButton("Oa/PaymentRequest/RegisterPayment") && PaymentExecutions.Any())
+    {
+        <section class="task-list" aria-label="待登记实际付款">
+            <div class="task-composer__title">待登记实际付款 · @PaymentExecutions.Count 份</div>
+            @foreach (var item in PaymentExecutions)
+            {
+                var draft = GetExecutionDraft(item);
+                <article class="task-card customer-card">
+                    <div class="customer-avatar"><i class="fa fa-credit-card"></i></div>
+                    <div class="task-card__body">
+                        <div class="task-card__meta"><span class="task-status customer-status--approved">待登记付款</span><span>@item.DocumentNo</span><span>@item.Currency @item.Amount.ToString("N2")</span></div>
+                        <h2>@item.PayeeName · @item.PaymentType</h2>
+                        <p>@item.ApplicantName · 期望 @item.RequestedPaymentDate.ToString("yyyy-MM-dd") · 前置依据：@(item.PrecedingDocumentNo ?? "未填写")</p>
+                        <div class="customer-note">@(item.PaymentType == OaPaymentRequestType.SupplierPayment ? "供应商付款将校验采购订单并生成 ERP 应付核销。" : "本次付款只登记外部付款流水，不伪造 ERP 订单或银行回执。")</div>
+                        <div class="task-composer__fields"><label>实际付款流水号<input value="@draft.ExecutionNo" @oninput="args => draft.ExecutionNo = args.Value?.ToString() ?? string.Empty" maxlength="100" /></label><label>外部付款参考号<input value="@draft.ExternalReference" @oninput="args => draft.ExternalReference = args.Value?.ToString() ?? string.Empty" maxlength="200" /></label></div>
+                        <div class="task-composer__fields"><label>实际付款日期<input type="date" @bind="draft.PaidOn" /></label><label>付款渠道<select @bind="draft.Channel"><option value="BankTransfer">银行转账</option><option value="Cash">现金</option><option value="Other">其他</option></select></label></div>
+                        <label>登记备注<textarea @bind="draft.Notes" @bind:event="oninput" rows="2" maxlength="2000"></textarea></label>
+                    </div>
+                    <div class="task-card__actions"><button class="task-primary-button" @onclick="() => RegisterPayment(item, draft)">登记实际付款</button></div>
+                </article>
+            }
+        </section>
+    }
+
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="付款申请编辑器">
+            <div class="task-composer__title">@(Editing is null ? "填写付款申请" : $"编辑付款申请 · {Editing.DocumentNo}")</div>
+            <div class="task-composer__fields"><label>付款申请单号<input @bind="DraftDocumentNo" @bind:event="oninput" maxlength="100" placeholder="例如：FK-202607-001" /></label><label>收款方<input @bind="DraftPayeeName" @bind:event="oninput" maxlength="200" placeholder="供应商、员工或其他收款方" /></label></div>
+            <div class="task-composer__fields"><label>账户引用/末四位<input @bind="DraftPayeeAccountReference" @bind:event="oninput" maxlength="100" placeholder="不要填写完整银行卡号" /></label><label>收款银行<input @bind="DraftPaymentBankName" @bind:event="oninput" maxlength="200" placeholder="例如：中国工商银行" /></label></div>
+            <div class="task-composer__fields"><label>申请部门<input @bind="DraftDepartment" @bind:event="oninput" maxlength="100" /></label><label>主体公司<input @bind="DraftLegalEntity" @bind:event="oninput" maxlength="200" /></label></div>
+            <div class="task-composer__fields"><label>付款类型<select @bind="DraftPaymentType"><option value="SupplierPayment">供应商付款</option><option value="EmployeePayment">员工付款</option><option value="AdvanceSettlement">借款/预付款结算</option><option value="Other">其他付款</option></select></label><label>币种<input @bind="DraftCurrency" @bind:event="oninput" maxlength="10" placeholder="CNY" /></label></div>
+            <div class="task-composer__fields"><label>付款金额<input type="number" step="0.01" min="0.01" @bind="DraftAmount" /></label><label>申请日期<input type="date" @bind="DraftRequestDate" /></label></div>
+            <div class="task-composer__fields"><label>期望付款日期<input type="date" @bind="DraftRequestedPaymentDate" /></label><label>前置单据号/业务依据<input @bind="DraftPrecedingDocumentNo" @bind:event="oninput" maxlength="100" placeholder="例如：BX-202607-001、采购合同号" /></label></div>
+            <div class="task-composer__fields"><label>预算编号（可选）<input @bind="DraftBudgetReference" @bind:event="oninput" maxlength="100" placeholder="提交时占用预算额度" /></label><label>归属项目<select @bind="DraftProjectId"><option value="">不关联项目</option>@foreach (var project in ProjectService.List()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label></div>
+            <div class="task-composer__fields"><label>扩展信息 OtherInfo JSON<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="1"></textarea></label><span></span></div>
+            <label>付款事由<textarea @bind="DraftPurpose" @bind:event="oninput" rows="3" maxlength="2000" placeholder="说明付款背景、必要性和审批依据"></textarea></label>
+            @if (Editing is null || (Editing.Status is OaPaymentRequestStatus.Draft or OaPaymentRequestStatus.Rejected)) { <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseComposer">取消</button><button class="task-primary-button" @onclick="SaveMain">保存付款申请</button></div> }
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-list" aria-live="polite">
+        @if (!Requests.Any()) { <div class="task-empty"><i class="fa fa-money" aria-hidden="true"></i><strong>还没有付款申请</strong><span>填写前置单据和付款依据后提交审批。</span></div> }
+        else
+        {
+            @foreach (var item in Requests)
+            {
+                var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.PaymentRequestApproval, nameof(OaPaymentRequest), item.Id);
+                var histories = PaymentRequestService.ListHistory(item.Id);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-money"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@StatusLabel(item.Status)</span><span>@item.DocumentNo</span><span>@item.RequestDate.ToString("yyyy-MM-dd")</span></div><h2>@item.PayeeName · @item.Currency @item.Amount.ToString("N2")</h2><p>@item.DepartmentName · @item.LegalEntity · 期望 @item.RequestedPaymentDate.ToString("yyyy-MM-dd")</p><div class="customer-note">@item.Purpose · 前置依据：@(item.PrecedingDocumentNo ?? "未填写") · 预算：@(item.BudgetReference ?? "未引用") · 审批：@WorkflowLabel(workflow?.Status)@if (!string.IsNullOrWhiteSpace(item.RejectionReason)) { <span> · 驳回原因：@item.RejectionReason</span> }@if (item.Status is OaPaymentRequestStatus.Approved or OaPaymentRequestStatus.Paid) { <span> · 财务复核：@FinanceReviewLabel(item.FinanceReviewStatus) · 已批准，仅代表付款意图</span> }</div>@if (histories.Any()) { <div class="customer-note" aria-label="付款申请状态历史">状态历史：@foreach (var history in histories.Take(5)) { <span>[@history.OccurredAt.ToString("MM-dd HH:mm")] @StatusLabel(history.FromStatus)→@StatusLabel(history.ToStatus)（@history.ActorName） </span> }</div> }<AttachmentPanel BusinessType="@nameof(OaPaymentRequest)" BusinessId="@item.Id" Actor="@(Admin.User?.Username ?? "system")" /></div><div class="task-card__actions">@if ((item.Status is OaPaymentRequestStatus.Draft or OaPaymentRequestStatus.Rejected) && Admin.AuthButton("Oa/PaymentRequest/Edit")) { <button title="编辑付款申请" @onclick="() => OpenEdit(item)"><i class="fa fa-pencil"></i></button> } @if ((item.Status is OaPaymentRequestStatus.Draft or OaPaymentRequestStatus.Rejected) && Admin.AuthButton("Oa/PaymentRequest/Submit")) { <button title="提交付款申请审批" @onclick="() => Submit(item)"><i class="fa fa-send-o"></i></button> } @if ((item.Status is OaPaymentRequestStatus.Draft or OaPaymentRequestStatus.Submitted) && Admin.AuthButton("Oa/PaymentRequest/Cancel")) { <button class="danger" title="撤回付款申请" @onclick="() => Cancel(item)"><i class="fa fa-undo"></i></button> }</div></article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowComposer;
+    private OaPaymentRequest? Editing;
+    private string DraftDocumentNo = string.Empty, DraftDepartment = string.Empty, DraftLegalEntity = string.Empty, DraftPayeeName = string.Empty, DraftPayeeAccountReference = string.Empty, DraftPaymentBankName = string.Empty, DraftCurrency = "CNY", DraftPrecedingDocumentNo = string.Empty, DraftBudgetReference = string.Empty, DraftPurpose = string.Empty, DraftOtherInfo = "{}";
+    private OaPaymentRequestType DraftPaymentType = OaPaymentRequestType.SupplierPayment;
+    private DateTime DraftRequestDate = DateTime.Today, DraftRequestedPaymentDate = DateTime.Today;
+    private decimal DraftAmount;
+    private string DraftProjectId = string.Empty;
+    private string? Error;
+    private readonly Dictionary<Guid, string> FinanceReviewReasons = [];
+    private readonly Dictionary<Guid, PaymentExecutionDraft> ExecutionDrafts = [];
+    private Guid CurrentUserId => Admin.User?.Id ?? Guid.Empty;
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private IReadOnlyList<OaPaymentRequest> Requests => PaymentRequestService.ListMine(CurrentUserId);
+    private IReadOnlyList<OaPaymentRequest> FinanceReviews => PaymentRequestService.ListPendingFinanceReview();
+    private IReadOnlyList<OaPaymentRequest> PaymentExecutions => PaymentExecutionService.ListPending(PaymentRequestService.List(), Admin.AuthButton("Oa/PaymentRequest/RegisterPayment"));
+
+    private void OpenCreate() { CloseComposer(); ShowComposer = true; DraftDocumentNo = $"FK-{DateTime.Today:yyyyMM}-{DateTime.Now:HHmmss}"; DraftRequestDate = DateTime.Today; DraftRequestedPaymentDate = DateTime.Today; DraftCurrency = "CNY"; }
+    private void OpenEdit(OaPaymentRequest item) { CloseComposer(); Editing = item; ShowComposer = true; DraftDocumentNo = item.DocumentNo; DraftDepartment = item.DepartmentName; DraftLegalEntity = item.LegalEntity; DraftPayeeName = item.PayeeName; DraftPayeeAccountReference = item.PayeeAccountReference; DraftPaymentBankName = item.PaymentBankName; DraftCurrency = item.Currency; DraftAmount = item.Amount; DraftPaymentType = item.PaymentType; DraftRequestDate = item.RequestDate.ToDateTime(TimeOnly.MinValue); DraftRequestedPaymentDate = item.RequestedPaymentDate.ToDateTime(TimeOnly.MinValue); DraftPrecedingDocumentNo = item.PrecedingDocumentNo ?? string.Empty; DraftBudgetReference = item.BudgetReference ?? string.Empty; DraftProjectId = item.ProjectId?.ToString() ?? string.Empty; DraftPurpose = item.Purpose; DraftOtherInfo = item.OtherInfo; }
+    private void CloseComposer() { ShowComposer = false; Editing = null; Error = null; DraftDepartment = DraftLegalEntity = DraftPayeeName = DraftPayeeAccountReference = DraftPaymentBankName = DraftPrecedingDocumentNo = DraftBudgetReference = DraftPurpose = string.Empty; DraftOtherInfo = "{}"; DraftAmount = 0; }
+    private void SaveMain()
+    {
+        try
+        {
+            var projectId = Guid.TryParse(DraftProjectId, out var parsedProjectId) ? parsedProjectId : (Guid?)null;
+            if (Editing is null) Editing = PaymentRequestService.Create(CurrentUserId, CurrentActor, DraftDepartment, DraftLegalEntity, DraftDocumentNo, DraftPayeeName, DraftPayeeAccountReference, DraftPaymentBankName, DraftCurrency, DraftAmount, DraftPaymentType, DateOnly.FromDateTime(DraftRequestDate), DateOnly.FromDateTime(DraftRequestedPaymentDate), DraftPrecedingDocumentNo, projectId, DraftPurpose, DraftOtherInfo, DraftBudgetReference);
+            else PaymentRequestService.Edit(Editing, CurrentUserId, CurrentActor, DraftDepartment, DraftLegalEntity, DraftDocumentNo, DraftPayeeName, DraftPayeeAccountReference, DraftPaymentBankName, DraftCurrency, DraftAmount, DraftPaymentType, DateOnly.FromDateTime(DraftRequestDate), DateOnly.FromDateTime(DraftRequestedPaymentDate), DraftPrecedingDocumentNo, projectId, DraftPurpose, DraftOtherInfo, DraftBudgetReference);
+            Error = null;
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void Submit(OaPaymentRequest item) { try { PaymentRequestService.SubmitAndStartWorkflow(item, CurrentUserId, CurrentActor); Error = null; CloseComposer(); } catch (Exception ex) { Error = ex.Message; } }
+    private void Cancel(OaPaymentRequest item) { try { PaymentRequestService.Cancel(item, CurrentUserId, CurrentActor); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void ReviewFinance(OaPaymentRequest item, bool approved)
+    {
+        try
+        {
+            PaymentRequestService.ReviewFinance(item, CurrentActor, approved, FinanceReviewReasons.GetValueOrDefault(item.Id), Admin.AuthButton("Oa/PaymentRequest/FinanceReview"));
+            FinanceReviewReasons.Remove(item.Id);
+            Error = null;
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private PaymentExecutionDraft GetExecutionDraft(OaPaymentRequest item)
+    {
+        if (ExecutionDrafts.TryGetValue(item.Id, out var draft)) return draft;
+        draft = new PaymentExecutionDraft
+        {
+            ExecutionNo = $"ZF-{item.DocumentNo}-{DateTime.Now:HHmmss}",
+            ExternalReference = $"EXT-{item.DocumentNo}",
+            PaidOn = DateTime.Today
+        };
+        ExecutionDrafts[item.Id] = draft;
+        return draft;
+    }
+    private void RegisterPayment(OaPaymentRequest item, PaymentExecutionDraft draft)
+    {
+        try
+        {
+            PaymentExecutionService.Register(item, draft.ExecutionNo, DateOnly.FromDateTime(draft.PaidOn), draft.Channel, draft.ExternalReference, draft.Notes, CurrentActor, Admin.AuthButton("Oa/PaymentRequest/RegisterPayment"));
+            ExecutionDrafts.Remove(item.Id);
+            Error = null;
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private static string StatusLabel(OaPaymentRequestStatus status) => status switch { OaPaymentRequestStatus.Draft => "草稿", OaPaymentRequestStatus.Submitted => "审批中", OaPaymentRequestStatus.Rejected => "已驳回", OaPaymentRequestStatus.Approved => "已批准", OaPaymentRequestStatus.Paid => "已付款", _ => "已撤回" };
+    private static string FinanceReviewLabel(OaPaymentFinanceReviewStatus status) => status switch { OaPaymentFinanceReviewStatus.Approved => "已通过", OaPaymentFinanceReviewStatus.Rejected => "不通过", _ => "待复核" };
+    private static string WorkflowLabel(WorkflowInstanceStatus? status) => status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已拒绝", WorkflowInstanceStatus.Cancelled => "已撤回", _ => "未发起" };
+
+    private sealed class PaymentExecutionDraft
+    {
+        public string ExecutionNo { get; set; } = string.Empty;
+        public DateTime PaidOn { get; set; } = DateTime.Today;
+        public OaPaymentExecutionChannel Channel { get; set; } = OaPaymentExecutionChannel.BankTransfer;
+        public string ExternalReference { get; set; } = string.Empty;
+        public string Notes { get; set; } = string.Empty;
+    }
+}

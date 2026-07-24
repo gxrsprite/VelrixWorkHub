@@ -1,0 +1,115 @@
+@page "/Admin/Overview"
+@using Microsoft.Extensions.Logging
+@using VelrixWorkHub.Application.Notifications
+@using VelrixWorkHub.Application.Platform
+@inject IAdminContext Admin
+@inject NavigationManager Navigation
+@inject ILogger<Overview> Logger
+@inject NotificationFailureRetryService NotificationFailureRetryService
+@inject IAdminPermissionAuditService PermissionAuditService
+
+<PageTitle>系统运维工作台 - Velrix Work Hub</PageTitle>
+
+<div class="task-page">
+    <div class="task-page__header">
+        <div>
+            <p class="eyebrow">平台能力 · Admin/Overview</p>
+            <h1>系统运维工作台</h1>
+            <p class="task-page__intro">聚焦需要处置的通知投递风险和近期权限变更，所有明细继续通过专用页面查看。</p>
+        </div>
+        <div class="task-page__summary"><strong>@AttentionCount</strong><span>项需要关注</span></div>
+    </div>
+
+    @if (LoadError is not null)
+    {
+        <div class="alert alert-warning mt-3" role="alert">@LoadError</div>
+    }
+
+    @if (!CanViewNotificationFailures && !CanViewPermissionAudits)
+    {
+        <div class="alert alert-info mt-3" role="status">当前账号没有可在系统运维工作台查看的运维数据。</div>
+    }
+
+    <section class="module-overview-grid" aria-label="系统运维摘要">
+        @if (CanViewNotificationFailures)
+        {
+            <a class="module-overview-stat" href="Admin/NotificationFailures"><span>待处理通知失败</span><strong>@NotificationSummary.PendingCount</strong><small>进入失败处置</small></a>
+            <a class="module-overview-stat" href="Admin/NotificationFailures"><span>高重试风险</span><strong>@NotificationSummary.HighRetryCount</strong><small>最高重试 @NotificationSummary.MaxRetryCount 次</small></a>
+        }
+        @if (CanViewPermissionAudits)
+        {
+            <a class="module-overview-stat" href="Admin/PermissionAudit"><span>24 小时权限变更</span><strong>@RecentPermissionChanges.Count</strong><small>查看只读审计</small></a>
+            <a class="module-overview-stat" href="Admin/PermissionAudit"><span>最近权限变更</span><strong>@LatestPermissionChangeLabel</strong><small>进入变更审计</small></a>
+        }
+    </section>
+
+    <section class="module-overview-grid module-overview-grid--details" aria-label="系统运维工作区">
+        @if (CanViewNotificationFailures)
+        {
+            <article class="module-overview-panel">
+                <div class="module-overview-panel__header"><div><p class="eyebrow">投递可靠性</p><h2>通知失败处置</h2></div><a href="Admin/NotificationFailures">查看处置</a></div>
+                @if (NotificationSummary.PendingCount == 0) { <p class="workhub-empty-line">当前没有待处理的通知失败记录。</p> }
+                else { <ul class="workhub-list"><li><span class="workhub-list__marker"></span><div><strong>待处理 @NotificationSummary.PendingCount 条</strong><small>其中 @NotificationSummary.HighRetryCount 条已达到高重试关注阈值</small></div></li><li><span class="workhub-list__marker"></span><div><strong>最高重试 @NotificationSummary.MaxRetryCount 次</strong><small>失败详情和人工重试仅在专用处置页提供</small></div></li></ul> }
+            </article>
+        }
+        @if (CanViewPermissionAudits)
+        {
+            <article class="module-overview-panel">
+                <div class="module-overview-panel__header"><div><p class="eyebrow">权限治理</p><h2>近期权限变更</h2></div><a href="Admin/PermissionAudit">查看审计</a></div>
+                @if (!RecentPermissionAudits.Any()) { <p class="workhub-empty-line">最近 24 小时没有权限变更记录。</p> }
+                else { <ul class="workhub-list">@foreach (var item in RecentPermissionAudits.Take(5)) { <li><span class="workhub-list__marker"></span><div><strong>@SubjectTypeLabel(item.SubjectType)</strong><small>@ActorLabel(item) · @item.CreatedTime?.ToString("MM月dd日 HH:mm") · @item.Action</small></div></li> }</ul> }
+            </article>
+        }
+    </section>
+</div>
+
+@code {
+    private NotificationFailureRetrySummary NotificationSummary { get; set; } = new(0, 0, 0);
+    private IReadOnlyList<AdminPermissionAuditEntry> RecentPermissionAudits { get; set; } = [];
+    private string? LoadError { get; set; }
+    private bool CanViewNotificationFailures => Admin.User is not null && Admin.AuthPath("Admin/NotificationFailures");
+    private bool CanViewPermissionAudits => Admin.User is not null && Admin.AuthPath("Admin/PermissionAudit");
+    private int AttentionCount => NotificationSummary.HighRetryCount + RecentPermissionChanges.Count;
+    private IReadOnlyList<AdminPermissionAuditEntry> RecentPermissionChanges => RecentPermissionAudits.Where(x => x.CreatedTime >= DateTime.Now.AddHours(-24)).ToArray();
+    private string LatestPermissionChangeLabel => RecentPermissionAudits.FirstOrDefault()?.CreatedTime?.ToString("MM月dd日") ?? "暂无";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (Admin.User is null || !Admin.AuthPath("Admin/Overview"))
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+
+        if (CanViewNotificationFailures)
+        {
+            try { NotificationSummary = NotificationFailureRetryService.InspectPending(); }
+            catch (Exception exception)
+            {
+                LoadError = "部分系统运维摘要暂时不可用，请稍后重试。";
+                Logger.LogError(exception, "系统运维工作台通知失败摘要加载失败");
+            }
+        }
+
+        if (CanViewPermissionAudits)
+        {
+            try { RecentPermissionAudits = await PermissionAuditService.ListAsync(take: 500); }
+            catch (Exception exception)
+            {
+                LoadError = "部分系统运维摘要暂时不可用，请稍后重试。";
+                Logger.LogError(exception, "系统运维工作台权限审计摘要加载失败");
+            }
+        }
+    }
+
+    private static string SubjectTypeLabel(string subjectType) => subjectType switch
+    {
+        "RolePermission" => "角色菜单授权",
+        "UserRole" => "用户角色分配",
+        _ => subjectType
+    };
+
+    private static string ActorLabel(AdminPermissionAuditEntry item)
+        => string.IsNullOrWhiteSpace(item.ActorUserName) ? item.ActorUserId?.ToString() ?? "系统" : item.ActorUserName;
+}

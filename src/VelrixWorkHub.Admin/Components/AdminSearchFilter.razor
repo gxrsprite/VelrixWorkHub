@@ -1,0 +1,118 @@
+@namespace BootstrapBlazor.Components
+
+@if (Filters is { Length: > 0 })
+{
+    <div class="@CssClass">
+        <div class="row g-2">
+            @foreach (var filter in Filters)
+            {
+                <div class="@GetColumnClass(filter)">
+                    @if (filter.Type == AdminFilterType.Text)
+                    {
+                        <input type="text"
+                               class="@ControlClass"
+                               value="@filter.Value()"
+                               placeholder="@filter.Label"
+                               disabled="@Disabled"
+                               @onchange="e => ChangeFilterAsync(filter, e.Value)" />
+                    }
+                    else if (filter.Type == AdminFilterType.DateRange)
+                    {
+                        var range = SplitRange(filter.Value());
+                        <div class="input-group input-group-sm">
+                            <input type="date"
+                                   class="form-control"
+                                   value="@range.Start"
+                                   disabled="@Disabled"
+                                   @onchange="e => ChangeDateRangeAsync(filter, e.Value?.ToString(), range.End)" />
+                            <span class="input-group-text">-</span>
+                            <input type="date"
+                                   class="form-control"
+                                   value="@range.End"
+                                   disabled="@Disabled"
+                                   @onchange="e => ChangeDateRangeAsync(filter, range.Start, e.Value?.ToString())" />
+                        </div>
+                    }
+                    else
+                    {
+                        <select class="@ControlClass"
+                                multiple="@(filter.Type == AdminFilterType.TagsMultiple)"
+                                disabled="@Disabled"
+                                @onchange="e => ChangeFilterAsync(filter, e.Value)">
+                            @if (filter.Type != AdminFilterType.TagsMultiple)
+                            {
+                                <option value="">@filter.Label</option>
+                            }
+                            @if (filter.Options != null)
+                            {
+                                @foreach (var option in filter.Options)
+                                {
+                                    <option value="@option.Value?.ToString()" selected="@option.Selected">@GetOptionLabel(option)</option>
+                                }
+                            }
+                        </select>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public AdminFilterInfo[]? Filters { get; set; }
+    [Parameter] public EventCallback<AdminFilterInfo> OnFilterChanged { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string CssClass { get; set; } = "admin-search-filter";
+    [Parameter] public string ControlClass { get; set; } = "form-select form-select-sm";
+
+    private static string GetColumnClass(AdminFilterInfo filter)
+    {
+        var col = Math.Clamp(filter.Col <= 0 ? 12 : filter.Col, 1, 12);
+        return $"col-12 col-md-{col}";
+    }
+
+    private static string GetOptionLabel(AdminOptions option)
+    {
+        return !string.IsNullOrWhiteSpace(option.Label) ? option.Label : option.Text;
+    }
+
+    private async Task ChangeFilterAsync(AdminFilterInfo filter, object? value)
+    {
+        filter.SetValue(ConvertValue(value));
+        await OnFilterChanged.InvokeAsync(filter);
+        await OnChanged.InvokeAsync();
+    }
+
+    private async Task ChangeDateRangeAsync(AdminFilterInfo filter, string? start, string? end)
+    {
+        var value = string.IsNullOrWhiteSpace(start) && string.IsNullOrWhiteSpace(end)
+            ? null
+            : $"{start},{end}";
+
+        filter.SetValue(value);
+        await OnFilterChanged.InvokeAsync(filter);
+        await OnChanged.InvokeAsync();
+    }
+
+    private static string? ConvertValue(object? value)
+    {
+        return value switch
+        {
+            null => null,
+            string text => text,
+            string[] values => string.Join(',', values.Where(x => !string.IsNullOrWhiteSpace(x))),
+            IEnumerable<string> values => string.Join(',', values.Where(x => !string.IsNullOrWhiteSpace(x))),
+            _ => value.ToString()
+        };
+    }
+
+    private static (string? Start, string? End) SplitRange(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return (null, null);
+
+        var parts = value.Split(',', 2, StringSplitOptions.TrimEntries);
+        return (parts.ElementAtOrDefault(0), parts.ElementAtOrDefault(1));
+    }
+}

@@ -1,0 +1,169 @@
+@page "/Oa/Recruitment"
+@inject VelrixWorkHub.Application.Recruitment.RecruitmentService RecruitmentService
+@inject AdminBlazor.IAdminContext Admin
+@using VelrixWorkHub.Domain
+
+<PageTitle>招聘与面试 - Velrix Work Hub</PageTitle>
+
+<div class="task-page recruitment-page">
+    <div class="task-page__header">
+        <div>
+            <p class="eyebrow">协同办公 · OA/Recruitment</p>
+            <h1>招聘与面试</h1>
+            <p class="task-page__intro">从候选人建档到面试结论，保留招聘过程和录用依据。</p>
+        </div>
+        <div class="task-page__summary" aria-label="招聘中候选人统计"><strong>@RecruitmentService.ListCandidates(status: OaRecruitmentCandidateStatus.Active).Count</strong><span>名招聘中</span></div>
+    </div>
+
+    <section class="task-toolbar" aria-label="招聘筛选与操作">
+        <div class="customer-search"><i class="fa fa-search" aria-hidden="true"></i><input aria-label="搜索候选人" @bind="Keyword" @bind:event="oninput" placeholder="搜索姓名、岗位、电话或来源" /></div>
+        <div class="task-filters" role="tablist" aria-label="候选人状态筛选">
+            @foreach (var filter in Filters)
+            {
+                <button class="task-filter @(SelectedStatus == filter.Status ? "is-active" : "")" role="tab" aria-selected="@(SelectedStatus == filter.Status)" @onclick="() => SelectedStatus = filter.Status">@filter.Label <span>@RecruitmentService.ListCandidates(status: filter.Status).Count</span></button>
+            }
+        </div>
+        @if (Admin.AuthButton("Oa/Recruitment/Create"))
+        {
+            <button class="task-primary-button" @onclick="OpenCandidateComposer"><i class="fa fa-plus" aria-hidden="true"></i> 新建候选人</button>
+        }
+    </section>
+
+    @if (ShowCandidateComposer)
+    {
+        <section class="task-composer" aria-label="@(EditingCandidate is null ? "新建候选人" : "编辑候选人")">
+            <div class="task-composer__title">@(EditingCandidate is null ? "建立候选人档案" : $"编辑 {EditingCandidate.CandidateName}")</div>
+            <div class="task-composer__fields"><label>候选人姓名<input @bind="DraftCandidateName" @bind:event="oninput" maxlength="100" autofocus /></label><label>应聘岗位<input @bind="DraftPositionTitle" @bind:event="oninput" maxlength="100" /></label></div>
+            <div class="task-composer__fields"><label>联系电话<input @bind="DraftPhone" @bind:event="oninput" maxlength="50" /></label><label>电子邮箱<input @bind="DraftEmail" @bind:event="oninput" maxlength="200" /></label></div>
+            <div class="task-composer__fields"><label>来源<input @bind="DraftSource" @bind:event="oninput" maxlength="100" placeholder="例如：内推、招聘网站" /></label><label>扩展信息 OtherInfo<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="1"></textarea></label></div>
+            <label>简历摘要<textarea @bind="DraftResumeSummary" @bind:event="oninput" rows="3" placeholder="记录教育、技能和项目经验摘要"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(PageError)) { <div class="task-error" role="alert">@PageError</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseForms">取消</button><button class="task-primary-button" @onclick="SaveCandidate">保存候选人</button></div>
+        </section>
+    }
+
+    @if (InterviewCandidate is not null)
+    {
+        <section class="task-composer" aria-label="安排面试">
+            <div class="task-composer__title">为 @InterviewCandidate.CandidateName 安排面试</div>
+            <div class="task-composer__fields"><label>面试轮次<input type="number" min="1" @bind="DraftInterviewRound" /></label><label>面试时间<input type="datetime-local" @bind="DraftInterviewTime" /></label></div>
+            <div class="task-composer__fields"><label>面试官<input @bind="DraftInterviewer" @bind:event="oninput" maxlength="100" /></label><label>备注<input @bind="DraftInterviewNotes" @bind:event="oninput" maxlength="4000" /></label></div>
+            @if (!string.IsNullOrWhiteSpace(PageError)) { <div class="task-error" role="alert">@PageError</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseForms">取消</button><button class="task-primary-button" @onclick="ScheduleInterview">保存面试安排</button></div>
+        </section>
+    }
+
+    @if (EditingInterview is not null)
+    {
+        <section class="task-composer" aria-label="填写面试结论">
+            <div class="task-composer__title">填写第 @EditingInterview.Round 轮面试结论</div>
+            <div class="task-composer__fields"><label>结论<select @bind="DraftInterviewResult"><option value="Pass">通过</option><option value="Fail">不通过</option><option value="Reschedule">需要复试</option></select></label><label>面试官<input value="@EditingInterview.Interviewer" readonly /></label></div>
+            <label>面试评价<textarea @bind="DraftEvaluation" @bind:event="oninput" rows="3" placeholder="必须填写评价，作为录用依据"></textarea></label>
+            <label>补充备注<textarea @bind="DraftInterviewNotes" @bind:event="oninput" rows="2"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(PageError)) { <div class="task-error" role="alert">@PageError</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseForms">取消</button><button class="task-primary-button" @onclick="SaveInterviewResult">保存面试结论</button></div>
+        </section>
+    }
+
+    <section class="task-list" aria-live="polite">
+        @if (!VisibleCandidates.Any())
+        {
+            <div class="task-empty"><i class="fa fa-user-plus" aria-hidden="true"></i><strong>没有匹配的候选人</strong><span>调整筛选条件或新建一份候选人档案。</span></div>
+        }
+        else
+        {
+            @foreach (var candidate in VisibleCandidates)
+            {
+                var interviews = RecruitmentService.ListInterviews(candidate.Id);
+                <article class="task-card recruitment-card">
+                    <div class="customer-avatar">@candidate.CandidateName.FirstOrDefault()</div>
+                    <div class="task-card__body">
+                        <div class="task-card__meta"><span class="task-status customer-status--@candidate.Status.ToString().ToLowerInvariant()">@CandidateStatusLabel(candidate.Status)</span><span>@candidate.PositionTitle</span></div>
+                        <h2>@candidate.CandidateName</h2>
+                        <p>@(candidate.Phone ?? "未填写电话") · @(candidate.Email ?? "未填写邮箱") · 来源：@(candidate.Source ?? "未填写")</p>
+                        @if (!string.IsNullOrWhiteSpace(candidate.ResumeSummary)) { <div class="customer-note">@candidate.ResumeSummary</div> }
+                        <div class="customer-note">面试记录：@interviews.Count() 轮 · 通过 @interviews.Count(item => item.Result == OaInterviewResult.Pass) 轮</div>
+                        @foreach (var interview in interviews)
+                        {
+                            <div class="customer-note"><strong>第 @interview.Round 轮</strong> · @interview.ScheduledAt.ToString("yyyy-MM-dd HH:mm") · @interview.Interviewer · @InterviewResultLabel(interview.Result) @if (!string.IsNullOrWhiteSpace(interview.Evaluation)) { <span>· @interview.Evaluation</span> }</div>
+                            @if (interview.Result == OaInterviewResult.Pending && Admin.AuthButton("Oa/Recruitment/Interview")) { <button class="task-secondary-button" @onclick="() => OpenInterviewResult(interview)">填写结论</button> }
+                        }
+                    </div>
+                    <div class="task-card__actions">
+                        @if (candidate.Status == OaRecruitmentCandidateStatus.Active && Admin.AuthButton("Oa/Recruitment/Interview")) { <button title="安排面试" @onclick="() => OpenInterviewComposer(candidate)"><i class="fa fa-calendar-plus-o" aria-hidden="true"></i></button> }
+                        @if (candidate.Status == OaRecruitmentCandidateStatus.Active && Admin.AuthButton("Oa/Recruitment/Status")) { <button title="录用" @onclick="() => ChangeStatus(candidate, OaRecruitmentCandidateStatus.Hired)"><i class="fa fa-check" aria-hidden="true"></i></button><button title="淘汰" @onclick="() => ChangeStatus(candidate, OaRecruitmentCandidateStatus.Rejected)"><i class="fa fa-times" aria-hidden="true"></i></button> }
+                        @if (candidate.Status != OaRecruitmentCandidateStatus.Hired && Admin.AuthButton("Oa/Recruitment/Edit")) { <button title="编辑候选人" @onclick="() => OpenCandidateEditor(candidate)"><i class="fa fa-pencil" aria-hidden="true"></i></button> }
+                    </div>
+                </article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private readonly List<(string Label, OaRecruitmentCandidateStatus? Status)> Filters =
+    [("全部", null), ("招聘中", OaRecruitmentCandidateStatus.Active), ("已录用", OaRecruitmentCandidateStatus.Hired), ("已淘汰", OaRecruitmentCandidateStatus.Rejected), ("已撤回", OaRecruitmentCandidateStatus.Withdrawn)];
+    private string Keyword { get; set; } = string.Empty;
+    private OaRecruitmentCandidateStatus? SelectedStatus { get; set; }
+    private bool ShowCandidateComposer { get; set; }
+    private OaRecruitmentCandidate? EditingCandidate { get; set; }
+    private OaRecruitmentCandidate? InterviewCandidate { get; set; }
+    private OaRecruitmentInterview? EditingInterview { get; set; }
+    private string DraftCandidateName { get; set; } = string.Empty;
+    private string DraftPositionTitle { get; set; } = string.Empty;
+    private string DraftPhone { get; set; } = string.Empty;
+    private string DraftEmail { get; set; } = string.Empty;
+    private string DraftSource { get; set; } = string.Empty;
+    private string DraftResumeSummary { get; set; } = string.Empty;
+    private string DraftOtherInfo { get; set; } = "{}";
+    private int DraftInterviewRound { get; set; } = 1;
+    private DateTime DraftInterviewTime { get; set; } = DateTime.Now.AddDays(1);
+    private string DraftInterviewer { get; set; } = string.Empty;
+    private string DraftInterviewNotes { get; set; } = string.Empty;
+    private OaInterviewResult DraftInterviewResult { get; set; } = OaInterviewResult.Pass;
+    private string DraftEvaluation { get; set; } = string.Empty;
+    private string? PageError { get; set; }
+    private IEnumerable<OaRecruitmentCandidate> VisibleCandidates => RecruitmentService.ListCandidates(Keyword, SelectedStatus);
+
+    private void OpenCandidateComposer() { CloseForms(); ShowCandidateComposer = true; }
+    private void OpenCandidateEditor(OaRecruitmentCandidate candidate) { CloseForms(); EditingCandidate = candidate; ShowCandidateComposer = true; DraftCandidateName = candidate.CandidateName; DraftPositionTitle = candidate.PositionTitle; DraftPhone = candidate.Phone ?? string.Empty; DraftEmail = candidate.Email ?? string.Empty; DraftSource = candidate.Source ?? string.Empty; DraftResumeSummary = candidate.ResumeSummary ?? string.Empty; DraftOtherInfo = candidate.OtherInfo; }
+    private void OpenInterviewComposer(OaRecruitmentCandidate candidate) { CloseForms(); InterviewCandidate = candidate; DraftInterviewRound = RecruitmentService.ListInterviews(candidate.Id).Select(item => item.Round).DefaultIfEmpty(0).Max() + 1; DraftInterviewTime = DateTime.Now.AddDays(1); DraftInterviewer = Admin.User?.Username ?? string.Empty; DraftInterviewNotes = string.Empty; }
+    private void OpenInterviewResult(OaRecruitmentInterview interview) { CloseForms(); EditingInterview = interview; DraftInterviewResult = OaInterviewResult.Pass; DraftEvaluation = string.Empty; DraftInterviewNotes = interview.Notes ?? string.Empty; }
+    private void CloseForms() { ShowCandidateComposer = false; EditingCandidate = null; InterviewCandidate = null; EditingInterview = null; PageError = null; }
+
+    private void SaveCandidate()
+    {
+        try
+        {
+            if (EditingCandidate is null) RecruitmentService.CreateCandidate(DraftCandidateName, DraftPositionTitle, DraftPhone, DraftEmail, DraftSource, DraftResumeSummary, DraftOtherInfo);
+            else RecruitmentService.EditCandidate(EditingCandidate, DraftCandidateName, DraftPositionTitle, DraftPhone, DraftEmail, DraftSource, DraftResumeSummary, DraftOtherInfo);
+            CloseForms();
+        }
+        catch (Exception exception) { PageError = exception.Message; }
+    }
+
+    private void ScheduleInterview()
+    {
+        if (InterviewCandidate is null) return;
+        try { RecruitmentService.ScheduleInterview(InterviewCandidate, DraftInterviewRound, DraftInterviewTime, DraftInterviewer, DraftInterviewNotes); CloseForms(); }
+        catch (Exception exception) { PageError = exception.Message; }
+    }
+
+    private void SaveInterviewResult()
+    {
+        if (EditingInterview is null) return;
+        try { RecruitmentService.CompleteInterview(EditingInterview, DraftInterviewResult, DraftEvaluation, DraftInterviewNotes); CloseForms(); }
+        catch (Exception exception) { PageError = exception.Message; }
+    }
+
+    private void ChangeStatus(OaRecruitmentCandidate candidate, OaRecruitmentCandidateStatus status)
+    {
+        try { RecruitmentService.SetCandidateStatus(candidate, status); }
+        catch (Exception exception) { PageError = exception.Message; }
+    }
+
+    private static string CandidateStatusLabel(OaRecruitmentCandidateStatus status) => status switch { OaRecruitmentCandidateStatus.Active => "招聘中", OaRecruitmentCandidateStatus.Hired => "已录用", OaRecruitmentCandidateStatus.Rejected => "已淘汰", _ => "已撤回" };
+    private static string InterviewResultLabel(OaInterviewResult result) => result switch { OaInterviewResult.Pass => "通过", OaInterviewResult.Fail => "不通过", OaInterviewResult.Reschedule => "需复试", _ => "待评价" };
+}

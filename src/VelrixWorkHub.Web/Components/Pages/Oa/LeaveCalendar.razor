@@ -1,0 +1,32 @@
+@page "/Oa/LeaveCalendar"
+@using VelrixWorkHub.Application.Leave
+@using VelrixWorkHub.Domain
+@inject LeaveCalendarService LeaveCalendarService
+@inject AdminBlazor.IAdminContext Admin
+
+<PageTitle>请假日历 - Velrix Work Hub</PageTitle>
+
+<div class="task-page leave-calendar-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/LeaveCalendar</p><h1>请假日历</h1><p class="task-page__intro">仅展示当前用户已获批请假形成的个人日历记录；它不替代考勤、排班或通用日程。</p></div><div class="task-page__summary"><strong>@Entries.Count</strong><span>项获批请假</span></div></div>
+    <section class="task-list" aria-live="polite">
+        @if (!Entries.Any())
+        {
+            <div class="task-empty"><i class="fa fa-calendar-check-o" aria-hidden="true"></i><strong>还没有获批请假</strong><span>请假审批通过后会自动出现在这里。</span></div>
+        }
+        else
+        {
+            @foreach (var entry in Entries)
+            {
+                <article class="task-card leave-card"><div class="schedule-time"><strong>@entry.StartAt.ToString("MM月dd日")</strong><span>@DurationLabel(entry)</span></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--approved">已批准</span><span>@LeaveTypeLabel(entry.LeaveType)</span><span>@entry.StartAt.ToString("yyyy-MM-dd HH:mm") - @entry.EndAt.ToString("yyyy-MM-dd HH:mm")</span></div><h2>@entry.Reason</h2><p>请假申请已审批通过 · <a href="@($"/Oa/Leave#{entry.LeaveRequestId}")">查看原申请</a></p></div></article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private IReadOnlyList<OaLeaveCalendarEntry> Entries => LeaveCalendarService.ListMine(Admin.User?.Id ?? Guid.Empty);
+    private static string DurationLabel(OaLeaveCalendarEntry entry) => decimal.Round((decimal)(entry.EndAt - entry.StartAt).TotalHours, 2).ToString("0.##") + " 小时";
+    private static string LeaveTypeLabel(OaLeaveType type) => type switch { OaLeaveType.Annual => "年假", OaLeaveType.Sick => "病假", OaLeaveType.Personal => "事假", OaLeaveType.Compensatory => "调休", _ => "其他" };
+}

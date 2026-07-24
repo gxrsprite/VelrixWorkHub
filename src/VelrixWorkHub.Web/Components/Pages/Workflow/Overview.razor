@@ -1,0 +1,131 @@
+@page "/Workflow/Overview"
+@inject IAdminContext Admin
+@inject NavigationManager Navigation
+@inject ILogger<Overview> Logger
+@inject VelrixWorkHub.Application.Workflow.WorkflowTaskService TaskService
+@inject VelrixWorkHub.Application.Workflow.WorkflowDefinitionService WorkflowService
+@inject VelrixWorkHub.Application.SimpleForms.SimpleFormService FormService
+@using VelrixWorkHub.Application.SimpleForms
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Domain
+
+<PageTitle>流程工作台 - Velrix Work Hub</PageTitle>
+
+<div class="task-page">
+    <div class="task-page__header">
+        <div>
+            <p class="eyebrow">平台能力 · Workflow/Overview</p>
+            <h1>流程工作台</h1>
+            <p class="task-page__intro">集中处理分派给我的审批，并在授权范围内查看已发布流程和简单表单。</p>
+        </div>
+        <div class="task-page__summary"><strong>@PendingTasks.Count</strong><span>条待处理审批</span></div>
+    </div>
+
+    @if (LoadError is not null)
+    {
+        <div class="alert alert-warning mt-3" role="alert">@LoadError</div>
+    }
+
+    @if (!CanViewInbox && !CanViewDefinitions && !CanViewSimpleForms)
+    {
+        <div class="alert alert-info mt-3" role="status">当前账号没有可在流程工作台查看的业务数据。</div>
+    }
+
+    <section class="module-overview-grid" aria-label="流程工作台摘要">
+        @if (CanViewInbox) { <a class="module-overview-stat" href="Workflow/Inbox"><span>我的待处理审批</span><strong>@PendingTasks.Count</strong><small>进入审批收件箱</small></a> }
+        @if (CanViewDefinitions) { <a class="module-overview-stat" href="Workflow/Definition"><span>已发布流程</span><strong>@PublishedDefinitions.Count</strong><small>查看流程定义</small></a> }
+        @if (CanViewSimpleForms) { <a class="module-overview-stat" href="Workflow/SimpleForm"><span>已发布简单表单</span><strong>@PublishedForms.Count</strong><small>进入表单中心</small></a> }
+        @if (CanViewSimpleForms) { <a class="module-overview-stat" href="Workflow/SimpleForm"><span>我的表单申请</span><strong>@MySubmissions.Count</strong><small>查看申请状态</small></a> }
+    </section>
+
+    <section class="module-overview-grid module-overview-grid--details" aria-label="流程工作区">
+        @if (CanViewInbox)
+        {
+            <article class="module-overview-panel">
+                <div class="module-overview-panel__header"><div><p class="eyebrow">下一步</p><h2>待我审批</h2></div><a href="Workflow/Inbox">全部待办</a></div>
+                @if (!PendingTasks.Any()) { <p class="workhub-empty-line">当前没有待处理审批。</p> }
+                else { <ul class="workhub-list">@foreach (var task in PendingTasks.Take(5)) { <li><span class="workhub-list__marker"></span><div><strong>@task.NodeName</strong><small>@BusinessLabel(task.BusinessType) · @task.CreatedAt.ToString("MM月dd日 HH:mm")</small></div></li> }</ul> }
+            </article>
+        }
+        @if (CanViewDefinitions)
+        {
+            <article class="module-overview-panel">
+                <div class="module-overview-panel__header"><div><p class="eyebrow">流程资产</p><h2>已发布流程</h2></div><a href="Workflow/Definition">全部定义</a></div>
+                @if (!PublishedDefinitions.Any()) { <p class="workhub-empty-line">当前没有已发布流程。</p> }
+                else { <ul class="workhub-list">@foreach (var definition in PublishedDefinitions.Take(5)) { <li><span class="workhub-list__marker"></span><div><strong>@definition.Name</strong><small>@definition.Code · V@(definition.VersionNumber)</small></div></li> }</ul> }
+            </article>
+        }
+        @if (CanViewSimpleForms)
+        {
+            <article class="module-overview-panel">
+                <div class="module-overview-panel__header"><div><p class="eyebrow">简单表单</p><h2>我的近期申请</h2></div><a href="Workflow/SimpleForm">表单中心</a></div>
+                @if (!MySubmissions.Any()) { <p class="workhub-empty-line">尚未提交简单表单申请。</p> }
+                else { <ul class="workhub-list">@foreach (var submission in MySubmissions.Take(5)) { <li><span class="workhub-list__marker"></span><div><strong>@submission.DefinitionCode</strong><small>V@(submission.FormVersionNumber) · @SubmissionStatusLabel(submission.Status) · @submission.CreatedAt.ToString("MM月dd日 HH:mm")</small></div></li> }</ul> }
+            </article>
+        }
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<WorkflowTask> PendingTasks { get; set; } = [];
+    private IReadOnlyList<WorkflowDefinition> PublishedDefinitions { get; set; } = [];
+    private IReadOnlyList<SimpleFormDefinition> PublishedForms { get; set; } = [];
+    private IReadOnlyList<SimpleFormSubmission> MySubmissions { get; set; } = [];
+    private string? LoadError { get; set; }
+    private bool CanViewInbox => Admin.User is not null && Admin.AuthPath("Workflow/Inbox");
+    private bool CanViewDefinitions => Admin.User is not null && Admin.AuthPath("Workflow/Definition");
+    private bool CanViewSimpleForms => Admin.User is not null && Admin.AuthPath("Workflow/SimpleForm");
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (Admin.User is null || !Admin.AuthPath("Workflow/Overview"))
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+
+        try
+        {
+            if (CanViewInbox)
+            {
+                var actor = Admin.User.Username?.Trim();
+                PendingTasks = string.IsNullOrWhiteSpace(actor)
+                    ? []
+                    : TaskService.List(assignee: actor, status: WorkflowTaskStatus.Pending);
+            }
+            if (CanViewDefinitions) PublishedDefinitions = WorkflowService.List(status: WorkflowDefinitionStatus.Published);
+            if (CanViewSimpleForms)
+            {
+                PublishedForms = FormService.ListDefinitions().Where(x => x.PublishedVersionNumber is not null).ToArray();
+                MySubmissions = FormService.ListMine(Admin.User.Id);
+            }
+        }
+        catch (Exception exception)
+        {
+            LoadError = "部分流程摘要暂时不可用，请稍后重试。";
+            Logger.LogError(exception, "流程工作台摘要加载失败");
+        }
+    }
+
+    private static string BusinessLabel(string businessType) => businessType switch
+    {
+        nameof(SimpleFormSubmission) => "简单表单申请",
+        nameof(SalesContract) => "CRM 合同",
+        nameof(PmpProjectChange) => "PMP 项目变更",
+        nameof(PurchaseOrder) => "ERP 采购订单",
+        nameof(SalesOrder) => "ERP 销售订单",
+        nameof(LmsLicenseRequest) => "许可证申请",
+        _ => businessType
+    };
+
+    private static string SubmissionStatusLabel(SimpleFormSubmissionStatus status) => status switch
+    {
+        SimpleFormSubmissionStatus.Draft => "草稿",
+        SimpleFormSubmissionStatus.Submitted => "审批中",
+        SimpleFormSubmissionStatus.Approved => "已批准",
+        SimpleFormSubmissionStatus.Rejected => "已驳回",
+        SimpleFormSubmissionStatus.Cancelled => "已撤回",
+        _ => status.ToString()
+    };
+}

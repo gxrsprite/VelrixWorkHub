@@ -1,0 +1,184 @@
+@page "/Oa/ProcurementRequest"
+@using VelrixWorkHub.Application.PmpProjects
+@using VelrixWorkHub.Application.ProcurementRequests
+@using VelrixWorkHub.Application.Products
+@using VelrixWorkHub.Application.PurchaseOrders
+@using VelrixWorkHub.Application.Suppliers
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Domain
+@inject ProcurementRequestService ProcurementRequestService
+@inject ProcurementRequestPurchaseOrderService ProcurementRequestPurchaseOrderService
+@inject ProductService ProductService
+@inject PurchaseOrderService PurchaseOrderService
+@inject SupplierService SupplierService
+@inject PmpProjectService ProjectService
+@inject WorkflowApprovalService WorkflowApprovalService
+@inject AdminBlazor.IAdminContext Admin
+@inject NavigationManager Navigation
+
+<PageTitle>采购申请 - Velrix Work Hub</PageTitle>
+
+<div class="task-page procurement-request-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/ProcurementRequest</p><h1>采购申请</h1><p class="task-page__intro">提交产品、非产品、办公用品或寻源采购意图；批准后仍需采购人员复核并生成 ERP 采购订单，不直接占用库存。</p></div><div class="task-page__summary"><strong>@Requests.Count</strong><span>份我的采购申请</span></div></div>
+    <section class="task-toolbar" aria-label="采购申请操作"><span class="customer-note">当前申请人：@(Admin.User?.Username ?? "未登录")</span>@if (Admin.AuthButton("Oa/ProcurementRequest/Create")) { <button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus" aria-hidden="true"></i> 新建采购申请</button> }</section>
+
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="采购申请编辑器">
+            <div class="task-composer__title">@(Editing is null ? "填写采购申请" : $"编辑采购申请 · {Editing.DocumentNo}")</div>
+            <div class="task-composer__fields"><label>采购申请单号<input @bind="DraftDocumentNo" @bind:event="oninput" maxlength="100" placeholder="例如：CG-202607-001" /></label><label>申请类型<select @bind="DraftRequestType"><option value="ProductRelated">产品相关</option><option value="NonProductRelated">非产品相关</option><option value="OfficeSupply">办公用品</option><option value="Sourcing">寻源需求</option></select></label></div>
+            <div class="task-composer__fields"><label>申请部门<input @bind="DraftDepartment" @bind:event="oninput" maxlength="100" /></label><label>主体公司<input @bind="DraftLegalEntity" @bind:event="oninput" maxlength="200" /></label></div>
+            <div class="task-composer__fields"><label>申请日期<input type="date" @bind="DraftRequestDate" /></label><label>需求日期<input type="date" @bind="DraftRequiredDate" /></label></div>
+            <div class="task-composer__fields"><label>归属项目<select @bind="DraftProjectId"><option value="">不关联项目</option>@foreach (var project in ProjectService.List()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label><label>预算/费用依据<input @bind="DraftBudgetReference" @bind:event="oninput" maxlength="200" placeholder="预算编号或费用依据，可选" /></label></div>
+            <label>采购事由<textarea @bind="DraftPurpose" @bind:event="oninput" rows="3" maxlength="2000" placeholder="说明采购背景、必要性和期望到货安排"></textarea></label>
+            <label>扩展信息 OtherInfo JSON<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="2"></textarea></label>
+            @if (Editing is null || (Editing.Status is OaProcurementRequestStatus.Draft or OaProcurementRequestStatus.Rejected)) { <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseComposer">取消</button><button class="task-primary-button" @onclick="SaveMain">保存申请</button></div> }
+        </section>
+    }
+
+    @if (Editing is not null && (Editing.Status is OaProcurementRequestStatus.Draft or OaProcurementRequestStatus.Rejected))
+    {
+        var lines = ProcurementRequestService.ListLines(Editing.Id);
+        <section class="task-composer" aria-label="采购申请明细编辑器">
+            <div class="task-composer__title">采购明细 · 预计 ¥@Editing.EstimatedAmount.ToString("N2")</div>
+            <div class="task-composer__fields"><label>采购物品<input @bind="DraftItemName" @bind:event="oninput" maxlength="200" placeholder="例如：标准服务包、办公显示器" /></label><label>物料分类<input @bind="DraftMaterialCategory" @bind:event="oninput" maxlength="100" placeholder="例如：生产物料、办公用品" /></label></div>
+            @if (DraftRequestType == OaProcurementRequestType.ProductRelated)
+            {
+                <label>关联产品<select @bind="DraftProductId"><option value="">请选择产品</option>@foreach (var product in ProductService.List()) { <option value="@product.Id">@product.Code · @product.Name</option> }</select></label>
+            }
+            <div class="task-composer__fields"><label>规格/技术要求（必填）<textarea @bind="DraftSpecification" @bind:event="oninput" rows="2" maxlength="1000" placeholder="说明规格、技术要求或服务范围"></textarea></label><label>扩展信息 OtherInfo JSON<textarea @bind="DraftLineOtherInfo" @bind:event="oninput" rows="2"></textarea></label></div>
+            <div class="task-composer__fields"><label>数量<input type="number" step="0.0001" min="0.0001" @bind="DraftQuantity" /></label><label>计量单位<input @bind="DraftUnit" @bind:event="oninput" maxlength="50" placeholder="件、套、个" /></label></div>
+            <div class="task-composer__fields"><label>预计单价<input type="number" step="0.01" min="0" @bind="DraftEstimatedUnitPrice" /></label><span class="customer-note">产品相关必须选择产品；其他类型不得绑定产品。</span></div>
+            <div class="task-composer__actions"><button class="task-primary-button" @onclick="AddLine">添加采购明细</button></div>
+            @if (lines.Count > 0)
+            {
+                <div class="attachment-panel__list">
+                    @foreach (var line in lines)
+                    {
+                        <div class="attachment-panel__item"><span>@line.ItemName · @line.MaterialCategory · @line.Specification · @line.Quantity @line.Unit · 预计 ¥@line.EstimatedAmount.ToString("N2")</span><button type="button" class="danger" @onclick="() => RemoveLine(line)">删除</button></div>
+                    }
+                </div>
+            }
+            else { <div class="task-empty"><strong>尚无采购明细</strong><span>至少添加一条明细后才能提交审批。</span></div> }
+        </section>
+    }
+
+    @if (Reviewing is not null)
+    {
+        var reviewLines = ProcurementRequestService.ListLines(Reviewing.Id);
+        <section class="task-composer" aria-label="采购复核生成订单">
+            <div class="task-composer__title">采购复核并生成 ERP 采购订单 · @Reviewing.DocumentNo</div>
+            <p class="customer-note">共 @reviewLines.Count 条产品明细，将按明细分别生成 ERP 采购订单；单条申请使用原订单号，多条申请使用“订单号前缀-01、-02…”编号。每条订单保留申请单号和来源明细，原订单取消后才允许重试。</p>
+            <div class="attachment-panel__list">@foreach (var line in reviewLines) { <div class="attachment-panel__item"><span>@line.ItemName · @line.Quantity @line.Unit · 预计 ¥@line.EstimatedUnitPrice.ToString("N2")</span><label>实际单价<input type="number" step="0.01" min="0" @bind="ReviewUnitPrices[line.Id]" /></label></div> }</div>
+            <div class="task-composer__fields"><label>采购订单号/前缀<input @bind="ReviewOrderNo" @bind:event="oninput" maxlength="80" /></label><label>供应商<select @bind="ReviewSupplierId"><option value="">请选择已准入供应商</option>@foreach (var supplier in SupplierService.List().Where(x => x.Status == SupplierStatus.Active && x.QualificationStatus == SupplierQualificationStatus.Qualified)) { <option value="@supplier.Id">@supplier.Code · @supplier.Name</option> }</select></label></div>
+            <div class="task-composer__fields"><label>付款到期日<input type="date" @bind="ReviewDueDate" /></label></div>
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseReview">取消</button><button class="task-primary-button" @onclick="CreatePurchaseOrder">生成采购订单</button></div>
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-list" aria-live="polite">
+        @if (!Requests.Any()) { <div class="task-empty"><i class="fa fa-shopping-cart" aria-hidden="true"></i><strong>还没有采购申请</strong><span>填写采购事由和明细后提交审批。</span></div> }
+        else
+        {
+            @foreach (var item in Requests)
+            {
+                var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.ProcurementRequestApproval, nameof(OaProcurementRequest), item.Id);
+                var lines = ProcurementRequestService.ListLines(item.Id);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-shopping-cart"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@StatusLabel(item.Status)</span><span>@item.DocumentNo</span><span>@item.RequestDate.ToString("yyyy-MM-dd")</span></div><h2>@TypeLabel(item.RequestType) · ¥@item.EstimatedAmount.ToString("N2")</h2><p>@item.DepartmentName · @item.LegalEntity · 需求 @item.RequiredDate.ToString("yyyy-MM-dd") · @lines.Count 条明细</p><div class="customer-note">@item.Purpose · 项目 @(item.ProjectId?.ToString() ?? "未关联") · 审批：@WorkflowLabel(workflow?.Status)@if (!string.IsNullOrWhiteSpace(item.RejectionReason)) { <span> · 驳回原因：@item.RejectionReason</span> }@if (item.Status == OaProcurementRequestStatus.Approved) { <span> · 已批准，待采购复核生单</span> }</div><AttachmentPanel BusinessType="@nameof(OaProcurementRequest)" BusinessId="@item.Id" Actor="@(Admin.User?.Username ?? "system")" /></div><div class="task-card__actions">@if ((item.Status is OaProcurementRequestStatus.Draft or OaProcurementRequestStatus.Rejected) && Admin.AuthButton("Oa/ProcurementRequest/Edit")) { <button title="编辑采购申请" @onclick="() => OpenEdit(item)"><i class="fa fa-pencil"></i></button> } @if ((item.Status is OaProcurementRequestStatus.Draft or OaProcurementRequestStatus.Rejected) && Admin.AuthButton("Oa/ProcurementRequest/Submit")) { <button title="提交采购申请审批" @onclick="() => Submit(item)"><i class="fa fa-send-o"></i></button> } @if ((item.Status is OaProcurementRequestStatus.Draft or OaProcurementRequestStatus.Submitted) && Admin.AuthButton("Oa/ProcurementRequest/Cancel")) { <button class="danger" title="撤回采购申请" @onclick="() => Cancel(item)"><i class="fa fa-undo"></i></button> }</div></article>
+            }
+        }
+    </section>
+
+    @if (Admin.AuthButton("Oa/ProcurementRequest/GeneratePurchaseOrder"))
+    {
+        <section class="task-list" aria-label="待采购复核申请">
+            <div class="task-section-heading"><h2>待采购复核</h2><span>单条产品明细直接生单，多条产品明细按来源明细拆分生成多张 ERP 采购订单；非产品申请继续按寻源/比价流程处理。</span></div>
+            @if (!ReviewRequests.Any()) { <div class="task-empty"><strong>暂无可直接生单的已批准申请</strong><span>已批准产品相关申请会在这里等待采购复核。</span></div> }
+            else { @foreach (var item in ReviewRequests) { var lines = ProcurementRequestService.ListLines(item.Id); var firstLine = lines[0]; <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-shopping-cart" aria-hidden="true"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--approved">已批准</span><span>@item.DocumentNo</span><span>产品相关</span></div><h2>@(lines.Count == 1 ? firstLine.ItemName : $"{lines.Count} 条产品明细拆单")</h2><p>@(lines.Count == 1 ? $"数量 {firstLine.Quantity:N2} {firstLine.Unit} · 预计单价 ¥{firstLine.EstimatedUnitPrice:N2}" : $"预计金额 ¥{item.EstimatedAmount:N2} · 将生成 {lines.Count} 张订单") · 需求 @item.RequiredDate.ToString("yyyy-MM-dd") · @item.DepartmentName</p><div class="customer-note">@item.Purpose</div></div><div class="task-card__actions"><button title="采购复核并生成 ERP 采购订单" @onclick="() => OpenReview(item)"><i class="fa fa-external-link"></i></button></div></article> } }
+        </section>
+    }
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowComposer;
+    private OaProcurementRequest? Editing;
+    private OaProcurementRequest? Reviewing;
+    private string DraftDocumentNo = string.Empty, DraftDepartment = string.Empty, DraftLegalEntity = string.Empty, DraftBudgetReference = string.Empty, DraftPurpose = string.Empty, DraftOtherInfo = "{}";
+    private OaProcurementRequestType DraftRequestType = OaProcurementRequestType.ProductRelated;
+    private DateTime DraftRequestDate = DateTime.Today, DraftRequiredDate = DateTime.Today.AddDays(7);
+    private string DraftProjectId = string.Empty;
+    private string DraftItemName = string.Empty, DraftMaterialCategory = string.Empty, DraftSpecification = string.Empty, DraftUnit = "件", DraftProductId = string.Empty, DraftLineOtherInfo = "{}";
+    private decimal DraftQuantity = 1, DraftEstimatedUnitPrice;
+    private string ReviewOrderNo = string.Empty, ReviewSupplierId = string.Empty;
+    private Dictionary<Guid, decimal> ReviewUnitPrices = [];
+    private DateTime ReviewDueDate = DateTime.Today.AddDays(30);
+    private string? Error;
+    private Guid CurrentUserId => Admin.User?.Id ?? Guid.Empty;
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private IReadOnlyList<OaProcurementRequest> Requests => ProcurementRequestService.ListMine(CurrentUserId);
+    private IReadOnlyList<OaProcurementRequest> ReviewRequests => ProcurementRequestService.List().Where(IsDirectPurchaseOrderCandidate).ToArray();
+
+    private void OpenCreate() { CloseComposer(); ShowComposer = true; DraftDocumentNo = $"CG-{DateTime.Today:yyyyMM}-{DateTime.Now:HHmmss}"; DraftRequestDate = DateTime.Today; DraftRequiredDate = DateTime.Today.AddDays(7); }
+    private void OpenEdit(OaProcurementRequest item) { CloseComposer(); Editing = item; ShowComposer = true; DraftDocumentNo = item.DocumentNo; DraftDepartment = item.DepartmentName; DraftLegalEntity = item.LegalEntity; DraftRequestType = item.RequestType; DraftRequestDate = item.RequestDate.ToDateTime(TimeOnly.MinValue); DraftRequiredDate = item.RequiredDate.ToDateTime(TimeOnly.MinValue); DraftProjectId = item.ProjectId?.ToString() ?? string.Empty; DraftBudgetReference = item.BudgetReference ?? string.Empty; DraftPurpose = item.Purpose; DraftOtherInfo = item.OtherInfo; }
+    private void CloseComposer() { ShowComposer = false; Editing = null; Error = null; DraftDepartment = DraftLegalEntity = DraftBudgetReference = DraftPurpose = string.Empty; DraftOtherInfo = "{}"; DraftItemName = DraftMaterialCategory = DraftSpecification = DraftProductId = string.Empty; DraftUnit = "件"; DraftLineOtherInfo = "{}"; DraftQuantity = 1; DraftEstimatedUnitPrice = 0; }
+    private void OpenReview(OaProcurementRequest item) { Error = null; Reviewing = item; ReviewUnitPrices = ProcurementRequestService.ListLines(item.Id).ToDictionary(x => x.Id, x => x.EstimatedUnitPrice); ReviewOrderNo = $"PO-{DateTime.Today:yyyyMMdd}-{item.DocumentNo}"; ReviewSupplierId = string.Empty; ReviewDueDate = DateTime.Today.AddDays(30); }
+    private void CloseReview() { Reviewing = null; ReviewOrderNo = ReviewSupplierId = string.Empty; ReviewUnitPrices = []; ReviewDueDate = DateTime.Today.AddDays(30); Error = null; }
+    private void SaveMain()
+    {
+        try
+        {
+            var projectId = Guid.TryParse(DraftProjectId, out var parsedProjectId) ? parsedProjectId : (Guid?)null;
+            if (Editing is null) Editing = ProcurementRequestService.Create(CurrentUserId, CurrentActor, DraftDepartment, DraftLegalEntity, DraftDocumentNo, DraftRequestType, DateOnly.FromDateTime(DraftRequestDate), DateOnly.FromDateTime(DraftRequiredDate), projectId, DraftBudgetReference, DraftPurpose, DraftOtherInfo);
+            else ProcurementRequestService.Edit(Editing, CurrentUserId, CurrentActor, DraftDepartment, DraftLegalEntity, DraftDocumentNo, DraftRequestType, DateOnly.FromDateTime(DraftRequestDate), DateOnly.FromDateTime(DraftRequiredDate), projectId, DraftBudgetReference, DraftPurpose, DraftOtherInfo);
+            Error = null;
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void AddLine()
+    {
+        if (Editing is null) { Error = "请先保存采购申请主单。"; return; }
+        try { var productId = Guid.TryParse(DraftProductId, out var parsedProductId) ? parsedProductId : (Guid?)null; ProcurementRequestService.AddLine(Editing, CurrentUserId, productId, DraftItemName, DraftMaterialCategory, DraftSpecification, DraftQuantity, DraftUnit, DraftEstimatedUnitPrice, DraftLineOtherInfo); ResetLine(); Error = null; } catch (Exception ex) { Error = ex.Message; }
+    }
+    private void RemoveLine(OaProcurementRequestLine line) { if (Editing is null) return; try { ProcurementRequestService.RemoveLine(Editing, CurrentUserId, line); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Submit(OaProcurementRequest item) { try { ProcurementRequestService.SubmitAndStartWorkflow(item, CurrentUserId, CurrentActor); Error = null; CloseComposer(); } catch (Exception ex) { Error = ex.Message; } }
+    private void Cancel(OaProcurementRequest item) { try { ProcurementRequestService.Cancel(item, CurrentUserId, CurrentActor); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void CreatePurchaseOrder()
+    {
+        try
+        {
+            if (Reviewing is null || !Guid.TryParse(ReviewSupplierId, out var supplierId)) throw new InvalidOperationException("请选择已准入供应商。");
+            var lines = ProcurementRequestService.ListLines(Reviewing.Id);
+            if (lines.Any(line => !ReviewUnitPrices.ContainsKey(line.Id))) throw new InvalidOperationException("请为每条采购明细填写实际采购单价。");
+            var dueDate = DateOnly.FromDateTime(ReviewDueDate);
+            if (lines.Count == 1)
+            {
+                var order = ProcurementRequestPurchaseOrderService.CreateFromApprovedRequest(Reviewing.Id, ReviewOrderNo, supplierId, ReviewUnitPrices[lines[0].Id], dueDate);
+                CloseReview();
+                Error = null;
+                Navigation.NavigateTo($"/Erp/PurchaseOrder?orderId={order.Id}");
+                return;
+            }
+
+            var orders = ProcurementRequestPurchaseOrderService.CreateSplitOrdersFromApprovedRequest(Reviewing.Id, ReviewOrderNo, supplierId, ReviewUnitPrices, dueDate);
+            CloseReview();
+            Error = null;
+            Navigation.NavigateTo($"/Erp/PurchaseOrder?orderId={orders[0].Id}");
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void ResetLine() { DraftItemName = DraftMaterialCategory = DraftSpecification = DraftProductId = string.Empty; DraftUnit = "件"; DraftLineOtherInfo = "{}"; DraftQuantity = 1; DraftEstimatedUnitPrice = 0; }
+    private bool IsDirectPurchaseOrderCandidate(OaProcurementRequest item)
+    {
+        if (item.Status != OaProcurementRequestStatus.Approved || item.RequestType != OaProcurementRequestType.ProductRelated) return false;
+        var lines = ProcurementRequestService.ListLines(item.Id);
+        if (lines.Count == 0 || lines.Any(x => x.ProductId is null)) return false;
+        return !PurchaseOrderService.List(sourceKind: PurchaseOrderSourceKind.Requisition)
+            .Any(x => x.Status != PurchaseOrderStatus.Cancelled && string.Equals(x.SourceDocumentNo, item.DocumentNo, StringComparison.OrdinalIgnoreCase));
+    }
+    private static string TypeLabel(OaProcurementRequestType type) => type switch { OaProcurementRequestType.ProductRelated => "产品相关", OaProcurementRequestType.NonProductRelated => "非产品相关", OaProcurementRequestType.OfficeSupply => "办公用品", _ => "寻源需求" };
+    private static string StatusLabel(OaProcurementRequestStatus status) => status switch { OaProcurementRequestStatus.Draft => "草稿", OaProcurementRequestStatus.Submitted => "审批中", OaProcurementRequestStatus.Rejected => "已驳回", OaProcurementRequestStatus.Approved => "已批准", _ => "已撤回" };
+    private static string WorkflowLabel(WorkflowInstanceStatus? status) => status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已拒绝", WorkflowInstanceStatus.Cancelled => "已撤回", _ => "未发起" };
+}

@@ -1,0 +1,170 @@
+@page "/Lms/License"
+@inject VelrixWorkHub.Application.Lms.LmsLicenseService LicenseService
+@inject VelrixWorkHub.Application.Lms.LmsLicenseAccessService LicenseAccessService
+@inject VelrixWorkHub.Application.Lms.LmsLicenseRequestDetailService RequestDetailService
+@inject VelrixWorkHub.Application.Lms.LmsLicenseProductService LicenseProductService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.Contacts.CustomerContactService ContactService
+@inject VelrixWorkHub.Application.Lms.LmsCustomerMachineService MachineService
+@inject VelrixWorkHub.Application.Lms.LmsMachineFeatureService MachineFeatureService
+@inject VelrixWorkHub.Application.Lms.LmsFeatureService FeatureService
+@inject VelrixWorkHub.Application.Lms.LmsFeatureVersionService FeatureVersionService
+@inject VelrixWorkHub.Application.Workflow.WorkflowApprovalService WorkflowApprovalService
+@inject IAdminContext Admin
+@inject NavigationManager Navigation
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Application.Lms
+@using VelrixWorkHub.Domain
+
+<PageTitle>许可证申请与授权 - Velrix Work Hub</PageTitle>
+
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">LMS · License Management</p><h1>许可证申请与授权</h1><p class="task-page__intro">申请先经过 Workflow 审批；审批通过后登记外部系统提供的 License 原文。系统只保存授权信息，不生成或解析密钥。</p></div></div>
+<section class="task-toolbar customer-toolbar"><div class="customer-search"><i class="fa fa-search"></i><input aria-label="搜索许可证申请" @bind="Keyword" @bind:event="oninput" placeholder="搜索申请编号、申请人或产品" /></div><select aria-label="筛选 CRM 客户" @bind="RequestCustomerFilterIdText"><option value="">全部 CRM 客户</option>@foreach (var customer in CustomerService.List(filter: VelrixWorkHub.Application.Customers.CustomerFilter.All)) { <option value="@customer.Id">@customer.Name</option> }</select><select aria-label="筛选 CRM 联系人" @bind="RequestContactFilterIdText"><option value="">全部 CRM 联系人</option>@foreach (var contact in RequestFilterContacts) { <option value="@contact.Id">@contact.Name</option> }</select><select aria-label="筛选申请状态" @bind="RequestStatusFilter"><option value="">全部申请状态</option><option value="Draft">草稿</option><option value="Submitted">审批中</option><option value="Approved">已批准</option><option value="Rejected">已驳回</option><option value="Withdrawn">已撤回</option><option value="Cancelled">已取消</option></select><select aria-label="筛选授权状态" @bind="AuthorizationStatusFilter"><option value="">全部授权状态</option><option value="Active">有效</option><option value="Expiring">即将到期</option><option value="Expired">已到期</option><option value="Disabled">已停用</option><option value="Revoked">已作废</option></select>@if (CanRegister) { <button class="task-secondary-button" @onclick="OpenAuthorization"><i class="fa fa-key"></i> 登记外部 License</button> }@if (CanCreate) { <button class="task-primary-button" @onclick="OpenRequest"><i class="fa fa-plus"></i> 新建申请</button> }</section>
+
+    @if (ShowRequest)
+    {
+        <section class="task-composer lms-request-wizard" aria-label="新建许可证申请">
+            <div class="task-composer__title">新建许可证申请 <span class="muted">步骤 @RequestStep / 3</span></div>
+            <div class="lms-request-wizard__steps" aria-label="申请步骤">
+                <span class="@(RequestStep == 1 ? "is-active" : "")">1. 申请信息</span>
+                <span class="@(RequestStep == 2 ? "is-active" : "")">2. 特性与扩展</span>
+                <span class="@(RequestStep == 3 ? "is-active" : "")">3. 确认保存</span>
+            </div>
+            @if (RequestStep == 1)
+            {
+                <div class="task-composer__fields">
+                    <label>申请编号<input @bind="RequestNo" /></label>
+                    @if (IsAdministrator) { <label>申请人<input @bind="Applicant" /></label> } else { <label>申请人<input value="@CurrentActor" readonly /></label> }
+                    <label>CRM 客户<select @bind="RequestCustomerIdText"><option value="">请选择启用客户</option>@foreach (var customer in CustomerService.List(filter: VelrixWorkHub.Application.Customers.CustomerFilter.Active)) { <option value="@customer.Id">@customer.Name</option> }</select></label>
+                    <label>CRM 联系人（可选）<select @bind="RequestContactIdText"><option value="">不关联联系人</option>@foreach (var contact in RequestContacts) { <option value="@contact.Id">@contact.Name</option> }</select></label>
+                    <label>客户机台<select @bind="RequestMachineIdText"><option value="">请选择该客户的启用机台</option>@foreach (var machine in RequestMachines) { <option value="@machine.Id">@machine.MachineCode · @machine.ProductName</option> }</select></label>
+                    <label>产品<select @bind="ProductName"><option value="">请选择启用产品</option>@foreach (var product in LicenseProductService.List(includeDisabled: false)) { <option value="@product.Name">@product.Code · @product.Name</option> }</select></label>
+                    <label>申请到期日（可选）<input type="date" @bind="RequestedExpiresAt" /></label>
+                    <label>宽限天数（可选）<input type="number" min="0" @bind="GracePeriodDays" /></label>
+                </div>
+                <p class="customer-note">型号和运行环境将从所选机台快照保存到申请及后续授权。</p>
+                @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+                <div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="NextRequestStep">下一步：选择特性</button></div>
+            }
+            else if (RequestStep == 2)
+            {
+                <p class="customer-note">仅能选择当前客户机台已授权且仍启用的特性版本；扩展字段会按 JSON 对象原样保存。</p>
+                <label>机台已授权特性版本（可多选）<select multiple @bind="SelectedFeatureVersionIds">@foreach (var grant in RequestMachineFeatures) { var version = FeatureVersionService.List().FirstOrDefault(x => x.Id == grant.FeatureVersionId); if (version is not null) { <option value="@version.Id">@FeatureVersionLabel(version)</option> } }</select></label>
+                <label>扩展信息 OtherInfo JSON 对象<textarea @bind="OtherInfo" rows="2" placeholder="例如 {&quot;source&quot;:&quot;客户申请&quot;,&quot;tier&quot;:&quot;enterprise&quot;}"></textarea></label>
+                @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+                <div class="task-composer__actions"><button class="task-secondary-button" @onclick="PreviousRequestStep">上一步</button><button class="task-primary-button" @onclick="NextRequestStep">下一步：确认保存</button></div>
+            }
+            else
+            {
+                <div class="lms-request-wizard__summary">
+                    <p><strong>申请人：</strong>@(string.IsNullOrWhiteSpace(Applicant) ? CurrentActor : Applicant)</p>
+                    <p><strong>客户：</strong>@SelectedCustomerName · <strong>联系人：</strong>@SelectedContactName</p>
+                    <p><strong>机台：</strong>@SelectedMachineLabel · <strong>产品：</strong>@(string.IsNullOrWhiteSpace(ProductName) ? "未选择" : ProductName)</p>
+                    <p><strong>期限：</strong>@(RequestedExpiresAt?.ToString("yyyy-MM-dd") ?? "未限制") · <strong>宽限：</strong>@GracePeriodDays 天</p>
+                    <p><strong>特性版本：</strong>@SelectedFeatureSummary</p>
+                    <p><strong>扩展信息：</strong>@OtherInfo</p>
+                </div>
+                @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+                <div class="task-composer__actions"><button class="task-secondary-button" @onclick="PreviousRequestStep">上一步</button><button class="task-primary-button" @onclick="SaveRequest">保存草稿申请</button></div>
+            }
+        </section>
+    }
+    @if (ShowAuthorization) { <section class="task-composer" aria-label="登记外部 License"><div class="task-composer__title">登记外部 License</div><div class="task-composer__fields"><label>已批准申请<select @bind="AuthorizationRequestIdText"><option value="">不关联申请</option>@foreach (var request in VisibleRequests.Where(x => x.Status == LmsLicenseRequestStatus.Approved)) { <option value="@request.Id">@request.RequestNo · @request.ProductName</option> }</select></label><label>授权编号<input @bind="LicenseNo" /></label><label>产品<input @bind="AuthorizationProductName" /></label><label>到期日（可选）<input type="date" @bind="ExpiresAt" /></label></div><label>外部 License 原文<textarea @bind="ExternalLicense" rows="3"></textarea></label><label>特性 JSON 数组<textarea @bind="AuthorizationFeaturesJson" rows="2"></textarea></label><label>扩展信息 OtherInfo JSON 对象<textarea @bind="AuthorizationOtherInfo" rows="2"></textarea></label>@if (Error is not null) { <div class="task-error" role="alert">@Error</div> }<div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="SaveAuthorization">登记授权</button></div></section> }
+    @if (ShowLifecycle) { <section class="task-composer" aria-label="变更授权生命周期"><div class="task-composer__title">@LifecycleTitle</div><p>授权：@SelectedAuthorization?.LicenseNo · 当前状态：@(SelectedAuthorization is null ? string.Empty : AuthorizationStatusLabel(SelectedAuthorization.GetEffectiveStatus(DateTime.Now)))</p><label>变更原因<textarea @bind="LifecycleReason" rows="2" placeholder="必须填写原因"></textarea></label>@if (Error is not null) { <div class="task-error" role="alert">@Error</div> }<div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="SaveLifecycle">确认</button></div></section> }
+    @if (!ShowRequest && !ShowAuthorization && !ShowLifecycle && Error is not null) { <div class="task-error" role="alert">@Error</div> }
+
+    @if (RequestDetail is { } detail) { <section class="task-composer" aria-label="许可证申请详情"><div class="task-composer__title">申请详情 · @detail.Request.RequestNo</div><p>@detail.Request.Applicant · @(RequestCustomerName(detail.Request) ?? detail.Request.CustomerName ?? "未关联客户") · @detail.Request.ProductName · @RequestStatusLabel(detail.Request.Status)</p><p>联系人：@(RequestContactName(detail.Request) ?? "未关联") · 型号：@(detail.Request.Model ?? "未记录") · 环境：@(detail.Request.Environment ?? "未记录") · 宽限：@detail.Request.GracePeriodDays 天</p><p>特性：@detail.Request.FeaturesJson · 特性版本：@detail.Request.FeatureVersionIdsJson</p><p>扩展信息 OtherInfo：@detail.Request.OtherInfo</p><p>Workflow：@(detail.LatestWorkflow is null ? "未发起" : WorkflowLabel(detail.LatestWorkflow.Status)) · 历史实例：@detail.Workflows.Count · 操作记录：@detail.History.Count · 附件版本：@detail.Attachments.Count</p>@if (detail.History.Count > 0) { <div class="customer-note">最近操作：@detail.History[0].Kind · @detail.History[0].Actor · @detail.History[0].OccurredAt.ToString("yyyy-MM-dd HH:mm")@if (!string.IsNullOrWhiteSpace(detail.History[0].Comment)) { <span> · @detail.History[0].Comment</span> }</div> }<LmsLicenseAttachmentPanel Request="@detail.Request" Actor="@CurrentActor" IsAdministrator="@IsAdministrator" /></section> }
+
+    <section class="task-list" aria-label="许可证申请">@foreach (var item in Requests) { var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.LmsLicenseApproval, nameof(LmsLicenseRequest), item.Id); <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-file-text-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@RequestStatusLabel(item.Status)</span><span>@item.RequestNo</span><span>@item.CreatedAt.ToString("yyyy-MM-dd")</span></div><h2>@item.ProductName</h2><p>@item.Applicant · @(item.CustomerName ?? "未关联客户")</p><div class="customer-note">特性：@item.FeaturesJson · 到期：@(item.RequestedExpiresAt?.ToString("yyyy-MM-dd") ?? "未限制") · 审批：@(WorkflowLabel(workflow?.Status))@if (workflow is not null) { <span> · </span><a href="@WorkflowHref(item)">查看审批</a> }</div></div><div class="task-card__actions">@if (CanSubmit && (item.Status is LmsLicenseRequestStatus.Draft or LmsLicenseRequestStatus.Rejected or LmsLicenseRequestStatus.Withdrawn)) { <button title="提交许可证申请审批" @onclick="() => Submit(item)"><i class="fa fa-send-o"></i></button> } else if (CanSubmit && item.Status == LmsLicenseRequestStatus.Submitted && workflow?.Status == WorkflowInstanceStatus.Cancelled) { <button title="重新提交已撤回的许可证申请" @onclick="() => Resubmit(item)"><i class="fa fa-repeat"></i></button> }@if (CanDeleteDraft && item.Status == LmsLicenseRequestStatus.Draft) { <button class="danger" title="删除草稿申请" @onclick="() => DeleteDraft(item)"><i class="fa fa-trash-o"></i></button> }@if (CanCancel && (item.Status is LmsLicenseRequestStatus.Draft or LmsLicenseRequestStatus.Submitted)) { <button class="danger" title="取消许可证申请" @onclick="() => Cancel(item)"><i class="fa fa-times"></i></button> }</div></article> }</section>
+    <section class="task-list" aria-label="已登记授权"><h2>已登记授权</h2>@foreach (var item in Authorizations) { var effectiveStatus = item.GetEffectiveStatus(DateTime.Now); var history = LicenseService.ListLifecycle(item.Id); var replacements = VisibleAuthorizations.Where(x => x.SupersedesAuthorizationId == item.Id).ToArray(); <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-key"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@effectiveStatus.ToString().ToLowerInvariant()">@AuthorizationStatusLabel(effectiveStatus)</span><span>@item.LicenseNo</span><span>@item.CreatedAt.ToString("yyyy-MM-dd")</span></div><h2>@item.ProductName</h2><p>关联申请：@if (item.RequestId is Guid requestId) { <a href="/Lms/License?requestId=@requestId">查看申请</a> } else { <span>无</span> }</p><div class="customer-note">型号：@(item.Model ?? "未记录") · 环境：@(item.Environment ?? "未记录") · 宽限：@item.GracePeriodDays 天 · 特性：@item.FeaturesJson · 到期：@(item.ExpiresAt?.ToString("yyyy-MM-dd") ?? "未限制")</div><div class="customer-note">扩展信息 OtherInfo：@item.OtherInfo</div>@if (item.SupersedesAuthorizationId is Guid sourceId) { <div class="customer-note">替代来源：<a href="@AuthorizationHref(sourceId)">查看原授权</a> · @ReplacementKindLabel(item.ReplacementKind)</div> }@if (item.ReplacementRequestId is Guid replacementRequestId) { <div class="customer-note">替代审批：<a href="/Lms/LicenseReplacement?replacementRequestId=@replacementRequestId">查看替代申请</a></div> }@if (replacements.Length > 0) { <div class="customer-note">后续授权：@foreach (var replacement in replacements) { <a href="@AuthorizationHref(replacement.Id)">@replacement.LicenseNo · @ReplacementKindLabel(replacement.ReplacementKind)</a><span> </span> }</div> }@if (history.Count > 0) { var latest = history[0]; <div class="customer-note">最近操作：@LifecycleActionLabel(latest.Action) · @latest.Actor · @latest.OccurredAt.ToString("yyyy-MM-dd HH:mm") · @latest.Reason</div> }</div><div class="task-card__actions">@if (item.Status == LmsLicenseStatus.Active) { <button title="停用授权" @onclick="() => OpenLifecycle(item, LmsLicenseLifecycleAction.Disabled)"><i class="fa fa-pause"></i></button> } else if (item.Status == LmsLicenseStatus.Disabled) { <button title="开启授权" @onclick="() => OpenLifecycle(item, LmsLicenseLifecycleAction.Enabled)"><i class="fa fa-play"></i></button> }@if (item.Status != LmsLicenseStatus.Revoked) { <button title="作废授权" @onclick="() => OpenLifecycle(item, LmsLicenseLifecycleAction.Revoked)"><i class="fa fa-ban"></i></button> }</div></article> }</section>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "requestId")] public Guid? RequestFilterId { get; set; }
+    [SupplyParameterFromQuery(Name = "authorizationId")] public Guid? AuthorizationFilterId { get; set; }
+    [SupplyParameterFromQuery(Name = "requestStatus")] public string RequestStatusFilter { get; set; } = string.Empty;
+    [SupplyParameterFromQuery(Name = "authorizationStatus")] public string AuthorizationStatusFilter { get; set; } = string.Empty;
+    private string Keyword = string.Empty, RequestNo = string.Empty, Applicant = string.Empty, ProductName = string.Empty, OtherInfo = "{}", RequestCustomerIdText = string.Empty, RequestContactIdText = string.Empty, RequestMachineIdText = string.Empty, RequestCustomerFilterIdText = string.Empty, RequestContactFilterIdText = string.Empty;
+    private string[] SelectedFeatureVersionIds = [];
+    private string AuthorizationRequestIdText = string.Empty, LicenseNo = string.Empty, AuthorizationProductName = string.Empty, ExternalLicense = string.Empty, AuthorizationFeaturesJson = "[]", AuthorizationOtherInfo = "{}";
+    private DateTime? RequestedExpiresAt, ExpiresAt;
+    private int GracePeriodDays;
+    private bool ShowRequest, ShowAuthorization, ShowLifecycle; private int RequestStep = 1; private string LifecycleReason = string.Empty; private LmsLicenseAuthorization? SelectedAuthorization; private LmsLicenseLifecycleAction? LifecycleAction; private string? Error;
+    private LmsLicenseRequestDetail? RequestDetail;
+    private bool CanCreate => Admin.AuthButton("Lms/License/Create");
+    private bool CanSubmit => Admin.AuthButton("Lms/License/Submit");
+    private bool CanRegister => Admin.AuthButton("Lms/License/Register");
+    private bool CanLifecycle => Admin.AuthButton("Lms/License/Lifecycle");
+    private bool CanDeleteDraft => Admin.AuthButton("Lms/License/DeleteDraft");
+    private bool CanCancel => Admin.AuthButton("Lms/License/Cancel");
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (!Admin.AuthPath("Lms/License")) Navigation.NavigateTo("/", forceLoad: true);
+        else if (RequestFilterId is Guid requestId) RequestDetail = RequestDetailService.Get(requestId, CurrentActor, IsAdministrator);
+    }
+    private bool IsAdministrator => Admin.Roles.Any(x => x.IsAdministrator);
+    private IEnumerable<LmsLicenseRequest> VisibleRequests => LicenseAccessService.ListRequests(CurrentActor, IsAdministrator);
+    private IEnumerable<LmsLicenseAuthorization> VisibleAuthorizations => LicenseAccessService.ListAuthorizations(CurrentActor, IsAdministrator);
+    private IEnumerable<LmsLicenseRequest> Requests => Admin.User is not null && Admin.AuthPath("Lms/License") ? VisibleRequests.Where(x => (RequestFilterId is null || x.Id == RequestFilterId) && (!Guid.TryParse(RequestCustomerFilterIdText, out var customerId) || x.CustomerId == customerId) && (!Guid.TryParse(RequestContactFilterIdText, out var contactId) || x.ContactId == contactId) && (string.IsNullOrWhiteSpace(RequestStatusFilter) || x.Status.ToString().Equals(RequestStatusFilter, StringComparison.OrdinalIgnoreCase)) && (string.IsNullOrWhiteSpace(Keyword) || x.RequestNo.Contains(Keyword, StringComparison.OrdinalIgnoreCase) || x.Applicant.Contains(Keyword, StringComparison.OrdinalIgnoreCase) || x.ProductName.Contains(Keyword, StringComparison.OrdinalIgnoreCase))) : [];
+    private IEnumerable<LmsLicenseAuthorization> Authorizations => Admin.User is not null && Admin.AuthPath("Lms/License") ? VisibleAuthorizations.Where(x => (AuthorizationFilterId is null || x.Id == AuthorizationFilterId) && AuthorizationMatches(x, DateTime.Now)) : [];
+    private void OpenRequest() { if (!CanCreate) { Error = "没有创建许可证申请权限。"; return; } Error = null; Applicant = IsAdministrator ? string.Empty : CurrentActor; RequestStep = 1; ShowRequest = true; }
+    private void OpenAuthorization() { if (!CanRegister) { Error = "没有登记外部授权权限。"; return; } Error = null; ShowAuthorization = true; }
+    private void Close() { Error = null; ShowRequest = ShowAuthorization = ShowLifecycle = false; RequestStep = 1; SelectedAuthorization = null; LifecycleAction = null; LifecycleReason = string.Empty; RequestNo = Applicant = ProductName = RequestCustomerIdText = RequestContactIdText = RequestMachineIdText = string.Empty; SelectedFeatureVersionIds = []; RequestedExpiresAt = null; GracePeriodDays = 0; OtherInfo = "{}"; AuthorizationRequestIdText = LicenseNo = AuthorizationProductName = ExternalLicense = string.Empty; ExpiresAt = null; AuthorizationFeaturesJson = "[]"; AuthorizationOtherInfo = "{}"; }
+    private void NextRequestStep()
+    {
+        Error = null;
+        try
+        {
+            if (RequestStep == 1)
+            {
+                if (string.IsNullOrWhiteSpace(RequestNo)) throw new InvalidOperationException("申请编号不能为空。");
+                if (IsAdministrator && string.IsNullOrWhiteSpace(Applicant)) throw new InvalidOperationException("申请人不能为空。");
+                if (!Guid.TryParse(RequestCustomerIdText, out _) || !Guid.TryParse(RequestMachineIdText, out _)) throw new InvalidOperationException("请选择 CRM 客户和客户机台。");
+                if (string.IsNullOrWhiteSpace(ProductName)) throw new InvalidOperationException("请选择许可证产品。");
+            }
+            else if (RequestStep == 2)
+            {
+                JsonObjectValue.Normalize(OtherInfo, nameof(OtherInfo));
+            }
+            RequestStep = Math.Min(3, RequestStep + 1);
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void PreviousRequestStep() { Error = null; RequestStep = Math.Max(1, RequestStep - 1); }
+    private void SaveRequest() { try { if (RequestStep != 3) throw new InvalidOperationException("请先完成申请信息和特性选择。"); if (!CanCreate) throw new InvalidOperationException("没有创建许可证申请权限。"); if (!Guid.TryParse(RequestCustomerIdText, out var customerId) || !Guid.TryParse(RequestMachineIdText, out var machineId)) throw new InvalidOperationException("请选择 CRM 客户和客户机台。"); var contactId = Guid.TryParse(RequestContactIdText, out var parsedContactId) ? parsedContactId : (Guid?)null; LicenseService.CreateMachineRequest(RequestNo, Applicant, CurrentActor, customerId, contactId, machineId, ProductName, System.Text.Json.JsonSerializer.Serialize(SelectedFeatureVersionIds, JsonSerializationDefaults.CreateWeb()), RequestedExpiresAt, OtherInfo, GracePeriodDays, IsAdministrator); Close(); } catch (Exception ex) { Error = ex.Message; } }
+    private void DeleteDraft(LmsLicenseRequest item) { try { if (!CanDeleteDraft) throw new InvalidOperationException("没有删除草稿申请权限。"); LicenseService.DeleteDraft(item, CurrentActor, IsAdministrator); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Cancel(LmsLicenseRequest item) { try { if (!CanCancel) throw new InvalidOperationException("没有取消许可证申请权限。"); LicenseService.Cancel(item, CurrentActor, "申请人主动取消", IsAdministrator); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Submit(LmsLicenseRequest item) { try { if (!CanSubmit) throw new InvalidOperationException("没有提交许可证申请权限。"); LicenseService.SubmitAndStartWorkflow(item, CurrentActor, IsAdministrator); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Resubmit(LmsLicenseRequest item) { try { if (!CanSubmit) throw new InvalidOperationException("没有提交许可证申请权限。"); LicenseService.ResubmitAfterWithdrawal(item, CurrentActor, IsAdministrator); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void SaveAuthorization() { try { if (!CanRegister) throw new InvalidOperationException("没有登记外部授权权限。"); if (Guid.TryParse(AuthorizationRequestIdText, out var requestId)) LicenseService.RegisterExternalLicenseFromRequest(requestId, LicenseNo, ExternalLicense, ExpiresAt, AuthorizationOtherInfo, CurrentActor, IsAdministrator); else LicenseService.RegisterExternalLicense(null, LicenseNo, ExternalLicense, AuthorizationProductName, AuthorizationFeaturesJson, ExpiresAt, AuthorizationOtherInfo, CurrentActor, IsAdministrator); Close(); } catch (Exception ex) { Error = ex.Message; } }
+    private void OpenLifecycle(LmsLicenseAuthorization item, LmsLicenseLifecycleAction action) { if (!CanLifecycle) { Error = "没有变更授权生命周期权限。"; return; } Error = null; SelectedAuthorization = item; LifecycleAction = action; LifecycleReason = string.Empty; ShowLifecycle = true; }
+    private void SaveLifecycle() { try { if (!CanLifecycle) throw new InvalidOperationException("没有变更授权生命周期权限。"); if (SelectedAuthorization is null || LifecycleAction is null) throw new InvalidOperationException("请选择要变更的授权。"); switch (LifecycleAction) { case LmsLicenseLifecycleAction.Disabled: LicenseService.DisableAuthorization(SelectedAuthorization, CurrentActor, LifecycleReason, isAdministrator: IsAdministrator); break; case LmsLicenseLifecycleAction.Enabled: LicenseService.EnableAuthorization(SelectedAuthorization, CurrentActor, LifecycleReason, isAdministrator: IsAdministrator); break; case LmsLicenseLifecycleAction.Revoked: LicenseService.RevokeAuthorization(SelectedAuthorization, CurrentActor, LifecycleReason, isAdministrator: IsAdministrator); break; } Close(); } catch (Exception ex) { Error = ex.Message; } }
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private string SelectedCustomerName => Guid.TryParse(RequestCustomerIdText, out var customerId) ? CustomerService.List(filter: VelrixWorkHub.Application.Customers.CustomerFilter.Active).FirstOrDefault(x => x.Id == customerId)?.Name ?? "未选择" : "未选择";
+    private string SelectedContactName => Guid.TryParse(RequestContactIdText, out var contactId) ? ContactService.List(customerId: Guid.TryParse(RequestCustomerIdText, out var customerId) ? customerId : null).FirstOrDefault(x => x.Id == contactId)?.Name ?? "未关联" : "未关联";
+    private string SelectedMachineLabel => Guid.TryParse(RequestMachineIdText, out var machineId) && Guid.TryParse(RequestCustomerIdText, out var customerId) ? MachineService.List(customerId, includeDisabled: false).FirstOrDefault(x => x.Id == machineId) is { } machine ? $"{machine.MachineCode} · {machine.Model ?? "未记录"} · {machine.Environment ?? "未记录"}" : "未选择" : "未选择";
+    private string SelectedFeatureSummary => SelectedFeatureVersionIds.Length == 0 ? "未选择" : string.Join("、", SelectedFeatureVersionIds.Select(id => FeatureVersionService.List().FirstOrDefault(x => x.Id.ToString() == id) is { } version ? FeatureVersionLabel(version) : id));
+    private string LifecycleTitle => LifecycleAction switch { LmsLicenseLifecycleAction.Disabled => "停用授权", LmsLicenseLifecycleAction.Enabled => "开启授权", LmsLicenseLifecycleAction.Revoked => "作废授权", _ => "变更授权" };
+    private static string WorkflowHref(LmsLicenseRequest item) => $"/Workflow/Inbox?businessType={nameof(LmsLicenseRequest)}&businessId={item.Id}";
+    private static string AuthorizationHref(Guid authorizationId) => $"/Lms/License?authorizationId={authorizationId}";
+    private IEnumerable<LmsCustomerMachine> RequestMachines => Guid.TryParse(RequestCustomerIdText, out var customerId) ? MachineService.List(customerId, includeDisabled: false) : [];
+    private IEnumerable<CustomerContact> RequestContacts => Guid.TryParse(RequestCustomerIdText, out var customerId) ? ContactService.List(customerId: customerId) : [];
+    private IEnumerable<CustomerContact> RequestFilterContacts => Guid.TryParse(RequestCustomerFilterIdText, out var customerId) ? ContactService.List(customerId: customerId) : ContactService.List();
+    private IEnumerable<LmsMachineFeature> RequestMachineFeatures => Guid.TryParse(RequestMachineIdText, out var machineId) ? MachineFeatureService.List(machineId, includeDisabled: false) : [];
+    private string? RequestCustomerName(LmsLicenseRequest request) => request.CustomerId is Guid customerId ? CustomerService.List(filter: VelrixWorkHub.Application.Customers.CustomerFilter.All).FirstOrDefault(x => x.Id == customerId)?.Name : null;
+    private string? RequestContactName(LmsLicenseRequest request) => request.ContactId is Guid contactId ? ContactService.List(customerId: request.CustomerId).FirstOrDefault(x => x.Id == contactId)?.Name : null;
+    private string FeatureVersionLabel(LmsFeatureVersion version) { var feature = FeatureService.List().FirstOrDefault(x => x.Id == version.FeatureId); return $"{feature?.Code ?? "未知特性"} · v{version.Version} · {version.Level}"; }
+    private static string RequestStatusLabel(LmsLicenseRequestStatus status) => status switch { LmsLicenseRequestStatus.Draft => "草稿", LmsLicenseRequestStatus.Submitted => "审批中", LmsLicenseRequestStatus.Approved => "已批准", LmsLicenseRequestStatus.Rejected => "已驳回", LmsLicenseRequestStatus.Withdrawn => "已撤回", LmsLicenseRequestStatus.Cancelled => "已取消", _ => status.ToString() };
+    private static string AuthorizationStatusLabel(LmsLicenseStatus status) => status switch { LmsLicenseStatus.Active => "有效", LmsLicenseStatus.Disabled => "已停用", LmsLicenseStatus.Expired => "已到期", LmsLicenseStatus.Revoked => "已作废", _ => status.ToString() };
+    private static string LifecycleActionLabel(LmsLicenseLifecycleAction action) => action switch { LmsLicenseLifecycleAction.Disabled => "停用", LmsLicenseLifecycleAction.Enabled => "开启", LmsLicenseLifecycleAction.Revoked => "作废", _ => action.ToString() };
+    private static string ReplacementKindLabel(LmsLicenseReplacementKind? kind) => kind switch { LmsLicenseReplacementKind.Renewal => "续期", LmsLicenseReplacementKind.Reissue => "重发", LmsLicenseReplacementKind.MachineChange => "换机", _ => "替代" };
+    private bool AuthorizationMatches(LmsLicenseAuthorization authorization, DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(AuthorizationStatusFilter)) return true;
+        if (AuthorizationStatusFilter.Equals("Expiring", StringComparison.OrdinalIgnoreCase)) return authorization.Status == LmsLicenseStatus.Active && authorization.ExpiresAt is DateTime expiresAt && expiresAt >= now && expiresAt <= now.AddDays(VelrixWorkHub.Application.Lms.LmsLicenseExpiryReminderService.DefaultWarningDays);
+        return authorization.GetEffectiveStatus(now).ToString().Equals(AuthorizationStatusFilter, StringComparison.OrdinalIgnoreCase);
+    }
+    private static string WorkflowLabel(WorkflowInstanceStatus? status) => status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已拒绝", WorkflowInstanceStatus.Cancelled => "已撤回", _ => "未发起" };
+}

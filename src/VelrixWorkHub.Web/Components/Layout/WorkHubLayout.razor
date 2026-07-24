@@ -1,0 +1,158 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject IAdminContext Admin
+@inject VelrixWorkHub.Application.Navigation.UserMenuPreferenceService MenuPreferenceService
+@inject NavigationManager Navigation
+
+<CascadingValue Value="Admin">
+<div class="admin-layout workhub-layout">
+    <aside class="admin-sidebar">
+        <div class="sidebar-brand px-3 py-3">
+            <h5 class="mb-0 text-white">@(Admin.Tenant?.Title ?? "Velrix Work Hub")</h5>
+            <small class="text-white-50">工作台</small>
+        </div>
+        <nav class="nav flex-column px-2" aria-label="主导航">
+            <MenuTree Menus="Admin.RoleMenus" HiddenMenuIds="HiddenMenuIds" />
+        </nav>
+    </aside>
+    <main class="admin-main">
+        <div class="admin-topbar px-3 py-2 d-flex justify-content-between align-items-center">
+            <div class="quick-bar">
+                <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleQuick" aria-expanded="@QuickOpen">
+                    <i class="fa fa-bolt me-1"></i>快捷
+                </button>
+                @if (QuickOpen)
+                {
+                    <div class="quick-popover" role="dialog" aria-label="快捷入口">
+                        <div class="quick-popover__title">我的快捷入口</div>
+                        @if (FavoriteMenus.Count == 0)
+                        {
+                            <div class="quick-empty">还没有收藏菜单</div>
+                        }
+                        else
+                        {
+                            @foreach (var item in FavoriteMenus)
+                            {
+                                <a class="quick-popover__link" href="/@item.Path" @onclick="CloseQuick">
+                                    <i class="@(string.IsNullOrWhiteSpace(item.Icon) ? "fa fa-circle-o" : item.Icon) me-2"></i>@item.Label
+                                </a>
+                            }
+                        }
+                        <a class="quick-popover__config" href="/Menu/Customize" @onclick="CloseQuick">配置菜单与收藏</a>
+                    </div>
+                }
+            </div>
+            <div class="d-flex align-items-center">
+                @if (Admin.User != null)
+                {
+                    <a class="topbar-user me-3" href="/Admin/UserProfile">@(Admin.User.Nickname ?? Admin.User.Username)</a>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="LogoutAsync">退出</button>
+                }
+                else
+                {
+                    <a href="/Login" class="btn btn-sm btn-outline-light">登录</a>
+                }
+            </div>
+        </div>
+        <div class="admin-content p-3">@Body</div>
+    </main>
+</div>
+</CascadingValue>
+
+<style>
+.workhub-layout { display: flex; height: 100vh; min-height: 100vh; overflow: hidden; }
+.workhub-layout .admin-sidebar { box-sizing: border-box; width: 252px; min-width: 252px; max-width: 252px; flex: 0 0 252px; background: linear-gradient(135deg, var(--main-color-secondary, #1D3A3A) 0%, var(--main-color-primary, #205656) 100%); color: #fff; overflow-y: auto; scrollbar-gutter: stable; }
+.workhub-layout .admin-main { flex: 1; display: flex; flex-direction: column; background: #f8f9fe; min-width: 0; min-height: 0; }
+.workhub-layout .admin-topbar { background: #fff; border-bottom: 1px solid #e9ecef; min-height: 48px; }
+.workhub-layout .admin-content { flex: 1; min-height: 0; overflow: auto; }
+.workhub-layout .sidebar-brand { border-bottom: 1px solid rgba(255,255,255,0.15); }
+.workhub-layout .sidebar-brand h5 { color: #fff; }
+.workhub-layout .hub-menu-item { display: flex; align-items: center; min-height: 36px; margin: 2px 0; border-radius: 6px; }
+.workhub-layout .hub-menu-link, .workhub-layout .hub-menu-label { flex: 1; min-width: 0; color: rgba(255,255,255,.78); padding: .5rem .55rem; border-radius: 6px; font-size: .9rem; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.workhub-layout .hub-menu-link i { width: 1.3rem; text-align: center; margin-right: .35rem; }
+.workhub-layout .hub-menu-link:hover, .workhub-layout .hub-menu-link.active { color: #fff; background-color: rgba(255,255,255,.14); }
+.workhub-layout .hub-menu-link.active { font-weight: 600; }
+.workhub-layout .hub-menu-toggle { width: 32px; height: 32px; border: 0; border-radius: 5px; background: transparent; color: rgba(255,255,255,.65); flex: 0 0 32px; }
+.workhub-layout .hub-menu-toggle:hover { color: #fff; background: rgba(255,255,255,.12); }
+.workhub-layout .hub-menu-item--depth-0 { margin-top: 8px; border-top: 1px solid rgba(255,255,255,.13); padding-top: 7px; }
+.workhub-layout .hub-menu-item--depth-0:first-child { border-top: 0; padding-top: 0; }
+.workhub-layout .hub-menu-item--depth-0 .hub-menu-link { color: #fff; font-weight: 700; }
+.workhub-layout .hub-menu-children { margin-left: .55rem; padding-left: .45rem; border-left: 1px solid rgba(255,255,255,.16); }
+.workhub-layout .hub-menu-item--depth-2 .hub-menu-link { font-size: .84rem; color: rgba(255,255,255,.67); }
+.quick-bar { position: relative; }
+.quick-popover { position: absolute; top: 2.2rem; left: 0; width: 260px; padding: .75rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 12px 32px rgba(15,23,42,.16); z-index: 20; }
+.quick-popover__title { padding: .25rem .5rem .5rem; font-weight: 700; color: #263238; }
+.quick-popover__link, .quick-popover__config { display: block; padding: .55rem .5rem; border-radius: 6px; color: #334155; text-decoration: none; }
+.quick-popover__link:hover, .quick-popover__config:hover { background: #f1f5f9; }
+.quick-popover__config { margin-top: .5rem; border-top: 1px solid #e5e7eb; color: #0f766e; }
+.quick-empty { padding: .5rem; color: #64748b; font-size: .9rem; }
+.topbar-user { color: #334155; text-decoration: none; }
+@@media (max-width: 768px) { .workhub-layout .admin-sidebar { display: none; } }
+</style>
+
+@code {
+    private bool QuickOpen;
+    private HashSet<Guid> HiddenMenuIds { get; set; } = [];
+    private List<SysMenu> FavoriteMenus { get; set; } = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (Admin.User == null)
+        {
+            Navigation.NavigateTo("/Login", forceLoad: true);
+            return;
+        }
+
+        var preferences = MenuPreferenceService.List(Admin.User.Id);
+        HiddenMenuIds = preferences.Where(x => !x.IsVisible).Select(x => x.MenuId).ToHashSet();
+        var favoriteIds = preferences.Where(x => x.IsFavorite).Select(x => x.MenuId).ToHashSet();
+        FavoriteMenus = Flatten(Admin.RoleMenus)
+            .Where(x => favoriteIds.Contains(x.Id) && !string.IsNullOrWhiteSpace(x.Path) && !HiddenMenuIds.Contains(x.Id))
+            .OrderBy(x => preferences.First(p => p.MenuId == x.Id).Sort)
+            .ToList();
+        MenuPreferenceService.Changed += RefreshPreferences;
+
+        var path = Navigation.ToBaseRelativePath(Navigation.Uri).TrimEnd('/');
+        if (path.StartsWith("Admin/", StringComparison.OrdinalIgnoreCase)
+            && !path.Equals("Admin/UserProfile", StringComparison.OrdinalIgnoreCase)
+            && !Admin.AuthPath(path))
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+    }
+
+    private void ToggleQuick() => QuickOpen = !QuickOpen;
+    private void CloseQuick() => QuickOpen = false;
+    private void RefreshPreferences()
+    {
+        if (Admin.User is null) return;
+        var preferences = MenuPreferenceService.List(Admin.User.Id);
+        HiddenMenuIds = preferences.Where(x => !x.IsVisible).Select(x => x.MenuId).ToHashSet();
+        var favoriteIds = preferences.Where(x => x.IsFavorite).Select(x => x.MenuId).ToHashSet();
+        FavoriteMenus = Flatten(Admin.RoleMenus)
+            .Where(x => favoriteIds.Contains(x.Id) && !string.IsNullOrWhiteSpace(x.Path) && !HiddenMenuIds.Contains(x.Id))
+            .OrderBy(x => preferences.First(p => p.MenuId == x.Id).Sort)
+            .ToList();
+        _ = InvokeAsync(StateHasChanged);
+    }
+    private void LogoutAsync()
+    {
+        Admin.SignOut();
+        Navigation.NavigateTo("/api/admin/logout", forceLoad: true);
+    }
+
+    private static IEnumerable<SysMenu> Flatten(IEnumerable<SysMenu> menus)
+    {
+        foreach (var menu in menus)
+        {
+            if (!string.IsNullOrWhiteSpace(menu.Path)) yield return menu;
+            if (menu.Children is not null)
+            {
+                foreach (var child in Flatten(menu.Children)) yield return child;
+            }
+        }
+    }
+
+    public void Dispose() => MenuPreferenceService.Changed -= RefreshPreferences;
+}

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FreeSql" Version="3.5.309" />
+    <PackageReference Include="FreeSql.Provider.PostgreSQL" Version="3.5.309" />
+    <PackageReference Include="FreeSql.Provider.SqlServer" Version="3.5.309" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VelrixWorkHub.Domain\VelrixWorkHub.Domain.csproj" />
+    <ProjectReference Include="..\..\src\VelrixWorkHub.Application\VelrixWorkHub.Application.csproj" />
+    <ProjectReference Include="..\..\src\VelrixWorkHub.Infrastructure\VelrixWorkHub.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

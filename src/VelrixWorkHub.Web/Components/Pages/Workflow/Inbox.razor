@@ -1,0 +1,135 @@
+@page "/Workflow/Inbox"
+@using VelrixWorkHub.Application.SimpleForms
+@inject IAdminContext Admin
+@inject NavigationManager Navigation
+@inject VelrixWorkHub.Application.Workflow.WorkflowTaskService TaskService
+@inject VelrixWorkHub.Application.Workflow.WorkflowInstanceService InstanceService
+@inject VelrixWorkHub.Application.Workflow.WorkflowOperationService OperationService
+@inject VelrixWorkHub.Application.Workflow.WorkflowRuntimeService RuntimeService
+@inject SimpleFormService FormService
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Domain
+
+<PageTitle>审批收件箱 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">平台能力 · Workflow/Inbox</p><h1>审批收件箱</h1><p class="task-page__intro">集中查看 CRM、PMP、ERP 和许可证申请审批待办，保留审批人、意见和处理时间。</p></div><div class="task-page__summary"><strong>@PendingTasks.Count</strong><span>条待处理</span></div></div>
+    <section class="task-toolbar customer-toolbar"><label class="customer-search"><i class="fa fa-user"></i><input aria-label="当前审批人" value="@CurrentActor" readonly /></label><label class="customer-search"><i class="fa fa-comment-o"></i><input aria-label="审批意见" @bind="Comment" @bind:event="oninput" placeholder="填写审批意见（可选）" /></label><label class="customer-search"><i class="fa fa-share"></i><input aria-label="转交审批人" @bind="TransferAssignee" @bind:event="oninput" placeholder="转交给谁，例如 finance" /></label><select aria-label="筛选业务类型" @bind="BusinessTypeFilter"><option value="">全部业务</option><option value="@nameof(SalesContract)">CRM 合同</option><option value="@nameof(PmpProjectChange)">PMP 项目变更</option><option value="@nameof(ErpSettlement)">ERP 核销</option><option value="@nameof(PurchaseOrder)">ERP 采购订单</option><option value="@nameof(SalesOrder)">ERP 销售订单</option><option value="@nameof(LmsLicenseRequest)">许可证申请</option><option value="@nameof(LmsLicenseReplacementRequest)">许可证授权替代</option><option value="@nameof(SimpleFormSubmission)">简单表单申请</option></select><div class="task-filters" role="tablist" aria-label="审批状态筛选"><button class="task-filter @(ShowHistory ? "" : "is-active")" role="tab" aria-selected="@(!ShowHistory)" @onclick="() => ShowHistory = false">待处理</button><button class="task-filter @(ShowHistory ? "is-active" : "")" role="tab" aria-selected="@ShowHistory" @onclick="() => ShowHistory = true">处理历史</button></div>@if (!string.IsNullOrWhiteSpace(BusinessTypeFilter) || BusinessIdQuery is not null) { <a class="task-secondary-button" href="/Workflow/Inbox">清除筛选</a> }</section>
+    @if (RunningInstances.Any()) { <section class="task-list" aria-label="我发起的审批"><div class="task-page__section-title"><h2>我发起的审批</h2><span>仅显示当前登录用户仍在运行的流程</span></div>@foreach (var instance in RunningInstances) { <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-send-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--pending">审批中</span><span>@BusinessLabel(instance.BusinessType) · V@(instance.DefinitionVersion)</span></div><h2>@BusinessLabel(instance.BusinessType)</h2><p>@instance.StartedBy · @instance.StartedAt.ToString("yyyy-MM-dd HH:mm")</p><div class="customer-note">业务对象 @instance.BusinessId @if (BusinessHref(instance) is string href) { <a href="@href">查看业务</a> }</div></div><div class="task-card__actions">@if (CanRetryAction) { @foreach (var failedNode in FailedAutomaticNodes(instance)) { <button title="重试失败节点：@failedNode.Name" @onclick="() => Retry(instance, failedNode.Id)"><i class="fa fa-refresh"></i></button> } }@if (CanWithdrawAction) { <button class="danger" title="撤回审批" @onclick="() => Withdraw(instance)"><i class="fa fa-undo"></i></button> }</div></article> }</section> }
+    @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-list" aria-live="polite">
+        @if (!VisibleTasks.Any()) { <div class="task-empty"><i class="fa fa-inbox"></i><strong>暂无审批待办</strong><span>流程绑定后，审批节点会自动出现在这里。</span></div> }
+        else { @foreach (var task in VisibleTasks) { <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-check-square-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@task.Status.ToString().ToLowerInvariant()">@StatusLabel(task.Status)</span><span>@task.BusinessType · V@(task.DefinitionVersion)</span></div><h2>@task.NodeName</h2><p>@task.Assignee · @task.CreatedAt.ToString("yyyy-MM-dd HH:mm")</p><div class="customer-note">业务对象 @task.BusinessId · 流程实例 @task.InstanceId @if (BusinessHref(task) is string href) { <a href="@href">查看业务</a> }</div>@if (SimpleFormSnapshot(task) is SimpleFormWorkflowSnapshot snapshot) { <div class="customer-note">@snapshot.DefinitionCode · 表单 V@(snapshot.FormVersionNumber) · 申请人 @snapshot.ApplicantName</div><pre class="customer-note" aria-label="简单表单数据快照">@snapshot.DataJson</pre> }@if (task.Status != WorkflowTaskStatus.Pending) { <div class="customer-note">@if (task.Status == WorkflowTaskStatus.Transferred && task.TransferTarget is string target) { <span>转交给 @target · </span> }@task.DecisionActor · @(task.DecisionComment ?? "未填写意见") · @task.CompletedAt?.ToString("yyyy-MM-dd HH:mm")</div> }@if (ShowHistory && OperationText(task) is string operationText) { <div class="customer-note" aria-label="流程操作记录">操作记录：@operationText</div> }</div>@if (task.Status == WorkflowTaskStatus.Pending && CanAct(task)) { <div class="task-card__actions">@if (CanApproveAction) { <button title="同意" @onclick="() => Approve(task)"><i class="fa fa-check"></i></button> }@if (CanRejectAction) { <button class="danger" title="拒绝" @onclick="() => Reject(task)"><i class="fa fa-times"></i></button> }@if (CanReturnAction) { @foreach (var target in ReturnTargets(task)) { <button title="退回至 @target.Name" @onclick="() => Return(task, target.Id)"><i class="fa fa-reply"></i></button> } }@if (CanTransferAction) { <button title="转交" @onclick="() => Transfer(task)"><i class="fa fa-share"></i></button> }</div> } else if (task.Status == WorkflowTaskStatus.Pending) { <div class="customer-note">当前登录用户不是指定审批人，不能处理此待办。</div> }</article> } }
+    </section>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "businessType")] public string? BusinessTypeQuery { get; set; }
+    [SupplyParameterFromQuery(Name = "businessId")] public Guid? BusinessIdQuery { get; set; }
+    private string Comment = "";
+    private string TransferAssignee = "";
+    private string BusinessTypeFilter = "";
+    private bool ShowHistory;
+    private string? Error;
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private bool CanApproveAction => Admin.AuthButton("Workflow/Inbox/Approve");
+    private bool CanRejectAction => Admin.AuthButton("Workflow/Inbox/Reject");
+    private bool CanReturnAction => Admin.AuthButton("Workflow/Inbox/Return");
+    private bool CanTransferAction => Admin.AuthButton("Workflow/Inbox/Transfer");
+    private bool CanWithdrawAction => Admin.AuthButton("Workflow/Inbox/Withdraw");
+    private bool CanRetryAction => Admin.AuthButton("Workflow/Inbox/Retry");
+    private IReadOnlyList<WorkflowTask> AllTasks => string.IsNullOrWhiteSpace(CurrentActor) ? [] : TaskService.List(assignee: CurrentActor).Where(MatchesBusinessType).Where(MatchesBusinessId).ToArray();
+    private IReadOnlyList<WorkflowTask> PendingTasks => string.IsNullOrWhiteSpace(CurrentActor) ? [] : TaskService.List(assignee: CurrentActor, status: WorkflowTaskStatus.Pending).Where(MatchesBusinessType).Where(MatchesBusinessId).ToArray();
+    private IReadOnlyList<WorkflowInstance> RunningInstances => string.IsNullOrWhiteSpace(CurrentActor) ? Array.Empty<WorkflowInstance>() : InstanceService.List(status: WorkflowInstanceStatus.Running).Where(x => x.StartedBy.Equals(CurrentActor, StringComparison.OrdinalIgnoreCase)).ToArray();
+    private IEnumerable<WorkflowTask> VisibleTasks => ShowHistory ? AllTasks.Where(x => x.Status != WorkflowTaskStatus.Pending) : PendingTasks;
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (!Admin.AuthPath("Workflow/Inbox")) Navigation.NavigateTo("/", forceLoad: true);
+    }
+    protected override void OnParametersSet()
+    {
+        // 同一组件从带筛选深链返回无参数地址时，必须清掉旧筛选，避免残留视图状态。
+        BusinessTypeFilter = BusinessTypeQuery?.Trim() ?? string.Empty;
+    }
+    private void Approve(WorkflowTask task) { try { EnsureCurrentActor(); TaskService.Approve(task, CurrentActor, string.IsNullOrWhiteSpace(Comment) ? "同意" : Comment); Comment = string.Empty; Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Reject(WorkflowTask task) { try { EnsureCurrentActor(); TaskService.Reject(task, CurrentActor, string.IsNullOrWhiteSpace(Comment) ? "拒绝" : Comment); Comment = string.Empty; Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Withdraw(WorkflowInstance instance) { try { EnsureCurrentActor(); TaskService.Withdraw(instance.Id, CurrentActor, "发起人撤回"); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Retry(WorkflowInstance instance, Guid failedNodeId) { try { EnsureCurrentActor(); TaskService.Retry(instance, CurrentActor, failedNodeId: failedNodeId); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Transfer(WorkflowTask task) { try { EnsureCurrentActor(); TaskService.Transfer(task, CurrentActor, TransferAssignee, string.IsNullOrWhiteSpace(Comment) ? "转交审批" : Comment); TransferAssignee = string.Empty; Comment = string.Empty; Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Return(WorkflowTask task, Guid targetNodeId) { try { EnsureCurrentActor(); TaskService.ReturnToNode(task, CurrentActor, targetNodeId, string.IsNullOrWhiteSpace(Comment) ? "退回补充" : Comment); Comment = string.Empty; Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void EnsureCurrentActor() { if (string.IsNullOrWhiteSpace(CurrentActor)) throw new InvalidOperationException("当前用户未登录，不能处理审批待办。"); }
+    private bool CanAct(WorkflowTask task) => !string.IsNullOrWhiteSpace(CurrentActor) && task.Assignee.Equals(CurrentActor, StringComparison.OrdinalIgnoreCase);
+    private IEnumerable<(Guid Id, string Name)> FailedAutomaticNodes(WorkflowInstance instance)
+    {
+        foreach (var nodeId in RuntimeService.GetRetryableNodeIds(instance))
+        {
+            string? nodeName = null;
+            try
+            {
+                nodeName = instance.GetNodeName(nodeId);
+            }
+            catch (InvalidOperationException)
+            {
+                // 损坏或旧版本快照不能阻断收件箱渲染，也不能暴露不可重试入口。
+            }
+            if (nodeName is not null) yield return (nodeId, nodeName);
+        }
+    }
+    private bool MatchesBusinessType(WorkflowTask task) => string.IsNullOrWhiteSpace(BusinessTypeFilter) || task.BusinessType.Equals(BusinessTypeFilter, StringComparison.Ordinal);
+    private bool MatchesBusinessId(WorkflowTask task) => BusinessIdQuery is null || task.BusinessId == BusinessIdQuery;
+    private SimpleFormWorkflowSnapshot? SimpleFormSnapshot(WorkflowTask task) => task.BusinessType.Equals(nameof(SimpleFormSubmission), StringComparison.OrdinalIgnoreCase) ? FormService.GetWorkflowSnapshot(task.InstanceId) : null;
+    private string? OperationText(WorkflowTask task)
+    {
+        var operations = OperationService.List(instanceId: task.InstanceId).Where(x => x.TaskId == task.Id || x.TaskId is null).ToArray();
+        return operations.Length == 0 ? null : string.Join("；", operations.Select(OperationLabel));
+    }
+    private static string? BusinessHref(WorkflowTask task) => task.BusinessType switch
+    {
+        nameof(SalesContract) => $"/Crm/Contract?contractId={task.BusinessId}",
+        nameof(PmpProjectChange) => $"/Pmp/Change?changeId={task.BusinessId}",
+        nameof(ErpSettlement) => $"/Erp/Settlement?settlementId={task.BusinessId}",
+        nameof(PurchaseOrder) => "/Erp/PurchaseOrder",
+        nameof(SalesOrder) => "/Erp/SalesOrder",
+        nameof(LmsLicenseRequest) => $"/Lms/License?requestId={task.BusinessId}",
+        nameof(LmsLicenseReplacementRequest) => $"/Lms/LicenseReplacement?replacementRequestId={task.BusinessId}",
+        _ => null
+    };
+    private static string? BusinessHref(WorkflowInstance instance) => instance.BusinessType switch
+    {
+        nameof(SalesContract) => $"/Crm/Contract?contractId={instance.BusinessId}",
+        nameof(PmpProjectChange) => $"/Pmp/Change?changeId={instance.BusinessId}",
+        nameof(ErpSettlement) => $"/Erp/Settlement?settlementId={instance.BusinessId}",
+        nameof(PurchaseOrder) => $"/Erp/PurchaseOrder?orderId={instance.BusinessId}",
+        nameof(SalesOrder) => $"/Erp/SalesOrder?orderId={instance.BusinessId}",
+        nameof(LmsLicenseRequest) => $"/Lms/License?requestId={instance.BusinessId}",
+        nameof(LmsLicenseReplacementRequest) => $"/Lms/LicenseReplacement?replacementRequestId={instance.BusinessId}",
+        _ => null
+    };
+    private static string BusinessLabel(string businessType) => businessType switch
+    {
+        nameof(SalesContract) => "CRM 合同",
+        nameof(PmpProjectChange) => "PMP 项目变更",
+        nameof(ErpSettlement) => "ERP 核销",
+        nameof(PurchaseOrder) => "ERP 采购订单",
+        nameof(SalesOrder) => "ERP 销售订单",
+        nameof(LmsLicenseRequest) => "许可证申请",
+        nameof(LmsLicenseReplacementRequest) => "许可证授权替代",
+        nameof(SimpleFormSubmission) => "简单表单申请",
+        _ => businessType
+    };
+    private IEnumerable<(Guid Id, string Name)> ReturnTargets(WorkflowTask task)
+    {
+        var instance = InstanceService.List().SingleOrDefault(x => x.Id == task.InstanceId);
+        if (instance is null || instance.Status != WorkflowInstanceStatus.Running) return [];
+        return WorkflowReturnConfiguration.ParseTargets(instance.GetNodeConfig(task.NodeId))
+            .Select(id => (id, instance.GetNodeName(id)));
+    }
+    private static string StatusLabel(WorkflowTaskStatus status) => status switch { WorkflowTaskStatus.Pending => "待处理", WorkflowTaskStatus.Approved => "已同意", WorkflowTaskStatus.Rejected => "已拒绝", WorkflowTaskStatus.Transferred => "已转交", WorkflowTaskStatus.Returned => "已退回", _ => "已取消" };
+    private static string OperationLabel(WorkflowOperation operation)
+    {
+        var label = operation.Kind switch { WorkflowOperationKind.Started => "发起", WorkflowOperationKind.Assigned => "分派", WorkflowOperationKind.Approved => "同意", WorkflowOperationKind.Rejected => "拒绝", WorkflowOperationKind.Cancelled => "取消", WorkflowOperationKind.Returned => "退回", WorkflowOperationKind.Transferred => "转交", WorkflowOperationKind.Withdrawn => "撤回", WorkflowOperationKind.Resubmitted => "重新提交", WorkflowOperationKind.NodeCompleted => "节点完成", WorkflowOperationKind.NodeEntered => "进入节点", WorkflowOperationKind.NodeExecuted => "执行节点", WorkflowOperationKind.NodeFailed => "节点失败", WorkflowOperationKind.Retried => "重试节点", _ => operation.Kind.ToString() };
+        var target = string.IsNullOrWhiteSpace(operation.TargetAssignee) ? string.Empty : $"→{operation.TargetAssignee}";
+        var comment = string.IsNullOrWhiteSpace(operation.Comment) ? string.Empty : $"：{operation.Comment}";
+        return $"{label} {operation.Actor}{target}{comment} {operation.OccurredAt:yyyy-MM-dd HH:mm}";
+    }
+}

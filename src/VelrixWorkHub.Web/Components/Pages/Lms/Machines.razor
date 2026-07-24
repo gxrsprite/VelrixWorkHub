@@ -1,0 +1,44 @@
+@page "/Lms/Machine"
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.Lms.LmsLicenseProductService ProductService
+@inject VelrixWorkHub.Application.Lms.LmsCustomerMachineService MachineService
+@using VelrixWorkHub.Domain
+
+<PageTitle>客户机台 - Velrix Work Hub</PageTitle>
+
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">LMS · Customer Machine</p><h1>客户机台</h1><p class="task-page__intro">机台只关联 CRM 客户；客户名称和状态始终实时取自 CRM 主数据。</p></div></div>
+    <section class="task-toolbar customer-toolbar"><button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus"></i> 新建机台</button></section>
+    @if (Show)
+    {
+        <section class="task-composer">
+            <div class="task-composer__fields">
+                <label>CRM 客户<select @bind="CustomerId"><option value="@Guid.Empty">请选择客户</option>@foreach (var customer in CustomerService.List(filter: VelrixWorkHub.Application.Customers.CustomerFilter.Active)) { <option value="@customer.Id">@customer.Name</option> }</select></label>
+                <label>机器码<input @bind="MachineCode" /></label>
+                <label>许可证产品<select @bind="ProductName"><option value="">请选择产品</option>@foreach (var product in ProductService.List(includeDisabled: false)) { <option value="@product.Name">@product.Name</option> }</select></label>
+                <label>机台型号<input @bind="Model" /></label>
+                <label>运行环境<input @bind="Environment" placeholder="例如 Production" /></label>
+            </div>
+            <label>OtherInfo JSON 对象<textarea @bind="OtherInfo"></textarea></label>
+            @if (Error is not null) { <div class="task-error">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存</button></div>
+        </section>
+    }
+    <section class="task-list">
+        @foreach (var item in MachineService.List())
+        {
+            var customer = CustomerService.List().FirstOrDefault(x => x.Id == item.CustomerId);
+            <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span class="task-status">@(item.Status == LmsCustomerMachineStatus.Active ? "启用" : "停用")</span><span>@(customer?.Name ?? "CRM 客户已不可用")</span><span>@item.ProductName</span></div><h2>@item.MachineCode</h2><p>@(item.Model ?? "未填写型号") · @(item.Environment ?? "未填写环境")</p></div><div class="task-card__actions"><button title="切换状态" @onclick="() => MachineService.SetStatus(item, item.Status == LmsCustomerMachineStatus.Active ? LmsCustomerMachineStatus.Disabled : LmsCustomerMachineStatus.Active)"><i class="fa fa-toggle-on"></i></button></div></article>
+        }
+    </section>
+</div>
+
+@code {
+    private bool Show;
+    private Guid CustomerId;
+    private string MachineCode = string.Empty, ProductName = string.Empty, Model = string.Empty, Environment = string.Empty, OtherInfo = "{}";
+    private string? Error;
+    private void OpenCreate() { Close(); Show = true; }
+    private void Close() { Show = false; CustomerId = Guid.Empty; MachineCode = ProductName = Model = Environment = string.Empty; OtherInfo = "{}"; Error = null; }
+    private void Save() { try { MachineService.Create(CustomerId, MachineCode, ProductName, Model, Environment, OtherInfo); Close(); } catch (Exception exception) { Error = exception.Message; } }
+}

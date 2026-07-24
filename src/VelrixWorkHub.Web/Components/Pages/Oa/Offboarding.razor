@@ -1,0 +1,97 @@
+@page "/Oa/Offboarding"
+@inject VelrixWorkHub.Application.Offboarding.OffboardingService OffboardingService
+@inject VelrixWorkHub.Application.Offboarding.OffboardingRiskService OffboardingRiskService
+@inject VelrixWorkHub.Application.Employees.EmployeeDirectoryService DirectoryService
+@inject VelrixWorkHub.Application.Employees.EmployeeProfileService ProfileService
+@inject AdminBlazor.IAdminContext Admin
+@using VelrixWorkHub.Application.Employees
+@using VelrixWorkHub.Domain
+
+<PageTitle>离职办理 - Velrix Work Hub</PageTitle>
+
+<div class="task-page offboarding-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/Offboarding</p><h1>离职办理</h1><p class="task-page__intro">记录最后工作日、离职原因和交接结果；交接、资产、车辆、文件及权限回收申请全部完成后才允许完成离职。</p></div><div class="task-page__summary"><strong>@OffboardingService.List().Count</strong><span>份办理记录</span></div></div>
+    <section class="task-toolbar" aria-label="离职办理操作"><span class="customer-note">可办理员工：@EligibleEmployees().Count()</span>@if (Admin.AuthButton("Oa/Offboarding/Create")) { <button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus" aria-hidden="true"></i> 新建离职办理</button> }</section>
+
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="@(Editing is null ? "新建离职办理" : "维护离职信息")">
+            <div class="task-composer__title">@(Editing is null ? "建立离职办理记录" : $"维护 {EmployeeName(Editing.UserId)} 的离职信息")</div>
+            @if (Editing is null) { <label>员工<select @bind="UserIdText"><option value="">请选择员工</option>@foreach (var employee in EligibleEmployees()) { <option value="@employee.UserId">@employee.DisplayName · @employee.Username</option>}</select></label> }
+            <div class="task-composer__fields"><label>最后工作日<input type="date" @bind="LastWorkDate" /></label><label>离职原因<input @bind="Reason" @bind:event="oninput" maxlength="1000" placeholder="例如：个人发展、合同到期" /></label></div>
+            <label>工作交接摘要<textarea @bind="HandoverSummary" @bind:event="oninput" rows="3" placeholder="记录交接对象、范围和未完成事项"></textarea></label>
+            <label>扩展信息 OtherInfo JSON 对象<textarea @bind="OtherInfo" @bind:event="oninput" rows="2"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存离职办理</button></div>
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error) && !ShowComposer) { <div class="task-error" role="alert">@Error</div> }
+    @if (!OffboardingService.List().Any()) { <div class="task-empty"><i class="fa fa-sign-out" aria-hidden="true"></i><strong>还没有离职办理记录</strong><span>只有已建立员工档案的在职或停职员工可以进入离职办理。</span></div> }
+    else
+    {
+        <section class="task-list" aria-live="polite">
+            @foreach (var record in OffboardingService.List())
+            {
+                var checklist = ChecklistFor(record);
+                var risks = OffboardingRiskService.List(record.UserId);
+                <article class="task-card offboarding-card">
+                    <div class="customer-avatar">@EmployeeName(record.UserId).FirstOrDefault()</div>
+                    <div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@record.Status.ToString().ToLowerInvariant()">@StatusLabel(record.Status)</span><span>最后工作日 @record.LastWorkDate.ToString("yyyy-MM-dd")</span></div><h2>@EmployeeName(record.UserId)</h2><p>原因：@record.Reason</p><div class="customer-note">交接摘要：@(record.HandoverSummary ?? "未填写") · 平台账号 @(record.AccountDisabled ? $"已停用（{record.AccountDisabledBy}，{record.AccountDisabledAt:yyyy-MM-dd HH:mm}）" : "待回收")</div>
+                        <div class="onboarding-checklist"><label><input type="checkbox" checked="@record.HandoverCompleted" disabled /> 工作交接完成</label><label><input type="checkbox" checked="@record.AssetsReturned" disabled /> 资产已归还</label><label><input type="checkbox" checked="@record.VehiclesReturned" disabled /> 车辆已归还</label><label><input type="checkbox" checked="@record.DocumentsReturned" disabled /> 文件已归还</label><label><input type="checkbox" checked="@record.AccessRevocationRequested" disabled /> 权限回收已申请</label></div>
+                        @if (risks.Count > 0) { <div class="task-error" role="alert"><strong>离职风险 @risks.Count 项</strong>@foreach (var risk in risks) { <div><a href="@risk.Href">@risk.Reference · @risk.Summary</a></div> }<span>处理以上事项后才能完成离职。</span></div> }
+                        @if (record.Status != OaOffboardingStatus.Completed && Admin.AuthButton("Oa/Offboarding/Edit")) { <div class="task-composer__fields"><label><input type="checkbox" @bind="checklist.HandoverCompleted" /> 工作交接完成</label><label><input type="checkbox" @bind="checklist.AssetsReturned" /> 资产已归还</label><label><input type="checkbox" @bind="checklist.VehiclesReturned" /> 车辆已归还</label><label><input type="checkbox" @bind="checklist.DocumentsReturned" /> 文件已归还</label><label><input type="checkbox" @bind="checklist.AccessRevocationRequested" /> 权限回收已申请</label></div><button class="task-secondary-button" @onclick="() => SaveChecklist(record, checklist)">保存清单</button> }
+                    </div>
+                    <div class="task-card__actions">@if (record.Status != OaOffboardingStatus.Completed && Admin.AuthButton("Oa/Offboarding/Edit")) { <button title="维护离职信息" @onclick="() => OpenEdit(record)"><i class="fa fa-pencil" aria-hidden="true"></i></button> } @if (record.Status != OaOffboardingStatus.Completed && Admin.AuthButton("Oa/Offboarding/Complete")) { <button title="完成离职" @onclick="() => Complete(record)"><i class="fa fa-check" aria-hidden="true"></i></button> }</div>
+                </article>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowComposer;
+    private OaOffboardingRecord? Editing;
+    private string UserIdText = string.Empty, Reason = string.Empty, HandoverSummary = string.Empty, OtherInfo = "{}";
+    private DateTime LastWorkDate = DateTime.Today;
+    private string? Error;
+    private readonly Dictionary<Guid, ChecklistDraft> ChecklistDrafts = [];
+
+    private sealed class ChecklistDraft
+    {
+        public bool HandoverCompleted { get; set; }
+        public bool AssetsReturned { get; set; }
+        public bool VehiclesReturned { get; set; }
+        public bool DocumentsReturned { get; set; }
+        public bool AccessRevocationRequested { get; set; }
+    }
+
+    private IEnumerable<EmployeeDirectoryEntry> EligibleEmployees()
+    {
+        var records = OffboardingService.List().Select(item => item.UserId).ToHashSet();
+        var profiles = ProfileService.List().ToDictionary(item => item.UserId);
+        return DirectoryService.List(status: EmployeeDirectoryStatus.All).Where(item => profiles.TryGetValue(item.UserId, out var profile) && profile.Status is (OaEmploymentStatus.Employed or OaEmploymentStatus.Suspended) && !records.Contains(item.UserId));
+    }
+
+    private string EmployeeName(Guid userId) => DirectoryService.List(status: EmployeeDirectoryStatus.All).FirstOrDefault(item => item.UserId == userId)?.DisplayName ?? "未知员工";
+    private void OpenCreate() { Close(); ShowComposer = true; LastWorkDate = DateTime.Today; }
+    private void OpenEdit(OaOffboardingRecord record) { Close(); Editing = record; ShowComposer = true; LastWorkDate = record.LastWorkDate.ToDateTime(TimeOnly.MinValue); Reason = record.Reason; HandoverSummary = record.HandoverSummary ?? string.Empty; OtherInfo = record.OtherInfo; }
+    private void Close() { ShowComposer = false; Editing = null; Error = null; UserIdText = Reason = HandoverSummary = string.Empty; OtherInfo = "{}"; }
+    private void Save()
+    {
+        if (!Guid.TryParse(UserIdText, out var userId)) { if (Editing is null) { Error = "请选择员工。"; return; } userId = Editing.UserId; }
+        try { if (Editing is null) OffboardingService.Create(userId, DateOnly.FromDateTime(LastWorkDate), Reason, HandoverSummary, OtherInfo); else OffboardingService.Edit(Editing, DateOnly.FromDateTime(LastWorkDate), Reason, HandoverSummary, OtherInfo); Close(); } catch (Exception ex) { Error = ex.Message; }
+    }
+    private ChecklistDraft ChecklistFor(OaOffboardingRecord record)
+    {
+        if (ChecklistDrafts.TryGetValue(record.Id, out var draft)) return draft;
+        draft = new ChecklistDraft { HandoverCompleted = record.HandoverCompleted, AssetsReturned = record.AssetsReturned, VehiclesReturned = record.VehiclesReturned, DocumentsReturned = record.DocumentsReturned, AccessRevocationRequested = record.AccessRevocationRequested };
+        ChecklistDrafts[record.Id] = draft;
+        return draft;
+    }
+    private void SaveChecklist(OaOffboardingRecord record, ChecklistDraft checklist) { try { OffboardingService.UpdateChecklist(record, checklist.HandoverCompleted, checklist.AssetsReturned, checklist.VehiclesReturned, checklist.DocumentsReturned, checklist.AccessRevocationRequested); ChecklistDrafts.Remove(record.Id); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Complete(OaOffboardingRecord record) { try { OffboardingService.Complete(record, Admin.User?.Username ?? string.Empty, Admin.AuthButton("Oa/Offboarding/Complete")); ChecklistDrafts.Remove(record.Id); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private static string StatusLabel(OaOffboardingStatus status) => status switch { OaOffboardingStatus.Pending => "待办理", OaOffboardingStatus.InProgress => "办理中", OaOffboardingStatus.Completed => "已完成", _ => "已取消" };
+}

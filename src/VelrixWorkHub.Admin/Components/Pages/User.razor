@@ -1,0 +1,228 @@
+@page "/Admin/User"
+
+
+<PageTitle>用户管理</PageTitle>
+
+<AdminTable2 TItem="SysUser" PageSize="20" Title="用户管理" IsAudit="true" IsResourceLock="true" AuditFieldLabels="_auditFieldLabels"
+    OnQuery="OnQueryUser" InitQuery="InitQueryUser" OnEdit="OnEditUser" OnSaving="OnSavingUser" OnSaved="OnSavedUser" OnRemoving="OnRemovingUser">
+    <TableHeader>
+        <AdminSortHeader Field="Username">用户名</AdminSortHeader>
+        <AdminSortHeader Field="Nickname">昵称</AdminSortHeader>
+        <th>组织</th>
+        <th>角色</th>
+        <AdminSortHeader Field="IsEnabled">是否启用</AdminSortHeader>
+        <AdminSortHeader Field="LoginTime">登录时间</AdminSortHeader>
+        <AdminSortHeader Field="CreatedTime">创建时间</AdminSortHeader>
+    </TableHeader>
+    <TableRow>
+        <td>@context.Username</td>
+        <td>@context.Nickname</td>
+        <td>@context.Org?.Label</td>
+        <td>@string.Join(", ", context.Roles?.Select(r => r.Name) ?? Array.Empty<string>())</td>
+        <td>@(context.IsEnabled ? "是" : "否")</td>
+        <td>@context.LoginTime.ToString("yyyy-MM-dd HH:mm")</td>
+        <td>@context.CreatedTime?.ToString("yyyy-MM-dd HH:mm")</td>
+    </TableRow>
+    <EditTemplate>
+        <div class="row">
+            <div class="form-group col-6">
+                <label class="form-label">用户名</label>
+                <input @bind="context.Username" @bind:event="oninput" type="text" class="form-control" maxlength="50" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">昵称</label>
+                <input @bind="context.Nickname" @bind:event="oninput" type="text" class="form-control" maxlength="50" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">密码</label>
+                <input @bind="context.Password" @bind:event="oninput" type="password" class="form-control" maxlength="128" placeholder="留空则不修改" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">是否启用</label>
+                <Switch @bind-Value="context.IsEnabled" />
+            </div>
+            <div class="form-group col-12">
+                <label class="form-label">所属组织</label>
+                <InputTable2 TItem="SysOrg" TValue="Guid"
+                             Items="_allOrgs"
+                             @bind-Value="context.OrgId"
+                             ValueSelector="org => org.Id"
+                             TextSelector="org => org.Label ?? org.Id.ToString()"
+                             Title="选择组织"
+                             ButtonText="选择组织"
+                             Placeholder="请选择组织"
+                             ColumnCount="3">
+                    <TableHeader>
+                        <th>组织名称</th>
+                        <th>类型</th>
+                        <th>排序</th>
+                    </TableHeader>
+                    <TableRow Context="org">
+                        <td>@org.Label</td>
+                        <td>@org.Type</td>
+                        <td>@org.Sort</td>
+                    </TableRow>
+                </InputTable2>
+            </div>
+            <div class="form-group col-12">
+                <label class="form-label">角色分配</label>
+                <AllocTable2 TItem="SysRole" TValue="Guid"
+                             Items="_allRoles"
+                             SelectedValues="_selectedRoleIds"
+                             SelectedValuesChanged="OnSelectedRoleIdsChanged"
+                             ValueSelector="role => role.Id"
+                             TextSelector="role => role.Name ?? role.Id.ToString()"
+                             Title="角色分配"
+                             ButtonText="分配角色"
+                             AvailableTitle="可选角色"
+                             SelectedTitle="已选角色" />
+            </div>
+            <div class="form-group col-12">
+                <label class="form-label">备注</label>
+                <textarea @bind="context.Description" @bind:event="oninput" class="form-control" maxlength="500"></textarea>
+            </div>
+        </div>
+    </EditTemplate>
+</AdminTable2>
+
+@code {
+    [Inject] IFreeSql fsql { get; set; } = default!;
+    [Inject] IAdminContext admin { get; set; } = default!;
+    [Inject] IAdminUserRoleService UserRoleService { get; set; } = default!;
+    [Inject] PasswordPolicy passwordPolicy { get; set; } = default!;
+
+    private List<SysRole> _allRoles = new();
+    private List<SysOrg> _allOrgs = new();
+    private IReadOnlyCollection<Guid> _selectedRoleIds = Array.Empty<Guid>();
+    private readonly IReadOnlyDictionary<string, string> _auditFieldLabels = new Dictionary<string, string>
+    {
+        ["Username"] = "用户名",
+        ["Nickname"] = "昵称",
+        ["Description"] = "备注",
+        ["IsEnabled"] = "是否启用",
+        ["OrgId"] = "所属组织",
+        ["LoginTime"] = "登录时间"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allRoles = (await UserRoleService.LoadAssignableRolesAsync()).ToList();
+        _allOrgs = await fsql.Select<SysOrg>().OrderBy(o => o.Sort).ToListAsync();
+    }
+
+    async Task InitQueryUser(AdminQueryInfo e)
+    {
+        e.Filters = Array.Empty<AdminFilterInfo>();
+        await Task.CompletedTask;
+    }
+
+    void OnQueryUser(AdminQueryEventArgs<SysUser> e)
+    {
+        e.Select.IncludeMany(a => a.Roles)
+            .Include(a => a.Org)
+            .WhereIf(!string.IsNullOrWhiteSpace(e.SearchText), a =>
+                a.Username.Contains(e.SearchText!) || (a.Nickname ?? "").Contains(e.SearchText!));
+    }
+
+    async Task OnEditUser(SysUser item)
+    {
+        _selectedRoleIds = Array.Empty<Guid>();
+        item.Password = null;
+        if (item.Id == Guid.Empty)
+        {
+            item.Id = Guid.CreateVersion7();
+            return;
+        }
+
+        if (item.Id != Guid.Empty)
+            _selectedRoleIds = (await UserRoleService.LoadUserRoleIdsAsync(item.Id)).ToArray();
+    }
+
+    Task OnSelectedRoleIdsChanged(IReadOnlyCollection<Guid> roleIds)
+    {
+        _selectedRoleIds = roleIds.ToArray();
+        return Task.CompletedTask;
+    }
+
+    async Task OnSavingUser(AdminConfirmEventArgs<SysUser> e)
+    {
+        e.Argument.Username = e.Argument.Username?.Trim();
+        if (string.IsNullOrWhiteSpace(e.Argument.Username))
+        {
+            e.Cancel = true;
+            e.Message = "用户名不能为空。";
+            return;
+        }
+        if (e.Argument.Id == Guid.Empty && string.IsNullOrWhiteSpace(e.Argument.Password))
+        {
+            e.Cancel = true;
+            e.Message = "新增用户必须设置密码。";
+            return;
+        }
+
+        if (e.Argument.Id == Guid.Empty || !string.IsNullOrWhiteSpace(e.Argument.Password))
+        {
+            var passwordError = passwordPolicy.Validate(e.Argument.Password);
+            if (passwordError != null)
+            {
+                e.Cancel = true;
+                e.Message = passwordError;
+                return;
+            }
+        }
+
+        var exists = await fsql.Select<SysUser>()
+            .Where(user => user.Username == e.Argument.Username && user.Id != e.Argument.Id)
+            .AnyAsync();
+        if (exists)
+        {
+            e.Cancel = true;
+            e.Message = $"用户名“{e.Argument.Username}”已存在。";
+            return;
+        }
+
+        if (e.Argument.Id == Guid.Empty || !string.IsNullOrWhiteSpace(e.Argument.Password))
+        {
+            e.Argument.PasswordHash = PasswordHasher.Hash(e.Argument.Password!);
+            e.Argument.Password = null;
+            if (e.Argument.Id != Guid.Empty)
+            {
+                var currentUser = await fsql.Select<SysUser>().Where(user => user.Id == e.Argument.Id).FirstAsync();
+                e.Argument.AuthVersion = (currentUser?.AuthVersion ?? e.Argument.AuthVersion) + 1;
+            }
+            return;
+        }
+
+        var storedUser = await fsql.Select<SysUser>().Where(user => user.Id == e.Argument.Id).FirstAsync();
+        if (storedUser == null)
+        {
+            e.Cancel = true;
+            e.Message = "用户不存在或已被删除。";
+            return;
+        }
+
+        e.Argument.PasswordHash = storedUser.PasswordHash;
+        e.Argument.Password = storedUser.Password;
+        e.Argument.AuthVersion = storedUser.AuthVersion;
+    }
+
+    async Task OnSavedUser(SysUser user)
+    {
+        var result = await UserRoleService.SaveUserRolesAsync(
+            user.Id,
+            _selectedRoleIds,
+            admin.User?.Id,
+            admin.User?.Username);
+        if (!result.Success)
+            throw new InvalidOperationException(result.Error);
+    }
+
+    async Task OnRemovingUser(List<SysUser> items)
+    {
+        if (admin.User != null && items.Any(u => u.Id == admin.User.Id))
+        {
+            items.RemoveAll(u => u.Id == admin.User.Id);
+        }
+        await Task.CompletedTask;
+    }
+}

@@ -1,0 +1,199 @@
+@page "/Lms/LicenseReplacement"
+@inject VelrixWorkHub.Application.Lms.LmsLicenseService LicenseService
+@inject VelrixWorkHub.Application.Lms.LmsLicenseAccessService LicenseAccessService
+@inject VelrixWorkHub.Application.Lms.LmsLicenseReplacementRequestService ReplacementRequestService
+@inject VelrixWorkHub.Application.Lms.LmsCustomerMachineService MachineService
+@inject WorkflowApprovalService WorkflowApprovalService
+@inject WorkflowTaskService WorkflowTaskService
+@inject IAdminContext Admin
+@inject NavigationManager Navigation
+@using VelrixWorkHub.Domain
+@using VelrixWorkHub.Application.Workflow
+
+<PageTitle>授权续期、重发与换机 - Velrix Work Hub</PageTitle>
+
+<div class="customer-page">
+    <div class="task-page__header">
+        <div>
+            <p class="eyebrow">LMS · Replacement</p>
+            <h1>授权续期、重发与换机</h1>
+            <p class="task-page__intro">先创建授权替代申请并提交 Workflow 审批；批准后才会替代旧授权。换机仅允许转至同一客户、同一产品的启用机台。</p>
+        </div>
+    </div>
+    <section class="task-composer">
+        <div class="task-composer__fields">
+            <label>原有效授权
+                <select @bind="AuthorizationIdText">
+                    <option value="">请选择</option>
+                    @foreach (var item in LicenseAccessService.ListAuthorizations(CurrentActor, IsAdministrator).Where(x => x.GetEffectiveStatus(DateTime.Now) == LmsLicenseStatus.Active))
+                    {
+                        <option value="@item.Id">@item.LicenseNo · @item.ProductName</option>
+                    }
+                </select>
+            </label>
+            <label>替代类型
+                <select @bind="Kind">
+                    <option value="Renewal">续期</option>
+                    <option value="Reissue">重发</option>
+                    <option value="MachineChange">换机</option>
+                </select>
+            </label>
+            <label>替代申请编号<input @bind="RequestNo" /></label>
+            @if (IsMachineChange)
+            {
+                <label>目标机台
+                    <select @bind="TargetMachineIdText">
+                        <option value="">请选择</option>
+                        @foreach (var machine in TargetMachines)
+                        {
+                            <option value="@machine.Id">@machine.MachineCode · @(machine.Model ?? machine.ProductName)</option>
+                        }
+                    </select>
+                </label>
+            }
+            <label>新授权编号<input @bind="LicenseNo" /></label>
+            <label>到期日（可选）<input type="date" @bind="ExpiresAt" /></label>
+            <label>外部 License 原文<textarea @bind="ExternalLicense"></textarea></label>
+        </div>
+        <label>替代原因<textarea @bind="Reason"></textarea></label>
+        @if (Error is not null)
+        {
+            <div class="task-error">@Error</div>
+        }
+        <div class="task-composer__actions">@if (CanCreateSubmit) { <button class="task-primary-button" @onclick="Save">提交替代审批</button> }</div>
+    </section>
+    <section class="task-list" aria-label="授权替代申请">
+        <h2>授权替代申请</h2>
+        @if (!ReplacementRequests.Any())
+        {
+            <div class="task-empty"><strong>暂无替代申请</strong><span>提交续期、重发或换机申请后，会在此保留审批状态和原授权追溯。</span></div>
+        }
+        else
+        {
+            @foreach (var request in ReplacementRequests)
+            {
+                var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.LmsLicenseReplacementApproval, nameof(LmsLicenseReplacementRequest), request.Id);
+                <article class="task-card customer-card">
+                    <div class="customer-avatar"><i class="fa fa-exchange"></i></div>
+                    <div class="task-card__body">
+                        <div class="task-card__meta"><span class="task-status customer-status--@request.Status.ToString().ToLowerInvariant()">@RequestStatusLabel(request.Status)</span><span>@request.RequestNo</span><span>@request.CreatedAt.ToString("yyyy-MM-dd")</span></div>
+                        <h2>@ReplacementKindLabel(request.Kind) · @request.LicenseNo</h2>
+                        <p>申请人：@request.Applicant · 原授权：<a href="@AuthorizationHref(request.OriginalAuthorizationId)">查看授权</a></p>
+                        <div class="customer-note">原因：@request.Reason · 到期：@(request.ExpiresAt?.ToString("yyyy-MM-dd") ?? "未限制") · 审批：@(WorkflowStatusLabel(workflow?.Status)) · <a href="@WorkflowHref(request)">查看审批</a></div>
+                    </div>
+                    <div class="task-card__actions">
+                        @if (CanResubmit && request.Status == LmsLicenseReplacementRequestStatus.Rejected)
+                        {
+                            <button title="重新提交已驳回的授权替代申请" @onclick="() => ResubmitAfterRejection(request)"><i class="fa fa-repeat"></i></button>
+                        }
+                        else if (CanResubmit && request.Status == LmsLicenseReplacementRequestStatus.Submitted && workflow?.Status == WorkflowInstanceStatus.Cancelled)
+                        {
+                            <button title="重新提交已撤回的授权替代申请" @onclick="() => Resubmit(request)"><i class="fa fa-repeat"></i></button>
+                        }
+                    </div>
+                </article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "replacementRequestId")] public Guid? ReplacementRequestFilterId { get; set; }
+    private string AuthorizationIdText = "", TargetMachineIdText = "", RequestNo = "", LicenseNo = "", ExternalLicense = "", Reason = "", Kind = "Renewal";
+    private DateTime? ExpiresAt;
+    private string? Error;
+
+    private bool IsMachineChange => Kind == nameof(LmsLicenseReplacementKind.MachineChange);
+    private LmsLicenseAuthorization? SelectedOriginal => Guid.TryParse(AuthorizationIdText, out var id)
+        ? LicenseAccessService.ListAuthorizations(CurrentActor, IsAdministrator).SingleOrDefault(x => x.Id == id && x.GetEffectiveStatus(DateTime.Now) == LmsLicenseStatus.Active)
+        : null;
+    private IEnumerable<LmsCustomerMachine> TargetMachines => SelectedOriginal?.CustomerId is Guid customerId
+        ? MachineService.List(customerId, includeDisabled: false)
+            .Where(x => x.Id != SelectedOriginal.CustomerMachineId && x.ProductName.Equals(SelectedOriginal.ProductName, StringComparison.OrdinalIgnoreCase))
+        : [];
+    private IEnumerable<LmsLicenseReplacementRequest> ReplacementRequests
+    {
+        get
+        {
+            var currentActor = Admin.User?.Username?.Trim();
+            if (Admin.User is null || !Admin.AuthPath("Lms/LicenseReplacement")) return [];
+            var items = ReplacementRequestService.ListVisible(currentActor, IsAdministrator);
+            if (ReplacementRequestFilterId is null)
+                return items;
+            return items.Where(x => x.Id == ReplacementRequestFilterId);
+        }
+    }
+
+    private bool CanCreateSubmit => Admin.AuthButton("Lms/LicenseReplacement/CreateSubmit");
+    private bool CanResubmit => Admin.AuthButton("Lms/LicenseReplacement/Resubmit");
+    private bool IsAdministrator => Admin.Roles.Any(x => x.IsAdministrator);
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (!Admin.AuthPath("Lms/LicenseReplacement")) Navigation.NavigateTo("/", forceLoad: true);
+    }
+
+    private void Save()
+    {
+        try
+        {
+            if (!CanCreateSubmit) throw new InvalidOperationException("没有创建并提交替代审批权限。");
+            if (!Guid.TryParse(AuthorizationIdText, out var id)) throw new InvalidOperationException("请选择原授权。");
+            _ = LicenseAccessService.ListAuthorizations(CurrentActor, IsAdministrator).SingleOrDefault(x => x.Id == id && x.GetEffectiveStatus(DateTime.Now) == LmsLicenseStatus.Active) ?? throw new InvalidOperationException("原授权不存在或无权访问。");
+            var kind = Enum.Parse<LmsLicenseReplacementKind>(Kind);
+            Guid? targetMachineId = null;
+            if (kind == LmsLicenseReplacementKind.MachineChange)
+            {
+                if (!Guid.TryParse(TargetMachineIdText, out var parsedTargetMachineId)) throw new InvalidOperationException("请选择目标机台。");
+                targetMachineId = parsedTargetMachineId;
+            }
+            var actor = Admin.User?.Username ?? "";
+            var request = ReplacementRequestService.Create(RequestNo, id, kind, targetMachineId, LicenseNo, ExternalLicense, ExpiresAt, "{}", actor, Reason, IsAdministrator);
+            ReplacementRequestService.SubmitAndStartWorkflow(request, actor);
+
+            AuthorizationIdText = TargetMachineIdText = RequestNo = LicenseNo = ExternalLicense = Reason = "";
+            ExpiresAt = null;
+            Error = null;
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+    }
+
+    private void Resubmit(LmsLicenseReplacementRequest request)
+    {
+        try
+        {
+            if (!CanResubmit) throw new InvalidOperationException("没有重新提交替代审批权限。");
+            ReplacementRequestService.ResubmitAfterWithdrawal(request, Admin.User?.Username ?? "");
+            Error = null;
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+    }
+
+    private void ResubmitAfterRejection(LmsLicenseReplacementRequest request)
+    {
+        try
+        {
+            if (!CanResubmit) throw new InvalidOperationException("没有重新提交替代审批权限。");
+            ReplacementRequestService.SubmitAndStartWorkflow(request, Admin.User?.Username ?? "");
+            Error = null;
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+    }
+
+    private static string AuthorizationHref(Guid authorizationId) => $"/Lms/License?authorizationId={authorizationId}";
+    private static string WorkflowHref(LmsLicenseReplacementRequest request) => $"/Workflow/Inbox?businessType={nameof(LmsLicenseReplacementRequest)}&businessId={request.Id}";
+    private static string WorkflowStatusLabel(WorkflowInstanceStatus? status) => status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已驳回", WorkflowInstanceStatus.Cancelled => "已撤回", _ => "未发起" };
+    private static string RequestStatusLabel(LmsLicenseReplacementRequestStatus status) => status switch { LmsLicenseReplacementRequestStatus.Draft => "草稿", LmsLicenseReplacementRequestStatus.Submitted => "审批中", LmsLicenseReplacementRequestStatus.Approved => "已批准", LmsLicenseReplacementRequestStatus.Rejected => "已驳回", LmsLicenseReplacementRequestStatus.Withdrawn => "已撤回", _ => status.ToString() };
+    private static string ReplacementKindLabel(LmsLicenseReplacementKind kind) => kind switch { LmsLicenseReplacementKind.Renewal => "续期", LmsLicenseReplacementKind.Reissue => "重发", LmsLicenseReplacementKind.MachineChange => "换机", _ => kind.ToString() };
+}

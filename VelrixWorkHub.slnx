@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VelrixWorkHub.Application/VelrixWorkHub.Application.csproj" />
+    <Project Path="src/VelrixWorkHub.Admin/VelrixWorkHub.Admin.csproj" />
+    <Project Path="src/VelrixWorkHub.Domain/VelrixWorkHub.Domain.csproj" />
+    <Project Path="src/VelrixWorkHub.Infrastructure/VelrixWorkHub.Infrastructure.csproj" />
+    <Project Path="src/VelrixWorkHub.Web/VelrixWorkHub.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VelrixWorkHub.Domain.Tests/VelrixWorkHub.Domain.Tests.csproj" />
+  </Folder>
+</Solution>

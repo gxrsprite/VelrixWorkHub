@@ -1,0 +1,162 @@
+@page "/Oa/ExpenseReimbursement"
+@using VelrixWorkHub.Application.ExpenseReimbursements
+@using VelrixWorkHub.Application.PaymentRequests
+@using VelrixWorkHub.Application.PmpProjects
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Domain
+@inject ExpenseReimbursementService ExpenseService
+@inject ExpenseReimbursementPaymentService ExpensePaymentService
+@inject PmpProjectService ProjectService
+@inject WorkflowApprovalService WorkflowApprovalService
+@inject WorkflowBindingService WorkflowBindingService
+@inject AdminBlazor.IAdminContext Admin
+@inject NavigationManager Navigation
+
+<PageTitle>费用报销 - Velrix Work Hub</PageTitle>
+
+<div class="task-page expense-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/ExpenseReimbursement</p><h1>费用报销</h1><p class="task-page__intro">维护报销主单、费用明细和票据附件；审批完成后再由财务流程衔接付款，OA 报销不会直接生成 ERP 核销流水。</p></div><div class="task-page__summary"><strong>@Requests.Count</strong><span>份我的报销</span></div></div>
+    <section class="task-toolbar" aria-label="费用报销操作"><span class="customer-note">当前申请人：@(Admin.User?.Username ?? "未登录")</span>@if (Admin.AuthButton("Oa/ExpenseReimbursement/Create")) { <button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus" aria-hidden="true"></i> 新建报销</button> }</section>
+
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="费用报销编辑器">
+            <div class="task-composer__title">@(Editing is null ? "填写报销主单" : $"编辑报销主单 · {Editing.DocumentNo}")</div>
+            <div class="task-composer__fields"><label>报销单号<input @bind="DraftDocumentNo" @bind:event="oninput" maxlength="100" placeholder="例如：BX-202607-001" /></label><label>报销标题<input @bind="DraftTitle" @bind:event="oninput" maxlength="200" placeholder="例如：华东客户拜访费用" /></label></div>
+            <div class="task-composer__fields"><label>申请部门<input @bind="DraftDepartment" @bind:event="oninput" maxlength="100" placeholder="例如：项目交付部" /></label><label>主体公司<input @bind="DraftLegalEntity" @bind:event="oninput" maxlength="200" placeholder="例如：Velrix 上海有限公司" /></label></div>
+            <div class="task-composer__fields"><label>报销日期<input type="date" @bind="DraftDate" /></label><label>报销类型<select @bind="DraftType"><option value="General">日常费用</option><option value="Travel">差旅</option><option value="Entertainment">业务招待</option><option value="TeamBuilding">团建</option><option value="Other">其他</option></select></label></div>
+            <div class="task-composer__fields"><label>归属项目<select @bind="DraftProjectId"><option value="">不关联项目</option>@foreach (var project in ProjectService.List()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label><label class="checkbox-field"><input type="checkbox" @bind="DraftEntrusted" /> 委托报销</label></div>
+            <div class="task-composer__fields"><label class="checkbox-field"><input type="checkbox" @bind="DraftTeamBuilding" /> 团建费用</label><label class="checkbox-field"><input type="checkbox" @bind="DraftEntertainment" /> 业务招待费用</label></div>
+            <label>报销事由<textarea @bind="DraftReason" @bind:event="oninput" rows="3" maxlength="2000" placeholder="说明费用发生背景、人员和必要性"></textarea></label>
+            <label>扩展信息 OtherInfo JSON 对象<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="2">@DraftOtherInfo</textarea></label>
+            @if (Editing is null || (Editing.Status is OaExpenseReimbursementStatus.Draft or OaExpenseReimbursementStatus.Rejected))
+            {
+                <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseComposer">取消</button><button class="task-primary-button" @onclick="SaveMain">保存主单</button></div>
+            }
+        </section>
+    }
+
+    @if (Editing is not null && (Editing.Status is OaExpenseReimbursementStatus.Draft or OaExpenseReimbursementStatus.Rejected))
+    {
+        var lines = ExpenseService.ListLines(Editing.Id);
+        <section class="task-composer" aria-label="费用明细编辑器">
+            <div class="task-composer__title">费用明细 · 合计 ¥@Editing.ActualAmount.ToString("N2")</div>
+            <div class="task-composer__fields"><label>费用类型<input @bind="DraftExpenseType" @bind:event="oninput" maxlength="100" placeholder="例如：住宿费、交通费" /></label><label>发生日期<input type="date" @bind="DraftBusinessDate" /></label></div>
+            <div class="task-composer__fields"><label>费用金额<input type="number" step="0.01" min="0.01" @bind="DraftAmount" /></label><label>实报金额<input type="number" step="0.01" min="0.01" @bind="DraftActualAmount" /></label></div>
+            <div class="task-composer__fields"><label>发票号<input @bind="DraftInvoiceNo" @bind:event="oninput" maxlength="100" placeholder="可选；系统拦截重复票据" /></label><label>付款流水号<input @bind="DraftPaymentFlowNo" @bind:event="oninput" maxlength="100" placeholder="可选；系统拦截重复流水" /></label></div>
+            <label>费用说明<textarea @bind="DraftDescription" @bind:event="oninput" rows="2" maxlength="1000"></textarea></label>
+            <div class="task-composer__actions"><button class="task-primary-button" @onclick="AddLine">添加费用明细</button></div>
+            @if (lines.Count > 0)
+            {
+                <div class="attachment-panel__list">
+                    @foreach (var line in lines)
+                    {
+                        <div class="attachment-panel__item"><span>@line.BusinessDate.ToString("yyyy-MM-dd") · @line.ExpenseType · @line.Description · 实报 ¥@line.ActualAmount.ToString("N2")@if (!string.IsNullOrWhiteSpace(line.InvoiceNo)) { <span> · 发票 @line.InvoiceNo</span> }</span><button type="button" class="danger" @onclick="() => RemoveLine(line)">删除</button></div>
+                    }
+                </div>
+            }
+            else { <div class="task-empty"><strong>尚无费用明细</strong><span>至少添加一条明细后才能提交审批。</span></div> }
+        </section>
+    }
+
+    @if (PaymentEditing is not null)
+    {
+        <section class="task-composer" aria-label="报销付款申请编辑器">
+            <div class="task-composer__title">创建员工付款申请 · @PaymentEditing.DocumentNo</div>
+            <p class="customer-note">付款金额 ¥@PaymentEditing.ActualAmount.ToString("N2")，将使用报销申请人作为收款方，并把报销单号写入付款申请前置单据。创建后报销状态变为“已报销”，实际付款完成后自动变为“已付款”。</p>
+            <div class="task-composer__fields"><label>付款申请单号<input @bind="PaymentDocumentNo" @bind:event="oninput" maxlength="100" /></label><label>收款账户引用<input @bind="PaymentAccountReference" @bind:event="oninput" maxlength="200" placeholder="例如：工资卡末四位 1234" /></label></div>
+            <div class="task-composer__fields"><label>收款银行<input @bind="PaymentBankName" @bind:event="oninput" maxlength="100" /></label><label>币种<input @bind="PaymentCurrency" @bind:event="oninput" maxlength="10" /></label></div>
+            <div class="task-composer__fields"><label>期望付款日期<input type="date" @bind="PaymentRequestedDate" /></label><label>OtherInfo JSON<textarea @bind="PaymentOtherInfo" @bind:event="oninput" rows="1"></textarea></label></div>
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="ClosePayment">取消</button><button class="task-primary-button" @onclick="CreatePaymentRequest">创建付款申请</button></div>
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-list" aria-live="polite">
+        @if (!Requests.Any()) { <div class="task-empty"><i class="fa fa-rmb" aria-hidden="true"></i><strong>还没有报销申请</strong><span>新建主单、补充费用明细和票据附件后提交审批。</span></div> }
+        else
+        {
+            @foreach (var item in Requests)
+            {
+                var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.ExpenseReimbursementApproval, nameof(OaExpenseReimbursement), item.Id);
+                <article class="task-card customer-card">
+                    <div class="customer-avatar"><i class="fa fa-rmb"></i></div>
+                    <div class="task-card__body">
+                        <div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@StatusLabel(item.Status)</span><span>@item.DocumentNo</span><span>@item.ReimbursementDate.ToString("yyyy-MM-dd")</span></div>
+                        <h2>@item.Title</h2>
+                        <p>@item.DepartmentName · @item.LegalEntity · ¥@item.ActualAmount.ToString("N2")</p>
+                        <div class="customer-note">@item.Reason · 审批：@WorkflowLabel(workflow?.Status)@if (!string.IsNullOrWhiteSpace(item.RejectionReason)) { <span> · 驳回原因：@item.RejectionReason</span> }</div>
+                        <AttachmentPanel BusinessType="@nameof(OaExpenseReimbursement)" BusinessId="@item.Id" Actor="@(Admin.User?.Username ?? "system")" />
+                    </div>
+                    <div class="task-card__actions">
+                        @if ((item.Status is OaExpenseReimbursementStatus.Draft or OaExpenseReimbursementStatus.Rejected) && Admin.AuthButton("Oa/ExpenseReimbursement/Edit")) { <button title="编辑报销" @onclick="() => OpenEdit(item)"><i class="fa fa-pencil"></i></button> }
+                        @if ((item.Status is OaExpenseReimbursementStatus.Draft or OaExpenseReimbursementStatus.Rejected) && Admin.AuthButton("Oa/ExpenseReimbursement/Submit")) { <button title="提交报销审批" @onclick="() => Submit(item)"><i class="fa fa-send-o"></i></button> }
+                        @if ((item.Status is OaExpenseReimbursementStatus.Draft or OaExpenseReimbursementStatus.Submitted) && Admin.AuthButton("Oa/ExpenseReimbursement/Cancel")) { <button class="danger" title="撤回报销" @onclick="() => Cancel(item)"><i class="fa fa-undo"></i></button> }
+                        @if (item.Status == OaExpenseReimbursementStatus.Approved && Admin.AuthButton("Oa/ExpenseReimbursement/CreatePaymentRequest")) { <button title="创建报销付款申请" @onclick="() => OpenPayment(item)"><i class="fa fa-credit-card"></i></button> }
+                    </div>
+                </article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowComposer;
+    private OaExpenseReimbursement? Editing;
+    private OaExpenseReimbursement? PaymentEditing;
+    private string DraftDocumentNo = string.Empty, DraftTitle = string.Empty, DraftDepartment = string.Empty, DraftLegalEntity = string.Empty, DraftReason = string.Empty, DraftOtherInfo = "{}";
+    private DateTime DraftDate = DateTime.Today;
+    private OaExpenseReimbursementType DraftType = OaExpenseReimbursementType.General;
+    private string DraftProjectId = string.Empty;
+    private bool DraftEntrusted, DraftTeamBuilding, DraftEntertainment;
+    private string DraftExpenseType = "其他", DraftDescription = string.Empty, DraftInvoiceNo = string.Empty, DraftPaymentFlowNo = string.Empty;
+    private DateTime DraftBusinessDate = DateTime.Today;
+    private decimal DraftAmount = 0, DraftActualAmount = 0;
+    private string PaymentDocumentNo = string.Empty, PaymentAccountReference = string.Empty, PaymentBankName = string.Empty, PaymentCurrency = "CNY", PaymentOtherInfo = "{}";
+    private DateTime PaymentRequestedDate = DateTime.Today;
+    private string? Error;
+    private Guid CurrentUserId => Admin.User?.Id ?? Guid.Empty;
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private IReadOnlyList<OaExpenseReimbursement> Requests => ExpenseService.ListMine(CurrentUserId);
+
+    private void OpenCreate() { CloseComposer(); ShowComposer = true; DraftDocumentNo = $"BX-{DateTime.Today:yyyyMM}-{DateTime.Now:HHmmss}"; DraftDate = DateTime.Today; DraftBusinessDate = DateTime.Today; DraftDepartment = ""; DraftLegalEntity = ""; }
+    private void OpenEdit(OaExpenseReimbursement item) { CloseComposer(); Editing = item; ShowComposer = true; DraftDocumentNo = item.DocumentNo; DraftTitle = item.Title; DraftDepartment = item.DepartmentName; DraftLegalEntity = item.LegalEntity; DraftDate = item.ReimbursementDate.ToDateTime(TimeOnly.MinValue); DraftType = item.ReimbursementType; DraftProjectId = item.ProjectId?.ToString() ?? string.Empty; DraftEntrusted = item.IsEntrusted; DraftTeamBuilding = item.IsTeamBuilding; DraftEntertainment = item.IsEntertainment; DraftReason = item.Reason; DraftOtherInfo = item.OtherInfo; }
+    private void CloseComposer() { ShowComposer = false; Editing = null; Error = null; DraftTitle = DraftReason = DraftOtherInfo = string.Empty; DraftOtherInfo = "{}"; }
+    private void OpenPayment(OaExpenseReimbursement item) { PaymentEditing = item; PaymentDocumentNo = $"FK-{item.DocumentNo}"; PaymentAccountReference = string.Empty; PaymentBankName = string.Empty; PaymentCurrency = "CNY"; PaymentOtherInfo = "{}"; PaymentRequestedDate = DateTime.Today; Error = null; }
+    private void ClosePayment() { PaymentEditing = null; PaymentDocumentNo = PaymentAccountReference = PaymentBankName = string.Empty; PaymentCurrency = "CNY"; PaymentOtherInfo = "{}"; PaymentRequestedDate = DateTime.Today; Error = null; }
+    private void SaveMain()
+    {
+        try
+        {
+            var projectId = Guid.TryParse(DraftProjectId, out var parsedProjectId) ? parsedProjectId : (Guid?)null;
+            if (Editing is null) Editing = ExpenseService.Create(CurrentUserId, CurrentActor, DraftDepartment, DraftLegalEntity, DraftDocumentNo, DraftTitle, DateOnly.FromDateTime(DraftDate), DraftType, projectId, DraftEntrusted, DraftTeamBuilding, DraftEntertainment, DraftReason, DraftOtherInfo);
+            else ExpenseService.Edit(Editing, CurrentUserId, CurrentActor, DraftDepartment, DraftLegalEntity, DraftDocumentNo, DraftTitle, DateOnly.FromDateTime(DraftDate), DraftType, projectId, DraftEntrusted, DraftTeamBuilding, DraftEntertainment, DraftReason, DraftOtherInfo);
+            ShowComposer = true; Error = null;
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void AddLine()
+    {
+        if (Editing is null) { Error = "请先保存报销主单。"; return; }
+        try { ExpenseService.AddLine(Editing, CurrentUserId, DraftExpenseType, DraftDescription, DraftInvoiceNo, DraftPaymentFlowNo, DateOnly.FromDateTime(DraftBusinessDate), DraftAmount, DraftActualAmount, null, "{}"); ResetLine(); Error = null; } catch (Exception ex) { Error = ex.Message; }
+    }
+    private void RemoveLine(OaExpenseLine line) { if (Editing is null) return; try { ExpenseService.RemoveLine(Editing, CurrentUserId, line); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Submit(OaExpenseReimbursement item) { try { ExpenseService.SubmitAndStartWorkflow(item, CurrentUserId, CurrentActor); Error = null; CloseComposer(); } catch (Exception ex) { Error = ex.Message; } }
+    private void Cancel(OaExpenseReimbursement item) { try { ExpenseService.Cancel(item, CurrentUserId, CurrentActor); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void CreatePaymentRequest()
+    {
+        try
+        {
+            if (PaymentEditing is null) throw new InvalidOperationException("请选择已批准报销单。");
+            var payment = ExpensePaymentService.CreateForApprovedReimbursement(PaymentEditing.Id, PaymentDocumentNo, PaymentAccountReference, PaymentBankName, PaymentCurrency, DateOnly.FromDateTime(PaymentRequestedDate), PaymentOtherInfo, Admin.AuthButton("Oa/ExpenseReimbursement/CreatePaymentRequest"));
+            ClosePayment();
+            Navigation.NavigateTo($"/Oa/PaymentRequest?requestId={payment.Id}");
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void ResetLine() { DraftExpenseType = "其他"; DraftDescription = DraftInvoiceNo = DraftPaymentFlowNo = string.Empty; DraftBusinessDate = DateTime.Today; DraftAmount = DraftActualAmount = 0; }
+    private static string StatusLabel(OaExpenseReimbursementStatus status) => status switch { OaExpenseReimbursementStatus.Draft => "草稿", OaExpenseReimbursementStatus.Submitted => "审批中", OaExpenseReimbursementStatus.Rejected => "已驳回", OaExpenseReimbursementStatus.Approved => "已批准", OaExpenseReimbursementStatus.Reimbursed => "已报销", OaExpenseReimbursementStatus.Paid => "已付款", _ => "已撤回" };
+    private static string WorkflowLabel(WorkflowInstanceStatus? status) => status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已拒绝", WorkflowInstanceStatus.Cancelled => "已撤回", _ => "未发起" };
+}

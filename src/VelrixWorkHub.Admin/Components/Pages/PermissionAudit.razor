@@ -1,0 +1,134 @@
+@page "/Admin/PermissionAudit"
+@using VelrixWorkHub.Application.Platform
+@inject IAdminPermissionAuditService AuditService
+@inject IAdminContext Admin
+@inject NavigationManager Navigation
+
+<PageTitle>权限变更审计</PageTitle>
+
+<div class="container-fluid p-3">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-1">权限变更审计</h5>
+                <small class="text-muted">查询角色授权和用户角色分配的变更记录，审计数据只读。</small>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadAsync" disabled="@_loading">刷新</button>
+        </div>
+        <div class="card-body border-bottom">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label" for="permission-audit-subject-type">主体类型</label>
+                    <select id="permission-audit-subject-type" class="form-select" @bind="_subjectType">
+                        <option value="">全部</option>
+                        <option value="RolePermission">角色菜单授权</option>
+                        <option value="UserRole">用户角色分配</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label" for="permission-audit-action">操作</label>
+                    <input id="permission-audit-action" class="form-control" @bind="_action" @bind:event="oninput" placeholder="例如 replace" maxlength="30" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="permission-audit-subject-id">主体 ID</label>
+                    <input id="permission-audit-subject-id" class="form-control" @bind="_subjectIdText" @bind:event="oninput" placeholder="可选，Guid" />
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary w-100" @onclick="LoadAsync" disabled="@_loading">查询</button>
+                </div>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_error))
+            {
+                <div class="alert alert-danger mt-3 mb-0">@_error</div>
+            }
+        </div>
+        <div class="table-responsive">
+            <table class="table table-striped align-middle mb-0">
+                <thead>
+                    <tr><th>时间</th><th>主体类型</th><th>主体 ID</th><th>操作</th><th>操作者</th><th>变更详情</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in _items)
+                    {
+                        <tr>
+                            <td class="text-nowrap">@(item.CreatedTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "—")</td>
+                            <td>@SubjectTypeLabel(item.SubjectType)</td>
+                            <td><code>@item.SubjectId</code></td>
+                            <td>@item.Action</td>
+                            <td>@(string.IsNullOrWhiteSpace(item.ActorUserName) ? item.ActorUserId?.ToString() ?? "系统" : item.ActorUserName)</td>
+                            <td>
+                                <details>
+                                    <summary>查看前后快照</summary>
+                                    <div class="small mt-2"><strong>变更前</strong><pre class="mb-2">@item.BeforeData</pre><strong>变更后</strong><pre class="mb-0">@item.AfterData</pre></div>
+                                </details>
+                            </td>
+                        </tr>
+                    }
+                    @if (!_loading && _items.Count == 0)
+                    {
+                        <tr><td colspan="6" class="text-center text-muted py-4">暂无匹配的权限变更审计记录</td></tr>
+                    }
+                    @if (_loading)
+                    {
+                        <tr><td colspan="6" class="text-center text-muted py-4">正在加载…</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<AdminPermissionAuditEntry> _items = [];
+    private string _subjectType = string.Empty;
+    private string _action = string.Empty;
+    private string _subjectIdText = string.Empty;
+    private string? _error;
+    private bool _loading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (!Admin.AuthPath("Admin/PermissionAudit"))
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        if (!string.IsNullOrWhiteSpace(_subjectIdText) && !Guid.TryParse(_subjectIdText.Trim(), out _))
+        {
+            _error = "主体 ID 不是有效的 Guid。";
+            _items = [];
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            Guid? subjectId = string.IsNullOrWhiteSpace(_subjectIdText) ? null : Guid.Parse(_subjectIdText.Trim());
+            _items = await AuditService.ListAsync(subjectId, _subjectType, 200, _action);
+        }
+        catch (Exception ex)
+        {
+            _items = [];
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static string SubjectTypeLabel(string value) => value switch
+    {
+        "RolePermission" => "角色菜单授权",
+        "UserRole" => "用户角色分配",
+        _ => value
+    };
+}

@@ -1,0 +1,105 @@
+@page "/Pmp/WorkLog"
+@inject VelrixWorkHub.Application.PmpProjects.PmpWorkLogService WorkLogService
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectService ProjectService
+@inject VelrixWorkHub.Application.PmpProjects.PmpWbsTaskService TaskService
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectMemberService MemberService
+@using VelrixWorkHub.Domain
+<PageTitle>项目工时 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">PMP 项目管理 · Pmp/WorkLog</p><h1>项目工时</h1><p class="task-page__intro">按周维护成员×任务×日期工时，保留出勤状态和说明，为后续工时审批、成本与 EVM 分析提供输入。</p></div></div>
+    <section class="task-toolbar customer-toolbar" aria-label="工时矩阵筛选"><label>项目<select aria-label="工时矩阵项目" @bind="SelectedProjectIdText" @bind:after="RefreshMatrix"><option value="">请选择项目</option>@foreach (var project in ProjectService.List()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label><label>周起始日<input aria-label="工时周起始日" type="date" @bind="WeekStartValue" @bind:after="RefreshMatrix" /></label><span class="customer-note">累计工时：@WorkLogService.TotalHours(SelectedProjectId)</span><button class="task-primary-button" @onclick="SaveWeek" disabled="@(SelectedProjectId is null)"><i class="fa fa-save"></i> 保存本周工时</button></section>
+    @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+    @if (SelectedProjectId is null)
+    {
+        <section class="task-empty"><h2>请选择项目</h2><p>选择项目后按周填写任务工时；日期超出项目计划周期的单元格会自动禁用。</p></section>
+    }
+    else
+    {
+        <section class="task-card customer-card" aria-label="周工时矩阵"><div class="task-card__body"><div class="task-card__meta"><span>周工时矩阵</span><span>@WeekStart.ToString("yyyy-MM-dd") 至 @WeekStart.AddDays(6).ToString("yyyy-MM-dd")</span><span>行合计 @MatrixRows.Sum(x => x.Cells.Sum(c => c.Hours)) 小时</span></div><div style="overflow-x:auto"><table class="table"><thead><tr><th>成员</th><th>WBS 任务</th>@foreach (var day in Days) { <th>@day.ToString("MM-dd")<br />@DayLabel(day.DayOfWeek)</th> }<th>行合计</th></tr></thead><tbody>@foreach (var row in MatrixRows) { <tr><td>@row.MemberName</td><td>@row.TaskTitle@if (!string.IsNullOrWhiteSpace(row.TaskAssignee)) { <small> · @row.TaskAssignee</small> }</td>@foreach (var cell in row.Cells) { <td><input aria-label="@($"{row.MemberName} {row.TaskTitle} {cell.Date:yyyy-MM-dd} 工时")" type="number" min="0" max="24" step="0.1" placeholder="0" @bind="cell.HoursText" @bind:event="oninput" disabled="@cell.Disabled" /><select aria-label="出勤状态" @bind="cell.AttendanceStatusText" disabled="@cell.Disabled"><option value="Normal">正常</option><option value="NoAttendance">无考勤</option></select></td> }<td>@row.Cells.Sum(x => x.Hours).ToString("0.##")</td></tr><tr class="worklog-note-row"><td></td><td>说明</td><td colspan="8"><input aria-label="工时说明" @bind="row.Note" placeholder="本行工时说明" /></td></tr> }</tbody></table></div><p class="customer-note">无考勤仅作为工时提示，不改变工时数值；输入 0 并保存会清除该日期单元格。</p></div></section>
+        <section class="task-list" aria-label="本周历史工时"><h2>本周已登记明细</h2>@foreach (var item in WeekLogs) { var task = TaskService.List(item.ProjectId).FirstOrDefault(x => x.Id == item.WbsTaskId); <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-clock-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--active">@item.Hours 小时</span><span>@item.WorkDate.ToString("yyyy-MM-dd")</span><span>@(item.AttendanceStatus == PmpWorkLogAttendanceStatus.NoAttendance ? "无考勤" : "正常")</span></div><h2>@item.MemberName · @(task?.Title ?? "未关联 WBS")</h2><p>@(item.Note ?? "无说明")</p></div></article> }</section>
+    }
+</div>
+@code {
+    private string SelectedProjectIdText = string.Empty;
+    private DateTime WeekStartValue = DateTime.Today;
+    private string? Error;
+    private List<WorkLogRow> MatrixRows = [];
+    private Guid? SelectedProjectId => Guid.TryParse(SelectedProjectIdText, out var id) ? id : null;
+    private DateOnly WeekStart => DateOnly.FromDateTime(WeekStartValue);
+    private IReadOnlyList<DateOnly> Days => Enumerable.Range(0, 7).Select(WeekStart.AddDays).ToArray();
+    private IReadOnlyList<PmpWorkLog> WeekLogs => SelectedProjectId is not Guid projectId ? Array.Empty<PmpWorkLog>() : WorkLogService.List(projectId).Where(x => x.WorkDate >= WeekStart && x.WorkDate <= WeekStart.AddDays(6)).ToArray();
+
+    private void RefreshMatrix()
+    {
+        var day = DateOnly.FromDateTime(WeekStartValue);
+        WeekStartValue = day.AddDays(-(int)day.DayOfWeek + (day.DayOfWeek == DayOfWeek.Sunday ? -6 : 1)).ToDateTime(TimeOnly.MinValue);
+        Error = null;
+        MatrixRows = SelectedProjectId is Guid projectId ? BuildRows(projectId) : [];
+    }
+
+    private List<WorkLogRow> BuildRows(Guid projectId)
+    {
+        var members = MemberService.List(projectId);
+        var tasks = TaskService.List(projectId);
+        var logs = WorkLogService.List(projectId);
+        var project = ProjectService.List().FirstOrDefault(x => x.Id == projectId);
+        var rows = new List<WorkLogRow>();
+        foreach (var member in members)
+        {
+            foreach (var task in tasks.DefaultIfEmpty())
+            {
+                var row = new WorkLogRow(member.MemberName, task?.Id, task?.Title ?? "未关联 WBS", task?.AssigneeName);
+                foreach (var date in Days)
+                {
+                    var log = logs.FirstOrDefault(x => x.WbsTaskId == task?.Id && x.WorkDate == date && x.MemberName.Equals(member.MemberName, StringComparison.OrdinalIgnoreCase));
+                    row.Cells.Add(new WorkLogCell(date, project is not null && (date < project.PlannedStart || date > project.PlannedEnd), log));
+                }
+                row.Note = row.Cells.Select(x => x.ExistingNote).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? string.Empty;
+                rows.Add(row);
+            }
+        }
+        return rows;
+    }
+
+    private void SaveWeek()
+    {
+        if (SelectedProjectId is not Guid projectId) return;
+        try
+        {
+            foreach (var row in MatrixRows)
+            {
+                foreach (var cell in row.Cells.Where(x => !x.Disabled && (x.HasExisting || !string.IsNullOrWhiteSpace(x.HoursText))))
+                {
+                    if (!decimal.TryParse(cell.HoursText, out var hours)) throw new ArgumentException($"{row.MemberName} {row.TaskTitle} 的 {cell.Date:MM-dd} 工时格式不正确。");
+                    if (hours is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(hours), $"{row.MemberName} {row.TaskTitle} 的工时必须在 0 到 24 小时之间。");
+                    WorkLogService.SaveCell(projectId, row.TaskId, cell.Date, row.MemberName, hours, Enum.Parse<PmpWorkLogAttendanceStatus>(cell.AttendanceStatusText), row.Note);
+                }
+            }
+            RefreshMatrix();
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+
+    private static string DayLabel(DayOfWeek day) => day switch { DayOfWeek.Monday => "一", DayOfWeek.Tuesday => "二", DayOfWeek.Wednesday => "三", DayOfWeek.Thursday => "四", DayOfWeek.Friday => "五", DayOfWeek.Saturday => "六", _ => "日" };
+
+    private sealed class WorkLogRow(string memberName, Guid? taskId, string taskTitle, string? taskAssignee)
+    {
+        public string MemberName { get; } = memberName;
+        public Guid? TaskId { get; } = taskId;
+        public string TaskTitle { get; } = taskTitle;
+        public string? TaskAssignee { get; } = taskAssignee;
+        public string Note { get; set; } = string.Empty;
+        public List<WorkLogCell> Cells { get; } = [];
+    }
+
+    private sealed class WorkLogCell(DateOnly date, bool disabled, PmpWorkLog? existing)
+    {
+        public DateOnly Date { get; } = date;
+        public bool Disabled { get; } = disabled;
+        public bool HasExisting { get; } = existing is not null;
+        public string ExistingNote { get; } = existing?.Note ?? string.Empty;
+        public string HoursText { get; set; } = existing?.Hours.ToString("0.##") ?? string.Empty;
+        public string AttendanceStatusText { get; set; } = (existing?.AttendanceStatus ?? PmpWorkLogAttendanceStatus.Normal).ToString();
+        public decimal Hours => decimal.TryParse(HoursText, out var value) ? value : 0;
+    }
+}

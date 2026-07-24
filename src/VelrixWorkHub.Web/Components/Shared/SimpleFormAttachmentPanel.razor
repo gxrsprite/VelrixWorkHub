@@ -1,0 +1,25 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using VelrixWorkHub.Application.Attachments
+@using VelrixWorkHub.Application.SimpleForms
+@using VelrixWorkHub.Domain
+@inject SimpleFormAttachmentService AttachmentService
+@inject IAttachmentContentStore AttachmentContentStore
+
+<section class="customer-note attachment-panel" aria-label="简单表单附件">
+    <div class="attachment-panel__header"><strong>附件 @Attachments.Count</strong><span> · 仅申请人可维护</span></div>
+    @if (CanWrite) { <InputFile OnChange="Upload" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt" /> }
+    @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+    @foreach (var item in Attachments) { <div class="attachment-panel__item"><span>V@item.VersionNumber · @item.FileName · @item.UploadedBy</span><span><a href="/api/attachments/@item.Id/download">下载</a>@if (CanWrite) { <button type="button" class="danger" @onclick="() => Delete(item)">删除</button> }</span></div> }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public SimpleFormSubmission Submission { get; set; } = default!;
+    [Parameter] public Guid ActorUserId { get; set; }
+    [Parameter] public string Actor { get; set; } = "system";
+    private IReadOnlyList<BusinessAttachment> Attachments { get; set; } = [];
+    private string? Error;
+    private bool CanWrite => Submission.Status is SimpleFormSubmissionStatus.Draft or SimpleFormSubmissionStatus.Submitted or SimpleFormSubmissionStatus.Rejected;
+    protected override void OnParametersSet() { try { Attachments = AttachmentService.List(Submission.Id, ActorUserId); } catch (Exception ex) { Error = ex.Message; } }
+    private async Task Upload(InputFileChangeEventArgs args) { try { await using var stream = args.File.OpenReadStream(20 * 1024 * 1024); await AttachmentService.UploadAsync(Submission.Id, ActorUserId, Actor, args.File.Name, args.File.ContentType, stream, AttachmentContentStore); Attachments = AttachmentService.List(Submission.Id, ActorUserId); } catch (Exception ex) { Error = ex.Message; } }
+    private void Delete(BusinessAttachment item) { try { AttachmentService.Delete(item, ActorUserId, Actor); Attachments = AttachmentService.List(Submission.Id, ActorUserId); } catch (Exception ex) { Error = ex.Message; } }
+}

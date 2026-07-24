@@ -1,0 +1,179 @@
+@namespace BootstrapBlazor.Components
+@typeparam TItem
+@typeparam TValue
+
+<div class="alloc-table2">
+    <div class="d-flex align-items-center gap-2">
+        <button type="button" class="btn btn-outline-primary btn-sm" @onclick="OpenDialog">
+            <i class="fa fa-exchange-alt me-1"></i>@ButtonText
+        </button>
+        <span class="text-muted small">@SelectedSummary</span>
+    </div>
+
+    @if (SelectedItems.Count > 0)
+    {
+        <div class="alloc-table2-tags mt-2">
+            @foreach (var item in SelectedItems.Take(MaxInlineTags))
+            {
+                <span class="badge text-bg-light border me-1 mb-1">@GetText(item)</span>
+            }
+            @if (SelectedItems.Count > MaxInlineTags)
+            {
+                <span class="badge text-bg-secondary me-1 mb-1">+@(SelectedItems.Count - MaxInlineTags)</span>
+            }
+        </div>
+    }
+</div>
+
+<EditorDialog IsOpen="_showDialog" Title="@Title" SizeClass="modal-xl" OnClose="CloseDialog">
+    <ChildContent>
+        <div class="row g-3 alloc-table2-dialog">
+            <div class="col-md-6">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <strong>@AvailableTitle</strong>
+                    <button type="button" class="btn btn-link btn-sm p-0" @onclick="SelectAll">@SelectAllText</button>
+                </div>
+                <input class="form-control form-control-sm mb-2" placeholder="@SearchPlaceholder" @bind="_availableSearch" @bind:event="oninput" />
+                <div class="list-group alloc-table2-list">
+                    @foreach (var item in FilteredAvailableItems)
+                    {
+                        <button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                                @onclick="() => AddItem(item)">
+                            <span>@GetText(item)</span>
+                            <i class="fa fa-plus text-primary"></i>
+                        </button>
+                    }
+                    @if (!FilteredAvailableItems.Any())
+                    {
+                        <div class="list-group-item text-muted text-center">@NoDataText</div>
+                    }
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <strong>@SelectedTitle</strong>
+                    <button type="button" class="btn btn-link btn-sm p-0 text-danger" @onclick="ClearSelected">@ClearText</button>
+                </div>
+                <input class="form-control form-control-sm mb-2" placeholder="@SearchPlaceholder" @bind="_selectedSearch" @bind:event="oninput" />
+                <div class="list-group alloc-table2-list">
+                    @foreach (var item in FilteredSelectedItems)
+                    {
+                        <button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                                @onclick="() => RemoveItem(item)">
+                            <span>@GetText(item)</span>
+                            <i class="fa fa-times text-danger"></i>
+                        </button>
+                    }
+                    @if (!FilteredSelectedItems.Any())
+                    {
+                        <div class="list-group-item text-muted text-center">@NoDataText</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-primary" @onclick="SaveAsync">@ConfirmText</button>
+        <button type="button" class="btn btn-secondary" @onclick="CloseDialog">@CancelText</button>
+    </FooterContent>
+</EditorDialog>
+
+@code {
+    [Parameter] public IReadOnlyList<TItem> Items { get; set; } = Array.Empty<TItem>();
+    [Parameter] public IReadOnlyCollection<TValue> SelectedValues { get; set; } = Array.Empty<TValue>();
+    [Parameter] public EventCallback<IReadOnlyCollection<TValue>> SelectedValuesChanged { get; set; }
+    [Parameter, EditorRequired] public Func<TItem, TValue> ValueSelector { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<TItem, string> TextSelector { get; set; } = default!;
+    [Parameter] public string Title { get; set; } = "分配数据";
+    [Parameter] public string ButtonText { get; set; } = "分配";
+    [Parameter] public string AvailableTitle { get; set; } = "可选";
+    [Parameter] public string SelectedTitle { get; set; } = "已选";
+    [Parameter] public string SearchPlaceholder { get; set; } = "搜索";
+    [Parameter] public string SelectAllText { get; set; } = "全部添加";
+    [Parameter] public string ClearText { get; set; } = "清空";
+    [Parameter] public string ConfirmText { get; set; } = "确定";
+    [Parameter] public string CancelText { get; set; } = "取消";
+    [Parameter] public string NoDataText { get; set; } = "暂无数据";
+    [Parameter] public int MaxInlineTags { get; set; } = 6;
+
+    private readonly HashSet<TValue> _editingValues = new();
+    private bool _showDialog;
+    private string _availableSearch = "";
+    private string _selectedSearch = "";
+
+    private HashSet<TValue> SelectedValueSet => SelectedValues.ToHashSet();
+
+    private List<TItem> SelectedItems =>
+        Items.Where(item => SelectedValueSet.Contains(ValueSelector(item))).ToList();
+
+    private IEnumerable<TItem> FilteredAvailableItems =>
+        FilterItems(Items.Where(item => !_editingValues.Contains(ValueSelector(item))), _availableSearch);
+
+    private IEnumerable<TItem> FilteredSelectedItems =>
+        FilterItems(Items.Where(item => _editingValues.Contains(ValueSelector(item))), _selectedSearch);
+
+    private string SelectedSummary => SelectedItems.Count == 0 ? "未选择" : $"已选择 {SelectedItems.Count} 项";
+
+    private void OpenDialog()
+    {
+        _editingValues.Clear();
+        foreach (var value in SelectedValues)
+            _editingValues.Add(value);
+
+        _availableSearch = "";
+        _selectedSearch = "";
+        _showDialog = true;
+    }
+
+    private void CloseDialog()
+    {
+        _showDialog = false;
+    }
+
+    private void AddItem(TItem item)
+    {
+        _editingValues.Add(ValueSelector(item));
+    }
+
+    private void RemoveItem(TItem item)
+    {
+        _editingValues.Remove(ValueSelector(item));
+    }
+
+    private void SelectAll()
+    {
+        foreach (var item in FilterItems(Items, _availableSearch))
+            _editingValues.Add(ValueSelector(item));
+    }
+
+    private void ClearSelected()
+    {
+        if (string.IsNullOrWhiteSpace(_selectedSearch))
+        {
+            _editingValues.Clear();
+            return;
+        }
+
+        foreach (var item in FilteredSelectedItems.ToList())
+            _editingValues.Remove(ValueSelector(item));
+    }
+
+    private async Task SaveAsync()
+    {
+        await SelectedValuesChanged.InvokeAsync(_editingValues.ToArray());
+        _showDialog = false;
+    }
+
+    private IEnumerable<TItem> FilterItems(IEnumerable<TItem> source, string search)
+    {
+        if (string.IsNullOrWhiteSpace(search))
+            return source;
+
+        return source.Where(item => GetText(item).Contains(search, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string GetText(TItem item)
+    {
+        return TextSelector(item) ?? "";
+    }
+}

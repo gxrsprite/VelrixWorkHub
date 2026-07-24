@@ -1,0 +1,156 @@
+@page "/Admin/Role"
+
+
+<PageTitle>角色管理</PageTitle>
+
+<AdminTable2 TItem="SysRole" PageSize="20" Title="角色管理"
+    OnQuery="OnQueryRole" InitQuery="InitQueryRole" OnEdit="OnEditRole" OnSaving="OnSavingRole" OnSaved="OnSavedRole" OnRemoving="OnRemovingRole">
+    <TableHeader>
+        <AdminSortHeader Field="Name">角色名称</AdminSortHeader>
+        <AdminSortHeader Field="IsAdministrator">管理员</AdminSortHeader>
+        <th>备注</th>
+    </TableHeader>
+    <TableRow>
+        <td>@context.Name</td>
+        <td>@(context.IsAdministrator ? "是" : "否")</td>
+        <td>@context.Description</td>
+    </TableRow>
+    <EditTemplate>
+        <div class="row">
+            <div class="form-group col-6">
+                <label class="form-label">角色名称</label>
+                <input @bind="context.Name" @bind:event="oninput" type="text" class="form-control" maxlength="50" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">系统管理员</label>
+                <Switch @bind-Value="context.IsAdministrator" />
+            </div>
+            <div class="form-group col-12">
+                <label class="form-label">备注</label>
+                <textarea @bind="context.Description" @bind:event="oninput" class="form-control" maxlength="500"></textarea>
+            </div>
+            <div class="form-group col-12">
+                <label class="form-label">菜单与按钮授权</label>
+                <div class="border rounded p-3" style="max-height:320px;overflow:auto">
+                    @if (_permissionMenus.Count == 0)
+                    {
+                        <span class="text-muted">暂无可分配菜单。</span>
+                    }
+                    else
+                    {
+                        @foreach (var menu in _permissionMenus)
+                        {
+                            <label class="d-block mb-1" style="padding-left:@($"{MenuLevel(menu) * 24}px")">
+                                <input type="checkbox"
+                                       checked="@_selectedMenuIds.Contains(menu.Id)"
+                                       @onchange="e => TogglePermission(menu.Id, e)" />
+                                <span class="@(menu.Type == SysMenuType.按钮 ? "text-muted" : "")">
+                                    @(menu.Type == SysMenuType.按钮 ? "↳ " : "")@menu.Label
+                                </span>
+                                <small class="text-muted ms-1">@menu.Type</small>
+                            </label>
+                        }
+                    }
+                </div>
+                <div class="form-text">管理员角色始终拥有全部可见权限；普通角色按此处勾选的菜单和按钮生效。</div>
+            </div>
+        </div>
+    </EditTemplate>
+</AdminTable2>
+
+@code {
+    [Inject] IFreeSql fsql { get; set; } = default!;
+    [Inject] IAdminContext admin { get; set; } = default!;
+    [Inject] IAdminRolePermissionService RolePermissionService { get; set; } = default!;
+
+    private List<SysMenu> _permissionMenus = new();
+    private Dictionary<Guid, SysMenu> _permissionMenusById = new();
+    private HashSet<Guid> _selectedMenuIds = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _permissionMenus = (await RolePermissionService.LoadAssignableMenusAsync()).ToList();
+        _permissionMenusById = _permissionMenus.ToDictionary(menu => menu.Id);
+    }
+
+    async Task InitQueryRole(AdminQueryInfo e)
+    {
+        e.Filters = Array.Empty<AdminFilterInfo>();
+        await Task.CompletedTask;
+    }
+
+    void OnQueryRole(AdminQueryEventArgs<SysRole> e)
+    {
+        e.Select.WhereIf(!string.IsNullOrWhiteSpace(e.SearchText), a =>
+            a.Name.Contains(e.SearchText!) || (a.Description ?? "").Contains(e.SearchText!));
+    }
+
+    async Task OnEditRole(SysRole item)
+    {
+        if (item.Id == Guid.Empty)
+        {
+            item.Id = Guid.CreateVersion7();
+            _selectedMenuIds.Clear();
+            return;
+        }
+
+        var snapshot = await RolePermissionService.LoadRolePermissionsAsync(item.Id);
+        _selectedMenuIds = snapshot?.MenuIds.ToHashSet() ?? new HashSet<Guid>();
+    }
+
+    async Task OnSavingRole(AdminConfirmEventArgs<SysRole> e)
+    {
+        e.Argument.Name = e.Argument.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(e.Argument.Name))
+        {
+            e.Cancel = true;
+            e.Message = "角色名称不能为空。";
+            return;
+        }
+        if (_selectedMenuIds.Except(_permissionMenusById.Keys).Any())
+        {
+            e.Cancel = true;
+            e.Message = "授权菜单已发生变化，请刷新后重试。";
+            return;
+        }
+        await Task.CompletedTask;
+    }
+
+    async Task OnSavedRole(SysRole item)
+    {
+        var result = await RolePermissionService.SaveRolePermissionsAsync(
+            item.Id,
+            _selectedMenuIds,
+            admin.User?.Id,
+            admin.User?.Username);
+        if (!result.Success)
+            throw new InvalidOperationException(result.Error);
+    }
+
+    async Task OnRemovingRole(List<SysRole> items)
+    {
+        items.RemoveAll(r => r.IsAdministrator);
+        await Task.CompletedTask;
+    }
+
+    void TogglePermission(Guid menuId, ChangeEventArgs args)
+    {
+        if (args.Value is bool selected && selected)
+            _selectedMenuIds.Add(menuId);
+        else
+            _selectedMenuIds.Remove(menuId);
+    }
+
+    int MenuLevel(SysMenu menu)
+    {
+        var level = 0;
+        var parentId = menu.ParentId;
+        var visited = new HashSet<Guid>();
+        while (parentId != Guid.Empty && visited.Add(parentId) && _permissionMenusById.TryGetValue(parentId, out var parent))
+        {
+            level++;
+            parentId = parent.ParentId;
+        }
+        return level;
+    }
+}

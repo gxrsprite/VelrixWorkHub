@@ -1,0 +1,44 @@
+@namespace BootstrapBlazor.Components
+
+<th class="@CssClass" style="@Style" scope="col">
+    @if (string.IsNullOrWhiteSpace(Field) || Table == null || Disabled)
+    {
+        @ChildContent
+    }
+    else
+    {
+        <button type="button"
+                class="admin-sort-header @(IsActive ? "active" : "")"
+                title="@TitleText"
+                aria-pressed="@(IsActive ? "true" : "false")"
+                @onclick="SortAsync">
+            <span class="admin-sort-header__label">@ChildContent</span>
+            <span class="admin-sort-header__icon" aria-hidden="true">
+                <i class="@IconClass"></i>
+            </span>
+        </button>
+    }
+</th>
+
+@code {
+    [CascadingParameter] public IAdminSortTable? Table { get; set; }
+    [Parameter, EditorRequired] public string Field { get; set; } = "";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public string? CssClass { get; set; }
+    [Parameter] public string? Style { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private bool IsActive => string.Equals(Table?.SortField, Field, StringComparison.OrdinalIgnoreCase);
+    private string IconClass => IsActive
+        ? Table!.SortAsc ? "fa fa-sort-up" : "fa fa-sort-down"
+        : "fa fa-sort text-muted";
+    private string TitleText => IsActive
+        ? Table!.SortAsc ? "\u5347\u5e8f\uff0c\u70b9\u51fb\u5207\u6362\u4e3a\u964d\u5e8f" : "\u964d\u5e8f\uff0c\u70b9\u51fb\u5207\u6362\u4e3a\u5347\u5e8f"
+        : "\u70b9\u51fb\u6392\u5e8f";
+
+    private async Task SortAsync()
+    {
+        if (Table != null && !string.IsNullOrWhiteSpace(Field))
+            await Table.SortByAsync(Field);
+    }
+}

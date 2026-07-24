@@ -1,0 +1,96 @@
+@page "/Oa/Announcement"
+@inject VelrixWorkHub.Application.Announcements.AnnouncementService AnnouncementService
+@using VelrixWorkHub.Application.Announcements
+@using VelrixWorkHub.Domain
+
+<PageTitle>公告中心 - Velrix Work Hub</PageTitle>
+
+<div class="announcement-page">
+    <div class="task-page__header">
+        <div>
+            <p class="eyebrow">协同办公 · OA/Announcement</p>
+            <h1>公告中心</h1>
+            <p class="task-page__intro">发布组织通知，让重要信息有迹可循。</p>
+        </div>
+        <div class="task-page__summary" aria-label="已发布公告统计"><strong>@AnnouncementService.Count(AnnouncementFilter.Published)</strong><span>条已发布</span></div>
+    </div>
+
+    <section class="task-toolbar" aria-label="公告操作">
+        <div class="task-filters" role="tablist" aria-label="公告筛选">
+            @foreach (var filter in Filters)
+            {
+                <button class="task-filter @(SelectedFilter == filter.Key ? "is-active" : "")" role="tab" aria-selected="@(SelectedFilter == filter.Key)" @onclick="() => SelectedFilter = filter.Key">
+                    @filter.Label <span>@AnnouncementService.Count(filter.Filter)</span>
+                </button>
+            }
+        </div>
+        <button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus" aria-hidden="true"></i> 新建公告</button>
+    </section>
+
+    @if (ShowComposer || EditingAnnouncement is not null)
+    {
+        <section class="task-composer" aria-label="@(EditingAnnouncement is null ? "新建公告" : "编辑公告")">
+            <div class="task-composer__title">@(EditingAnnouncement is null ? "创建一条公告" : "编辑公告")</div>
+            <label>公告标题<input @bind="DraftTitle" @bind:event="oninput" placeholder="例如：关于本周系统升级的通知" autofocus /></label>
+            <label>公告内容<textarea @bind="DraftContent" @bind:event="oninput" rows="6" placeholder="写下需要让团队知道的重要信息"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(FormError)) { <div class="task-error" role="alert">@FormError</div> }
+            <div class="task-composer__actions">
+                <button class="task-secondary-button" @onclick="CloseForm">取消</button>
+                <button class="task-primary-button" @onclick="SaveForm">@(EditingAnnouncement is null ? "保存草稿" : "保存修改")</button>
+            </div>
+        </section>
+    }
+
+    <section class="task-list" aria-live="polite">
+        @if (!VisibleAnnouncements.Any())
+        {
+            <div class="task-empty"><i class="fa fa-bullhorn" aria-hidden="true"></i><strong>这里暂时没有公告</strong><span>可以新建一条公告，向团队同步重要信息。</span></div>
+        }
+        else
+        {
+            @foreach (var announcement in VisibleAnnouncements)
+            {
+                <article class="task-card announcement-card">
+                    <div class="task-card__body">
+                        <div class="task-card__meta"><span class="task-status announcement-status--@announcement.Status.ToString().ToLowerInvariant()">@StatusLabel(announcement.Status)</span>@if (announcement.PublishedTime is not null) { <span class="task-due">@announcement.PublishedTime.Value.ToString("yyyy-MM-dd HH:mm")</span> }</div>
+                        <h2>@announcement.Title</h2>
+                        <p class="announcement-content">@announcement.Content</p>
+                    </div>
+                    <div class="task-card__actions">
+                        @if (announcement.Status == AnnouncementStatus.Draft) { <button title="发布公告" @onclick="() => Publish(announcement)"><i class="fa fa-send-o" aria-hidden="true"></i></button> }
+                        @if (announcement.Status == AnnouncementStatus.Published) { <button title="归档公告" @onclick="() => Archive(announcement)"><i class="fa fa-archive" aria-hidden="true"></i></button> }
+                        @if (announcement.Status != AnnouncementStatus.Archived) { <button title="编辑公告" @onclick="() => OpenEditor(announcement)"><i class="fa fa-pencil" aria-hidden="true"></i></button> }
+                        <button class="danger" title="删除公告" @onclick="() => Remove(announcement)"><i class="fa fa-trash-o" aria-hidden="true"></i></button>
+                    </div>
+                </article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    private readonly List<(string Key, string Label, AnnouncementFilter Filter)> Filters = [("all", "全部", AnnouncementFilter.All), ("draft", "草稿", AnnouncementFilter.Draft), ("published", "已发布", AnnouncementFilter.Published), ("archived", "已归档", AnnouncementFilter.Archived)];
+    private string SelectedFilter { get; set; } = "all";
+    private bool ShowComposer { get; set; }
+    private Announcement? EditingAnnouncement { get; set; }
+    private string DraftTitle { get; set; } = string.Empty;
+    private string DraftContent { get; set; } = string.Empty;
+    private string? FormError { get; set; }
+    private IEnumerable<Announcement> VisibleAnnouncements => AnnouncementService.List(Filters.First(filter => filter.Key == SelectedFilter).Filter);
+
+    private void OpenComposer() { CloseForm(); ShowComposer = true; }
+    private void OpenEditor(Announcement item) { CloseForm(); EditingAnnouncement = item; DraftTitle = item.Title; DraftContent = item.Content; }
+    private void CloseForm() { ShowComposer = false; EditingAnnouncement = null; FormError = null; DraftTitle = string.Empty; DraftContent = string.Empty; }
+    private void SaveForm()
+    {
+        if (string.IsNullOrWhiteSpace(DraftTitle)) { FormError = "请填写公告标题。"; return; }
+        if (string.IsNullOrWhiteSpace(DraftContent)) { FormError = "请填写公告内容。"; return; }
+        if (EditingAnnouncement is null) AnnouncementService.Create(DraftTitle, DraftContent);
+        else AnnouncementService.Edit(EditingAnnouncement, DraftTitle, DraftContent);
+        CloseForm();
+    }
+    private void Publish(Announcement item) => AnnouncementService.Publish(item);
+    private void Archive(Announcement item) => AnnouncementService.Archive(item);
+    private void Remove(Announcement item) => AnnouncementService.Remove(item);
+    private static string StatusLabel(AnnouncementStatus status) => status switch { AnnouncementStatus.Published => "已发布", AnnouncementStatus.Archived => "已归档", _ => "草稿" };
+}

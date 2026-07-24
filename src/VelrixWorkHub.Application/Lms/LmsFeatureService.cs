@@ -1,0 +1,3 @@
+using VelrixWorkHub.Domain;
+namespace VelrixWorkHub.Application.Lms;
+public sealed class LmsFeatureService(ILmsFeatureRepository repository) { public IReadOnlyList<LmsFeature> List(bool includeDisabled=true)=>repository.List().Where(x=>includeDisabled||x.Status==LmsFeatureStatus.Active).OrderBy(x=>x.Code).ToArray(); public LmsFeature Create(string code,string name,string? description,string? otherInfo){var x=new LmsFeature(code,name,description,otherInfo,DateTime.Now);if(repository.List().Any(i=>i.Code.Equals(x.Code,StringComparison.OrdinalIgnoreCase)))throw new InvalidOperationException("特性编码已存在。");repository.Add(x);return x;} public void SetStatus(LmsFeature x,LmsFeatureStatus s){x.SetStatus(s);repository.Update(x);} }

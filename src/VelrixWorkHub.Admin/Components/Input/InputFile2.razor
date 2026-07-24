@@ -1,0 +1,135 @@
+@namespace BootstrapBlazor.Components
+@inject IAdminContext Admin
+@inject IFreeSql Fsql
+@inject IFileService FileService
+
+<div class="input-group">
+    <input type="text" class="form-control" value="@Value" readonly disabled="@Disabled" placeholder="@ChooseFilePlaceholder" />
+    <button class="btn btn-outline-secondary" type="button" disabled="@Disabled" title="@ChooseFileText" @onclick="OpenPickerAsync">
+        <i class="fa fa-folder-open"></i>
+    </button>
+    @if (!string.IsNullOrWhiteSpace(Value))
+    {
+        <button class="btn btn-outline-danger" type="button" disabled="@Disabled" title="@ClearText" @onclick="Clear">
+            <i class="fa fa-times"></i>
+        </button>
+    }
+</div>
+
+@if (_showPicker)
+{
+    <EditorDialog IsOpen="_showPicker" Title="@ChooseFileText" SizeClass="modal-xl" OnClose="@ClosePicker">
+        <ChildContent>
+            <div class="table-responsive" style="max-height:400px">
+                <table class="table table-sm table-hover">
+                    <thead><tr><th>@FileNameText</th><th>@SizeText</th><th>@TypeText</th><th>@TimeText</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var file in _files)
+                        {
+                            <tr>
+                                <td>@file.OriginFileName</td>
+                                <td>@file.SizeFormat</td>
+                                <td>@file.Extension</td>
+                                <td>@file.CreatedTime?.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>
+                                    <button class="btn btn-primary btn-xs" @onclick="() => SelectFile(file)">@ChooseText</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </ChildContent>
+        <FooterContent>
+            <div class="d-flex justify-content-between w-100">
+                <div class="d-flex align-items-center gap-2">
+                    <InputFile class="form-control form-control-sm d-inline-block" style="max-width:300px"
+                               OnChange="UploadAsync" accept="@Accept" />
+                    @if (_uploading)
+                    {
+                        <span class="spinner-border spinner-border-sm text-primary"></span>
+                    }
+                </div>
+                <button class="btn btn-secondary" @onclick="ClosePicker">@CloseText</button>
+            </div>
+        </FooterContent>
+    </EditorDialog>
+}
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public EventCallback<string?> OnValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string Directory { get; set; } = "uploads";
+    [Parameter] public string Accept { get; set; } = "*/*";
+    [Parameter] public int MaxFileCount { get; set; } = 5;
+    [Parameter] public long MaxFileSize { get; set; } = 10 * 1024 * 1024;
+    [Parameter] public int PageSize { get; set; } = 50;
+
+    private const string ChooseFileText = "\u9009\u62e9\u6587\u4ef6";
+    private const string ChooseFilePlaceholder = "\u9009\u62e9\u6587\u4ef6...";
+    private const string ClearText = "\u6e05\u7a7a";
+    private const string FileNameText = "\u6587\u4ef6\u540d";
+    private const string SizeText = "\u5927\u5c0f";
+    private const string TypeText = "\u7c7b\u578b";
+    private const string TimeText = "\u65f6\u95f4";
+    private const string ChooseText = "\u9009\u62e9";
+    private const string CloseText = "\u5173\u95ed";
+
+    private bool _showPicker;
+    private bool _uploading;
+    private List<SysFile> _files = new();
+    private async Task OpenPickerAsync()
+    {
+        _showPicker = true;
+        await LoadFilesAsync();
+    }
+
+    private async Task LoadFilesAsync()
+    {
+        _files = await Fsql.Select<SysFile>().OrderByDescending(f => f.CreatedTime).Take(PageSize).ToListAsync();
+    }
+
+    private async Task SelectFile(SysFile file)
+    {
+        Value = file.LinkUrl;
+        _showPicker = false;
+        await ValueChanged.InvokeAsync(Value);
+        await OnValueChanged.InvokeAsync(Value);
+    }
+
+    private async Task Clear()
+    {
+        Value = null;
+        await ValueChanged.InvokeAsync(Value);
+        await OnValueChanged.InvokeAsync(Value);
+    }
+
+    private void ClosePicker() { _showPicker = false; }
+
+    private async Task UploadAsync(InputFileChangeEventArgs e)
+    {
+        _uploading = true;
+        try
+        {
+            foreach (var browserFile in e.GetMultipleFiles(MaxFileCount))
+            {
+                await using var stream = browserFile.OpenReadStream(MaxFileSize);
+                await using var buffer = new MemoryStream((int)browserFile.Size);
+                await stream.CopyToAsync(buffer);
+
+                var savedFile = await FileService.UploadFileAsync(buffer.ToArray(), browserFile.Name, Directory);
+                _files.Insert(0, savedFile);
+                Value = savedFile.LinkUrl;
+                await ValueChanged.InvokeAsync(Value);
+                await OnValueChanged.InvokeAsync(Value);
+            }
+        }
+        finally
+        {
+            _uploading = false;
+            StateHasChanged();
+        }
+    }
+}

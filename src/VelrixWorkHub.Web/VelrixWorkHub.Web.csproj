@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VelrixWorkHub.Application\VelrixWorkHub.Application.csproj" />
+    <ProjectReference Include="..\VelrixWorkHub.Infrastructure\VelrixWorkHub.Infrastructure.csproj" />
+    <ProjectReference Include="..\VelrixWorkHub.Admin\VelrixWorkHub.Admin.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FreeSql" Version="3.5.309" />
+    <PackageReference Include="FreeSql.Cloud" Version="2.0.1" />
+    <PackageReference Include="FreeSql.Provider.Sqlite" Version="3.5.309" />
+    <PackageReference Include="FreeSql.Provider.MySqlConnector" Version="3.5.309" />
+    <PackageReference Include="FreeScheduler" Version="2.0.37" />
+    <PackageReference Include="BootstrapBlazor" Version="9.12.1" />
+    <PackageReference Include="BootstrapBlazor.Middleware" Version="9.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="NCrontab" Version="3.3.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="10.0.0-preview.3.25172.1" />
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+  </ItemGroup>
+
+</Project>

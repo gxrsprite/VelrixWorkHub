@@ -1,0 +1,167 @@
+@namespace BootstrapBlazor.Components
+@typeparam TItem
+@typeparam TValue
+
+<button type="button" class="@ButtonClass" disabled="@Disabled" @onclick="OpenDialog">
+    <i class="fa fa-table-list me-1"></i>@ButtonText
+</button>
+
+<EditorDialog IsOpen="_showDialog" Title="@Title" SizeClass="@SizeClass" OnClose="CloseDialog">
+    <ChildContent>
+        <div class="select-table2">
+            @if (IsSearchText)
+            {
+                <div class="input-group input-group-sm mb-2">
+                    <input class="form-control" placeholder="@SearchPlaceholder" @bind="_searchText" @bind:event="oninput" />
+                    <button type="button" class="btn btn-outline-secondary" @onclick="ClearSearch">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+            }
+            <div class="table-responsive select-table2-table">
+                <table class="table table-sm table-hover table-bordered mb-0">
+                    <thead>
+                        <tr>
+                            <th style="width:44px"></th>
+                            @TableHeader
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in FilteredItems)
+                        {
+                            var itemValue = ValueSelector(item);
+                            var selected = IsSelected(itemValue);
+                            <tr class="@(selected ? "table-active" : "")" @ondblclick="() => ConfirmItemAsync(item)">
+                                <td class="text-center">
+                                    <input type="radio"
+                                           name="@_radioGroup"
+                                           checked="@selected"
+                                           @onchange="() => SelectItem(item)" />
+                                </td>
+                                @if (TableRow != null)
+                                {
+                                    @TableRow(item)
+                                }
+                                else
+                                {
+                                    <td>@GetText(item)</td>
+                                }
+                            </tr>
+                        }
+                        @if (!FilteredItems.Any())
+                        {
+                            <tr>
+                                <td colspan="@EmptyColspan" class="text-center text-muted py-4">@NoDataText</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button type="button" class="btn btn-primary" disabled="@(!_hasEditingValue)" @onclick="ConfirmAsync">@ConfirmText</button>
+        @if (AllowClear)
+        {
+            <button type="button" class="btn btn-outline-danger" @onclick="ClearAsync">@ClearText</button>
+        }
+        <button type="button" class="btn btn-secondary" @onclick="CloseDialog">@CancelText</button>
+    </FooterContent>
+</EditorDialog>
+
+@code {
+    [Parameter] public IReadOnlyList<TItem> Items { get; set; } = Array.Empty<TItem>();
+    [Parameter] public TValue Value { get; set; } = default!;
+    [Parameter] public EventCallback<TValue> ValueChanged { get; set; }
+    [Parameter, EditorRequired] public Func<TItem, TValue> ValueSelector { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<TItem, string> TextSelector { get; set; } = default!;
+    [Parameter] public RenderFragment? TableHeader { get; set; }
+    [Parameter] public RenderFragment<TItem>? TableRow { get; set; }
+    [Parameter] public string Title { get; set; } = "选择数据";
+    [Parameter] public string ButtonText { get; set; } = "选择";
+    [Parameter] public string ButtonClass { get; set; } = "btn btn-outline-secondary btn-sm";
+    [Parameter] public string SizeClass { get; set; } = "modal-xl";
+    [Parameter] public string SearchPlaceholder { get; set; } = "搜索";
+    [Parameter] public string ConfirmText { get; set; } = "确定";
+    [Parameter] public string CancelText { get; set; } = "取消";
+    [Parameter] public string ClearText { get; set; } = "清空";
+    [Parameter] public string NoDataText { get; set; } = "暂无数据";
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool AllowClear { get; set; }
+    [Parameter] public bool IsSearchText { get; set; } = true;
+    [Parameter] public int ColumnCount { get; set; } = 1;
+
+    private bool _showDialog;
+    private bool _hasEditingValue;
+    private TValue _editingValue = default!;
+    private string _searchText = "";
+    private readonly string _radioGroup = $"select_table2_{Guid.NewGuid():N}";
+    private int EmptyColspan => Math.Max(1, ColumnCount) + 1;
+
+    private IEnumerable<TItem> FilteredItems
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_searchText))
+                return Items;
+
+            return Items.Where(item => GetText(item).Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private void OpenDialog()
+    {
+        _editingValue = Value;
+        _hasEditingValue = !EqualityComparer<TValue>.Default.Equals(Value, default!);
+        _searchText = "";
+        _showDialog = true;
+    }
+
+    private void CloseDialog()
+    {
+        _showDialog = false;
+    }
+
+    private void SelectItem(TItem item)
+    {
+        _editingValue = ValueSelector(item);
+        _hasEditingValue = true;
+    }
+
+    private async Task ConfirmItemAsync(TItem item)
+    {
+        SelectItem(item);
+        await ConfirmAsync();
+    }
+
+    private async Task ConfirmAsync()
+    {
+        Value = _editingValue;
+        await ValueChanged.InvokeAsync(Value);
+        _showDialog = false;
+    }
+
+    private async Task ClearAsync()
+    {
+        Value = default!;
+        _editingValue = default!;
+        _hasEditingValue = false;
+        await ValueChanged.InvokeAsync(Value);
+        _showDialog = false;
+    }
+
+    private void ClearSearch()
+    {
+        _searchText = "";
+    }
+
+    private bool IsSelected(TValue value)
+    {
+        return _hasEditingValue && EqualityComparer<TValue>.Default.Equals(_editingValue, value);
+    }
+
+    private string GetText(TItem item)
+    {
+        return TextSelector(item) ?? "";
+    }
+}

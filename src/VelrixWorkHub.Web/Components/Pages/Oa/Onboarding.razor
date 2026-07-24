@@ -1,0 +1,87 @@
+@page "/Oa/Onboarding"
+@inject VelrixWorkHub.Application.Onboarding.OnboardingService OnboardingService
+@inject VelrixWorkHub.Application.Recruitment.RecruitmentService RecruitmentService
+@inject AdminBlazor.IAdminContext Admin
+@using VelrixWorkHub.Domain
+
+<PageTitle>入职办理 - Velrix Work Hub</PageTitle>
+
+<div class="task-page onboarding-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/Onboarding</p><h1>入职办理</h1><p class="task-page__intro">把已录用候选人转为待入职事项，完成资料、合同、账号和培训清单后才正式完成入职。</p></div><div class="task-page__summary"><strong>@OnboardingService.List().Count</strong><span>份办理记录</span></div></div>
+    <section class="task-toolbar" aria-label="入职办理操作"><span class="customer-note">可办理候选人：@EligibleCandidates().Count()</span>@if (Admin.AuthButton("Oa/Onboarding/Create")) { <button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus" aria-hidden="true"></i> 新建入职办理</button> }</section>
+
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="@(Editing is null ? "新建入职办理" : "维护入职信息")">
+            <div class="task-composer__title">@(Editing is null ? "建立入职办理记录" : $"维护 {CandidateName(Editing.CandidateId)} 的入职信息")</div>
+            @if (Editing is null) { <label>已录用候选人<select @bind="CandidateIdText"><option value="">请选择候选人</option>@foreach (var candidate in EligibleCandidates()) { <option value="@candidate.Id">@candidate.CandidateName · @candidate.PositionTitle</option>}</select></label> }
+            <div class="task-composer__fields"><label>工号<input @bind="EmployeeNo" @bind:event="oninput" maxlength="80" /></label><label>部门<input @bind="DepartmentName" @bind:event="oninput" maxlength="100" /></label></div>
+            <div class="task-composer__fields"><label>职位<input @bind="PositionTitle" @bind:event="oninput" maxlength="100" /></label><label>入职日期<input type="date" @bind="StartDate" /></label></div>
+            <div class="task-composer__fields"><label>试用期结束日期<input type="date" @bind="ProbationEndDate" /></label><label>培训计划<input @bind="TrainingPlan" @bind:event="oninput" maxlength="4000" /></label></div>
+            <label>扩展信息 OtherInfo JSON 对象<textarea @bind="OtherInfo" @bind:event="oninput" rows="2"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存入职办理</button></div>
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error) && !ShowComposer) { <div class="task-error" role="alert">@Error</div> }
+    @if (!OnboardingService.List().Any()) { <div class="task-empty"><i class="fa fa-user-plus" aria-hidden="true"></i><strong>还没有入职办理记录</strong><span>请先在招聘与面试中完成一轮通过面试并录用候选人。</span></div> }
+    else
+    {
+        <section class="task-list" aria-live="polite">
+            @foreach (var record in OnboardingService.List())
+            {
+                var checklist = ChecklistFor(record);
+                <article class="task-card onboarding-card">
+                    <div class="customer-avatar">@CandidateName(record.CandidateId).FirstOrDefault()</div>
+                    <div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@record.Status.ToString().ToLowerInvariant()">@StatusLabel(record.Status)</span><span>@record.EmployeeNo</span><span>入职 @record.StartDate.ToString("yyyy-MM-dd")</span></div><h2>@CandidateName(record.CandidateId)</h2><p>@record.DepartmentName · @record.PositionTitle@(record.ProbationEndDate is DateOnly probation ? $" · 试用期至 {probation:yyyy-MM-dd}" : string.Empty)</p>
+                        <div class="customer-note">培训计划：@(record.TrainingPlan ?? "未设置")</div>
+                        <div class="onboarding-checklist"><label><input type="checkbox" checked="@record.DocumentsSubmitted" disabled /> 资料已提交</label><label><input type="checkbox" checked="@record.ContractSigned" disabled /> 合同已签署</label><label><input type="checkbox" checked="@record.AccountRequested" disabled /> 账号已申请</label><label><input type="checkbox" checked="@record.TrainingCompleted" disabled /> 培训已完成</label></div>
+                        @if (record.Status != OaOnboardingStatus.Completed && Admin.AuthButton("Oa/Onboarding/Edit")) { <div class="task-composer__fields"><label><input type="checkbox" @bind="checklist.DocumentsSubmitted" /> 资料已提交</label><label><input type="checkbox" @bind="checklist.ContractSigned" /> 合同已签署</label><label><input type="checkbox" @bind="checklist.AccountRequested" /> 账号已申请</label><label><input type="checkbox" @bind="checklist.TrainingCompleted" /> 培训已完成</label></div><button class="task-secondary-button" @onclick="() => SaveChecklist(record, checklist)">保存清单</button> }
+                    </div>
+                    <div class="task-card__actions">@if (record.Status != OaOnboardingStatus.Completed && Admin.AuthButton("Oa/Onboarding/Edit")) { <button title="维护入职信息" @onclick="() => OpenEdit(record)"><i class="fa fa-pencil" aria-hidden="true"></i></button> } @if (record.Status != OaOnboardingStatus.Completed && Admin.AuthButton("Oa/Onboarding/Complete")) { <button title="完成入职" @onclick="() => Complete(record)"><i class="fa fa-check" aria-hidden="true"></i></button> }</div>
+                </article>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowComposer;
+    private OaOnboardingRecord? Editing;
+    private string CandidateIdText = string.Empty, EmployeeNo = string.Empty, DepartmentName = string.Empty, PositionTitle = string.Empty, TrainingPlan = string.Empty, OtherInfo = "{}";
+    private DateTime StartDate = DateTime.Today, ProbationEndDate = DateTime.Today.AddMonths(3);
+    private string? Error;
+    private readonly Dictionary<Guid, ChecklistDraft> ChecklistDrafts = [];
+
+    private sealed class ChecklistDraft
+    {
+        public bool DocumentsSubmitted { get; set; }
+        public bool ContractSigned { get; set; }
+        public bool AccountRequested { get; set; }
+        public bool TrainingCompleted { get; set; }
+    }
+
+    private IEnumerable<OaRecruitmentCandidate> EligibleCandidates() => RecruitmentService.ListCandidates(status: OaRecruitmentCandidateStatus.Hired).Where(item => OnboardingService.List().All(record => record.CandidateId != item.Id));
+    private string CandidateName(Guid id) => RecruitmentService.GetCandidate(id)?.CandidateName ?? "未知候选人";
+    private void OpenCreate() { Close(); ShowComposer = true; StartDate = DateTime.Today; ProbationEndDate = DateTime.Today.AddMonths(3); }
+    private void OpenEdit(OaOnboardingRecord record) { Close(); Editing = record; ShowComposer = true; EmployeeNo = record.EmployeeNo; DepartmentName = record.DepartmentName; PositionTitle = record.PositionTitle; StartDate = record.StartDate.ToDateTime(TimeOnly.MinValue); ProbationEndDate = record.ProbationEndDate?.ToDateTime(TimeOnly.MinValue) ?? DateTime.Today.AddMonths(3); TrainingPlan = record.TrainingPlan ?? string.Empty; OtherInfo = record.OtherInfo; }
+    private void Close() { ShowComposer = false; Editing = null; Error = null; CandidateIdText = EmployeeNo = DepartmentName = PositionTitle = TrainingPlan = string.Empty; OtherInfo = "{}"; }
+    private void Save()
+    {
+        if (!Guid.TryParse(CandidateIdText, out var candidateId)) { if (Editing is null) { Error = "请选择已录用候选人。"; return; } candidateId = Editing.CandidateId; }
+        try { if (Editing is null) OnboardingService.Create(candidateId, EmployeeNo, DepartmentName, PositionTitle, DateOnly.FromDateTime(StartDate), DateOnly.FromDateTime(ProbationEndDate), TrainingPlan, OtherInfo); else OnboardingService.Edit(Editing, EmployeeNo, DepartmentName, PositionTitle, DateOnly.FromDateTime(StartDate), DateOnly.FromDateTime(ProbationEndDate), TrainingPlan, OtherInfo); Close(); } catch (Exception ex) { Error = ex.Message; }
+    }
+    private ChecklistDraft ChecklistFor(OaOnboardingRecord record)
+    {
+        if (ChecklistDrafts.TryGetValue(record.Id, out var draft)) return draft;
+        draft = new ChecklistDraft { DocumentsSubmitted = record.DocumentsSubmitted, ContractSigned = record.ContractSigned, AccountRequested = record.AccountRequested, TrainingCompleted = record.TrainingCompleted };
+        ChecklistDrafts[record.Id] = draft;
+        return draft;
+    }
+    private void SaveChecklist(OaOnboardingRecord record, ChecklistDraft checklist) { try { OnboardingService.UpdateChecklist(record, checklist.DocumentsSubmitted, checklist.ContractSigned, checklist.AccountRequested, checklist.TrainingCompleted); ChecklistDrafts.Remove(record.Id); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Complete(OaOnboardingRecord record) { try { OnboardingService.Complete(record); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private static string StatusLabel(OaOnboardingStatus status) => status switch { OaOnboardingStatus.Pending => "待办理", OaOnboardingStatus.InProgress => "办理中", OaOnboardingStatus.Completed => "已完成", _ => "已取消" };
+}

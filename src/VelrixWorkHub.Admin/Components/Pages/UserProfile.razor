@@ -1,0 +1,215 @@
+@page "/Admin/UserProfile"
+
+@inject IAdminContext Admin
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>个人信息</PageTitle>
+
+<div class="container-fluid p-3">
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">账户信息</h5>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="LoadProfileAsync" disabled="@_profileLoading">刷新</button>
+        </div>
+        <div class="card-body">
+            @if (_profileLoading)
+            {
+                <span class="text-muted">正在加载账户信息…</span>
+            }
+            else if (_profile != null)
+            {
+                <dl class="row mb-0" style="max-width:700px">
+                    <dt class="col-sm-3">用户名</dt><dd class="col-sm-9">@_profile.Username</dd>
+                    <dt class="col-sm-3">昵称</dt><dd class="col-sm-9">@(_profile.Nickname ?? "未设置")</dd>
+                    <dt class="col-sm-3">状态</dt><dd class="col-sm-9">@(_profile.IsEnabled ? "已启用" : "已禁用")</dd>
+                    <dt class="col-sm-3">最近登录</dt><dd class="col-sm-9">@_profile.LoginTime.ToString("yyyy-MM-dd HH:mm:ss")</dd>
+                    <dt class="col-sm-3">角色</dt>
+                    <dd class="col-sm-9">@(_profile.Roles.Count == 0 ? "未分配角色" : string.Join("、", _profile.Roles.Select(role => role.Name)))</dd>
+                </dl>
+                <div class="row mt-3" style="max-width:700px">
+                    <div class="col-sm-3"><label class="form-label" for="profile-nickname">昵称</label></div>
+                    <div class="col-sm-6"><input id="profile-nickname" class="form-control" maxlength="50" @bind="_nicknameDraft" @bind:event="oninput" /></div>
+                    <div class="col-sm-3"><button class="btn btn-primary" @onclick="SaveProfileAsync">保存资料</button></div>
+                </div>
+                @if (!string.IsNullOrEmpty(_profileMessage))
+                {
+                    <div class="alert alert-success mt-3 mb-0">@_profileMessage</div>
+                }
+                @if (!string.IsNullOrEmpty(_profileError))
+                {
+                    <div class="alert alert-danger mt-3 mb-0">@_profileError</div>
+                }
+            }
+            else
+            {
+                <span class="text-danger">@(_profileError ?? "账户信息加载失败。")</span>
+            }
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h5 class="mb-0">修改密码</h5></div>
+        <div class="card-body">
+            @if (_done)
+            {
+                <div class="alert alert-success">密码修改成功！</div>
+            }
+            <div class="row" style="max-width:500px">
+                <div class="form-group col-12 mb-3">
+                    <label class="form-label">旧密码</label>
+                    <input @bind="_oldPassword" @bind:event="oninput" type="password" class="form-control" />
+                </div>
+                <div class="form-group col-12 mb-3">
+                    <label class="form-label">新密码</label>
+                    <input @bind="_newPassword" @bind:event="oninput" type="password" class="form-control" />
+                </div>
+                <div class="form-group col-12 mb-3">
+                    <label class="form-label">确认新密码</label>
+                    <input @bind="_confirmPassword" @bind:event="oninput" type="password" class="form-control" />
+                </div>
+                @if (!string.IsNullOrEmpty(_error))
+                {
+                    <div class="col-12 mb-3"><div class="alert alert-danger">@_error</div></div>
+                }
+                <div class="col-12">
+                    <button class="btn btn-primary" @onclick="ChangePasswordAsync">修改密码</button>
+                    <button class="btn btn-outline-danger ms-2" @onclick="LogoutAllAsync">退出所有设备</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _oldPassword = "";
+    private string _newPassword = "";
+    private string _confirmPassword = "";
+    private string? _error;
+    private bool _done;
+    private bool _profileLoading = true;
+    private ProfileData? _profile;
+    private string? _profileError;
+    private string _nicknameDraft = "";
+    private string? _profileMessage;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+            await LoadProfileAsync();
+    }
+
+    private async Task LoadProfileAsync()
+    {
+        _profileLoading = true;
+        _profileError = null;
+        var result = await JS.InvokeAsync<ProfileResult>("adminAuth.getProfile");
+        _profileLoading = false;
+        _profile = result.Ok ? result.Data : null;
+        _profileError = result.Ok ? null : result.Error;
+        if (_profile != null)
+            _nicknameDraft = _profile.Nickname ?? "";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SaveProfileAsync()
+    {
+        _profileMessage = null;
+        _profileError = null;
+        if (string.IsNullOrWhiteSpace(_nicknameDraft))
+        {
+            _profileError = "昵称不能为空";
+            return;
+        }
+        if (_nicknameDraft.Trim().Length > 50)
+        {
+            _profileError = "昵称不能超过 50 个字符";
+            return;
+        }
+
+        var result = await JS.InvokeAsync<ApiResult>("adminAuth.updateProfile", _nicknameDraft);
+        if (!result.Ok)
+        {
+            _profileError = result.Error ?? "个人资料保存失败。";
+            return;
+        }
+
+        _profileMessage = result.Message ?? "个人资料已保存。";
+        await LoadProfileAsync();
+    }
+
+    private async Task ChangePasswordAsync()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_oldPassword) || string.IsNullOrWhiteSpace(_newPassword))
+        {
+            _error = "请输入旧密码和新密码";
+            return;
+        }
+        if (_newPassword != _confirmPassword)
+        {
+            _error = "两次输入的新密码不一致";
+            return;
+        }
+        if (Admin.User == null)
+        {
+            _error = "未登录";
+            return;
+        }
+
+        var result = await JS.InvokeAsync<ApiResult>("adminAuth.changePassword", _oldPassword, _newPassword, _confirmPassword);
+        if (!result.Ok)
+        {
+            _error = result.Error ?? "修改密码失败。";
+            return;
+        }
+
+        _done = true;
+        Admin.SignOut();
+        Nav.NavigateTo("/Login", true);
+    }
+
+    private async Task LogoutAllAsync()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "确定要退出所有设备吗？"))
+            return;
+
+        var result = await JS.InvokeAsync<ApiResult>("adminAuth.logoutAll");
+        if (!result.Ok)
+        {
+            _error = result.Error ?? "退出所有设备失败。";
+            return;
+        }
+
+        Admin.SignOut();
+        Nav.NavigateTo("/Login", true);
+    }
+
+    private sealed class ApiResult
+    {
+        public bool Ok { get; set; }
+        public string? Error { get; set; }
+        public string? Message { get; set; }
+    }
+
+    private sealed class ProfileResult
+    {
+        public bool Ok { get; set; }
+        public string? Error { get; set; }
+        public ProfileData? Data { get; set; }
+    }
+
+    private sealed class ProfileData
+    {
+        public string? Username { get; set; }
+        public string? Nickname { get; set; }
+        public bool IsEnabled { get; set; }
+        public DateTime LoginTime { get; set; }
+        public List<ProfileRole> Roles { get; set; } = [];
+    }
+
+    private sealed class ProfileRole
+    {
+        public string? Name { get; set; }
+    }
+}

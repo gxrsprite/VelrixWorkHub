@@ -1,0 +1,139 @@
+@page "/Admin/TaskScheduler"
+@inject ICronScheduler Scheduler
+
+<PageTitle>定时任务</PageTitle>
+
+<div class="container-fluid p-3">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">定时任务调度器</h5>
+            <small class="text-muted">基于 NCrontab + BackgroundService</small>
+        </div>
+        <div class="table-responsive d-none d-md-block">
+            <table class="table table-striped mb-0">
+                <thead>
+                    <tr>
+                        <th>任务名称</th>
+                        <th>Cron 表达式</th>
+                        <th>下次执行</th>
+                        <th>节假日</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var task in _taskList)
+                    {
+                        <tr>
+                            <td>@task.Name</td>
+                            <td><code>@task.Cron</code></td>
+                            <td>@task.NextFireTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td>@(task.SkipHolidays ? "跳过" : "—")</td>
+                            <td>
+                                <span class="badge @(task.Enabled ? "bg-success" : "bg-secondary")">
+                                    @(task.Enabled ? "运行中" : "已停用")
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="scheduler-mobile-list d-md-none">
+            @foreach (var task in _taskList)
+            {
+                <div class="scheduler-mobile-item">
+                    <div class="d-flex justify-content-between gap-2 align-items-start">
+                        <strong>@task.Name</strong>
+                        <span class="badge @(task.Enabled ? "bg-success" : "bg-secondary")">
+                            @(task.Enabled ? "运行中" : "已停用")
+                        </span>
+                    </div>
+                    <div class="scheduler-mobile-meta">
+                        <span>Cron</span>
+                        <code>@task.Cron</code>
+                    </div>
+                    <div class="scheduler-mobile-meta">
+                        <span>下次执行</span>
+                        <span>@task.NextFireTime.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                    </div>
+                    <div class="scheduler-mobile-meta">
+                        <span>节假日</span>
+                        <span>@(task.SkipHolidays ? "跳过" : "—")</span>
+                    </div>
+                </div>
+            }
+            @if (_taskList.Count == 0)
+            {
+                <div class="text-center py-4 text-muted">
+                    <i class="fa fa-info-circle me-2"></i>调度器未启用或未注册任务
+                    <div class="mt-2 small">
+                        在 Program.cs 中通过 <code>AdminBlazorOptions.ConfigureScheduler</code> 注册任务，
+                        或实现 <code>IScheduledTask</code> 接口并调用 <code>AddScheduledTask&lt;T&gt;()</code>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-header"><h6 class="mb-0">Cron 表达式说明</h6></div>
+        <div class="card-body">
+            <table class="table table-sm mb-0">
+                <thead><tr><th>字段</th><th>范围</th><th>示例</th></tr></thead>
+                <tbody>
+                    <tr><td>分钟</td><td>0-59</td><td><code>*/5</code> = 每5分钟</td></tr>
+                    <tr><td>小时</td><td>0-23</td><td><code>0</code> = 凌晨0点</td></tr>
+                    <tr><td>日</td><td>1-31</td><td><code>1</code> = 每月1号</td></tr>
+                    <tr><td>月</td><td>1-12</td><td><code>*</code> = 每月</td></tr>
+                    <tr><td>星期</td><td>0(Sun)-6(Sat)</td><td><code>1-5</code> = 工作日</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    .scheduler-mobile-list {
+        padding: 0.75rem;
+    }
+
+    .scheduler-mobile-item {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 6px;
+        padding: 0.75rem;
+        background: #fff;
+    }
+
+    .scheduler-mobile-item + .scheduler-mobile-item {
+        margin-top: 0.75rem;
+    }
+
+    .scheduler-mobile-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-top: 0.5rem;
+        font-size: 0.875rem;
+    }
+
+    .scheduler-mobile-meta > span:first-child {
+        color: var(--bs-secondary-color);
+        flex: 0 0 auto;
+    }
+
+    .scheduler-mobile-meta > span:last-child,
+    .scheduler-mobile-meta > code {
+        min-width: 0;
+        text-align: right;
+        overflow-wrap: anywhere;
+    }
+</style>
+
+@code {
+    private List<CronTaskViewModel> _taskList = new();
+
+    protected override void OnInitialized()
+    {
+        _taskList = Scheduler.GetTasks().ToList();
+    }
+}

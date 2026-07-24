@@ -1,0 +1,14 @@
+@page "/Pmp/Evm"
+@inject VelrixWorkHub.Application.PmpProjects.PmpEvmService EvmService
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectService ProjectService
+@using VelrixWorkHub.Domain
+<PageTitle>项目 EVM - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">PMP 项目管理 · Pmp/Evm</p><h1>项目 EVM</h1><p class="task-page__intro">以计划工时为统一口径展示计划价值 PV、挣值 EV、实际成本 AC，以及进度和成本绩效指标。</p></div></div>
+    @if (SelectedProject is not null)
+    {
+        <div class="task-context-note" role="status">当前项目：@SelectedProject.Code · @SelectedProject.Name（来自项目组合上下文）</div>
+    }
+    <section class="task-list" aria-live="polite">@foreach (var item in EvmService.List().Where(x => ProjectFilterId is null || x.Project.Id == ProjectFilterId)) { <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-line-chart"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--active">@item.Project.Code</span><span>基线：@(item.Baseline?.Label ?? "未建立")</span></div><h2>@item.Project.Name</h2><p>PV @item.PlannedValue.ToString("0.00") 小时 · EV @item.EarnedValue.ToString("0.00") 小时 · AC @item.ActualCost.ToString("0.00") 小时</p><div class="customer-note">SPI @item.SchedulePerformanceIndex.ToString("0.00") · CPI @item.CostPerformanceIndex.ToString("0.00") · VAC @item.VarianceAtCompletion.ToString("0.00") 小时</div></div></article> }</section>
+</div>
+@code { [SupplyParameterFromQuery(Name = "projectId")] public Guid? ProjectFilterId { get; set; } private PmpProject? SelectedProject => ProjectFilterId is null ? null : ProjectService.List().FirstOrDefault(x => x.Id == ProjectFilterId.Value); }

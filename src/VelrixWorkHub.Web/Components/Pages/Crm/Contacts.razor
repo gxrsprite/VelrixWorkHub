@@ -1,0 +1,53 @@
+@page "/Crm/Contact"
+@inject VelrixWorkHub.Application.Contacts.CustomerContactService ContactService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@using VelrixWorkHub.Domain
+
+<PageTitle>联系人 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">客户经营 · CRM/Contact</p><h1>联系人</h1><p class="task-page__intro">维护客户联系人，明确每个客户的主要沟通对象。</p></div><div class="task-page__summary" aria-label="联系人统计"><strong>@VisibleContacts.Count()</strong><span>位联系人</span></div></div>
+    <section class="task-toolbar customer-toolbar" aria-label="联系人操作"><div class="customer-search"><i class="fa fa-search" aria-hidden="true"></i><input aria-label="搜索联系人" @bind="Keyword" @bind:event="oninput" placeholder="搜索姓名或电话" /></div><select aria-label="按客户筛选" @bind="SelectedCustomerId"><option value="">全部客户</option>@foreach (var customer in Customers) { <option value="@customer.Id">@customer.Name</option> }</select><button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus" aria-hidden="true"></i> 新建联系人</button></section>
+    @if (ShowComposer || EditingContact is not null)
+    {
+        <section class="task-composer" aria-label="@(EditingContact is null ? "新建联系人" : "编辑联系人")"><div class="task-composer__title">@(EditingContact is null ? "录入联系人" : "编辑联系人")</div>
+            <div class="task-composer__fields"><label>所属客户<select @bind="DraftCustomerId"><option value="">请选择客户</option>@foreach (var customer in Customers) { <option value="@customer.Id">@customer.Name</option> }</select></label><label>姓名<input @bind="DraftName" @bind:event="oninput" placeholder="例如：林经理" autofocus /></label></div>
+            <div class="task-composer__fields"><label>职位<input @bind="DraftPosition" @bind:event="oninput" placeholder="例如：采购负责人" /></label><label>联系电话<input @bind="DraftPhone" @bind:event="oninput" placeholder="例如：13800001234" /></label></div>
+            <label>电子邮箱<input @bind="DraftEmail" @bind:event="oninput" placeholder="例如：name@example.com" /></label>
+            @if (!string.IsNullOrWhiteSpace(FormError)) { <div class="task-error" role="alert">@FormError</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseForm">取消</button><button class="task-primary-button" @onclick="SaveForm">@(EditingContact is null ? "保存联系人" : "保存修改")</button></div>
+        </section>
+    }
+    <section class="task-list" aria-live="polite">
+        @if (!VisibleContacts.Any()) { <div class="task-empty"><i class="fa fa-user" aria-hidden="true"></i><strong>没有匹配的联系人</strong><span>调整搜索条件或新建一个联系人。</span></div> }
+        else { @foreach (var contact in VisibleContacts) { <article class="task-card customer-card"><div class="customer-avatar">@contact.Name.FirstOrDefault()</div><div class="task-card__body"><div class="task-card__meta"><span class="task-status @(contact.IsPrimary ? "customer-status--active" : "customer-status--inactive")">@(contact.IsPrimary ? "主要联系人" : "联系人")</span><span class="task-due">@CustomerName(contact.CustomerId)</span></div><h2>@contact.Name</h2><p>@(contact.Position ?? "暂无职位") · @(contact.Phone ?? "暂无电话")</p></div><div class="task-card__actions"><button title="设为主要联系人" @onclick="() => SetPrimary(contact)"><i class="fa fa-star" aria-hidden="true"></i></button><button title="编辑联系人" @onclick="() => OpenEditor(contact)"><i class="fa fa-pencil" aria-hidden="true"></i></button><button class="danger" title="删除联系人" @onclick="() => Remove(contact)"><i class="fa fa-trash-o" aria-hidden="true"></i></button></div></article> } }
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<Customer> Customers { get; set; } = [];
+    private string Keyword { get; set; } = string.Empty;
+    private string SelectedCustomerId { get; set; } = string.Empty;
+    private bool ShowComposer { get; set; }
+    private CustomerContact? EditingContact { get; set; }
+    private string DraftCustomerId { get; set; } = string.Empty;
+    private string DraftName { get; set; } = string.Empty;
+    private string DraftPosition { get; set; } = string.Empty;
+    private string DraftPhone { get; set; } = string.Empty;
+    private string DraftEmail { get; set; } = string.Empty;
+    private string? FormError { get; set; }
+    private IEnumerable<CustomerContact> VisibleContacts => ContactService.List(Keyword, Guid.TryParse(SelectedCustomerId, out var id) ? id : null);
+    protected override void OnInitialized() => Customers = CustomerService.List();
+    private string CustomerName(Guid id) => Customers.FirstOrDefault(item => item.Id == id)?.Name ?? "未知客户";
+    private void OpenComposer() { CloseForm(); ShowComposer = true; }
+    private void OpenEditor(CustomerContact item) { CloseForm(); EditingContact = item; DraftCustomerId = item.CustomerId.ToString(); DraftName = item.Name; DraftPosition = item.Position ?? string.Empty; DraftPhone = item.Phone ?? string.Empty; DraftEmail = item.Email ?? string.Empty; }
+    private void CloseForm() { ShowComposer = false; EditingContact = null; FormError = null; DraftCustomerId = DraftName = DraftPosition = DraftPhone = DraftEmail = string.Empty; }
+    private void SaveForm()
+    {
+        if (!Guid.TryParse(DraftCustomerId, out var customerId)) { FormError = "请选择所属客户。"; return; }
+        if (string.IsNullOrWhiteSpace(DraftName)) { FormError = "请填写联系人姓名。"; return; }
+        if (EditingContact is null) ContactService.Create(customerId, DraftName, DraftPosition, DraftPhone, DraftEmail, false); else ContactService.Edit(EditingContact, customerId, DraftName, DraftPosition, DraftPhone, DraftEmail);
+        CloseForm();
+    }
+    private void SetPrimary(CustomerContact item) => ContactService.SetPrimary(item);
+    private void Remove(CustomerContact item) => ContactService.Remove(item);
+}

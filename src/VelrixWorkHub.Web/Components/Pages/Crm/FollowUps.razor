@@ -1,0 +1,57 @@
+@page "/Crm/FollowUp"
+@inject VelrixWorkHub.Application.FollowUps.CustomerFollowUpService FollowUpService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.Contacts.CustomerContactService ContactService
+@using VelrixWorkHub.Application.FollowUps
+@using VelrixWorkHub.Domain
+
+<PageTitle>客户跟进 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">客户经营 · CRM/FollowUp</p><h1>客户跟进</h1><p class="task-page__intro">记录每次沟通结果，让下一次跟进有明确时间和目标。</p></div><div class="task-page__summary" aria-label="即将跟进统计"><strong>@FollowUpService.Count(FollowUpFilter.Upcoming)</strong><span>项待跟进</span></div></div>
+    <section class="task-toolbar customer-toolbar" aria-label="跟进操作"><div class="customer-search"><i class="fa fa-search" aria-hidden="true"></i><input aria-label="搜索跟进" @bind="Keyword" @bind:event="oninput" placeholder="搜索跟进内容" /></div><div class="task-filters" role="tablist" aria-label="跟进筛选">@foreach (var filter in Filters) { <button class="task-filter @(SelectedFilter == filter.Key ? "is-active" : "")" role="tab" aria-selected="@(SelectedFilter == filter.Key)" @onclick="() => SelectedFilter = filter.Key">@filter.Label <span>@FollowUpService.Count(filter.Filter)</span></button> }</div><button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus" aria-hidden="true"></i> 新增跟进</button></section>
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="新增跟进"><div class="task-composer__title">记录一次客户跟进</div>
+            <div class="task-composer__fields"><label>客户<select aria-label="跟进客户" value="@DraftCustomerId" @onchange="OnCustomerChanged"><option value="">请选择客户</option>@foreach (var customer in Customers) { <option value="@customer.Id">@customer.Name</option> }</select></label><label>联系人<select aria-label="跟进联系人" @bind="DraftContactId"><option value="">不指定联系人</option>@foreach (var contact in DraftContacts) { <option value="@contact.Id">@contact.Name</option> }</select></label></div>
+            <div class="task-composer__fields"><label>跟进方式<select aria-label="跟进方式" @bind="DraftType">@foreach (var type in Enum.GetValues<FollowUpType>()) { <option value="@type">@TypeLabel(type)</option> }</select></label><label>下次跟进日期<input aria-label="下次跟进日期" type="date" @bind="DraftNextDate" /></label></div>
+            <label>跟进内容<textarea aria-label="跟进内容" @bind="DraftContent" @bind:event="oninput" rows="4" placeholder="记录本次沟通内容、客户反馈和下一步"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(FormError)) { <div class="task-error" role="alert">@FormError</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseForm">取消</button><button class="task-primary-button" @onclick="SaveForm">保存跟进</button></div>
+        </section>
+    }
+    <section class="task-list" aria-live="polite">
+        @if (!VisibleFollowUps.Any()) { <div class="task-empty"><i class="fa fa-comments" aria-hidden="true"></i><strong>没有匹配的跟进记录</strong><span>可以新增一条跟进，记录客户经营过程。</span></div> }
+        else { @foreach (var item in VisibleFollowUps) { <article class="task-card followup-card"><div class="followup-type"><i class="fa @TypeIcon(item.Type)" aria-hidden="true"></i><span>@TypeLabel(item.Type)</span></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--active">@CustomerName(item.CustomerId)</span>@if (item.NextFollowUpDate is not null) { <span class="task-due @(item.NextFollowUpDate < DateOnly.FromDateTime(DateTime.Today) ? "is-overdue" : "")">下次：@item.NextFollowUpDate.Value.ToString("MM月dd日")</span> }</div><p class="followup-content">@item.Content</p><small class="followup-created">记录于 @item.CreatedTime.ToString("yyyy-MM-dd HH:mm")</small></div><div class="task-card__actions"><button class="danger" title="删除跟进" @onclick="() => Remove(item)"><i class="fa fa-trash-o" aria-hidden="true"></i></button></div></article> } }
+    </section>
+</div>
+
+@code {
+    private readonly List<(string Key, string Label, FollowUpFilter Filter)> Filters = [("all", "全部", FollowUpFilter.All), ("upcoming", "待跟进", FollowUpFilter.Upcoming), ("overdue", "已逾期", FollowUpFilter.Overdue)];
+    private IReadOnlyList<Customer> Customers { get; set; } = [];
+    private IReadOnlyList<CustomerContact> DraftContacts { get; set; } = [];
+    private string SelectedFilter { get; set; } = "all";
+    private string Keyword { get; set; } = string.Empty;
+    private bool ShowComposer { get; set; }
+    private string DraftCustomerId { get; set; } = string.Empty;
+    private string DraftContactId { get; set; } = string.Empty;
+    private FollowUpType DraftType { get; set; } = FollowUpType.Phone;
+    private DateTime? DraftNextDate { get; set; } = DateTime.Today.AddDays(7);
+    private string DraftContent { get; set; } = string.Empty;
+    private string? FormError { get; set; }
+    private IEnumerable<CustomerFollowUp> VisibleFollowUps => FollowUpService.List(Keyword, Filters.First(item => item.Key == SelectedFilter).Filter);
+    protected override void OnInitialized() => Customers = CustomerService.List();
+    private string CustomerName(Guid id) => Customers.FirstOrDefault(item => item.Id == id)?.Name ?? "未知客户";
+    private void OpenComposer() { CloseForm(); ShowComposer = true; DraftNextDate = DateTime.Today.AddDays(7); }
+    private void CloseForm() { ShowComposer = false; FormError = null; DraftCustomerId = DraftContactId = DraftContent = string.Empty; DraftContacts = []; }
+    private void OnCustomerChanged(ChangeEventArgs args) { DraftCustomerId = args.Value?.ToString() ?? string.Empty; DraftContactId = string.Empty; DraftContacts = Guid.TryParse(DraftCustomerId, out var id) ? ContactService.List(customerId: id) : []; }
+    private void SaveForm()
+    {
+        if (!Guid.TryParse(DraftCustomerId, out var customerId)) { FormError = "请选择客户。"; return; }
+        if (string.IsNullOrWhiteSpace(DraftContent)) { FormError = "请填写跟进内容。"; return; }
+        Guid? contactId = Guid.TryParse(DraftContactId, out var parsedContact) ? parsedContact : null;
+        FollowUpService.Create(customerId, contactId, DraftType, DraftContent, DraftNextDate is null ? null : DateOnly.FromDateTime(DraftNextDate.Value)); CloseForm();
+    }
+    private void Remove(CustomerFollowUp item) => FollowUpService.Remove(item);
+    private static string TypeLabel(FollowUpType type) => type switch { FollowUpType.Visit => "拜访", FollowUpType.Email => "邮件", FollowUpType.Meeting => "会议", FollowUpType.Other => "其他", _ => "电话" };
+    private static string TypeIcon(FollowUpType type) => type switch { FollowUpType.Visit => "fa-map-marker", FollowUpType.Email => "fa-envelope-o", FollowUpType.Meeting => "fa-users", FollowUpType.Other => "fa-comment-o", _ => "fa-phone" };
+}

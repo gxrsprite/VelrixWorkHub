@@ -1,0 +1,22 @@
+@page "/Lms/Overview"
+@inject VelrixWorkHub.Application.Lms.LmsLicenseOperationsSnapshotService SnapshotService
+
+<PageTitle>许可证运营概览 - Velrix Work Hub</PageTitle>
+
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">LMS · License Operations</p><h1>许可证运营概览</h1><p class="task-page__intro">统一查看申请审批、授权状态和到期风险；所有指标均可跳转到对应的许可证明细。</p></div></div>
+    <section class="task-list" aria-label="许可证申请指标">
+        <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-file-text-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span>许可证申请</span><span>全部</span></div><h2>@Snapshot.RequestCount</h2><p><a href="/Lms/License">查看全部申请</a></p></div></article>
+        <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-clock-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span>待审批</span><span>Workflow</span></div><h2>@Snapshot.PendingApprovalCount</h2><p><a href="/Lms/License?requestStatus=Submitted">查看待审批申请</a></p></div></article>
+        <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-check"></i></div><div class="task-card__body"><div class="task-card__meta"><span>已批准申请</span><span>可登记授权</span></div><h2>@Snapshot.ApprovedRequestCount</h2><p><a href="/Lms/License?requestStatus=Approved">查看已批准申请</a></p></div></article>
+    </section>
+    <section class="task-list" aria-label="许可证授权指标">
+        <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-key"></i></div><div class="task-card__body"><div class="task-card__meta"><span>有效授权</span><span>当前可用</span></div><h2>@Snapshot.ActiveAuthorizationCount</h2><p><a href="/Lms/License?authorizationStatus=Active">查看有效授权</a></p></div></article>
+        <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-bell-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span>即将到期</span><span>30 天内</span></div><h2>@Snapshot.ExpiringAuthorizationCount</h2><p><a href="/Lms/License?authorizationStatus=Expiring">查看临期授权</a></p></div></article>
+        <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-exclamation-triangle"></i></div><div class="task-card__body"><div class="task-card__meta"><span>已到期</span><span>时间派生</span></div><h2>@Snapshot.ExpiredAuthorizationCount</h2><p><a href="/Lms/License?authorizationStatus=Expired">查看已到期授权</a></p></div></article>
+        <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-pause"></i></div><div class="task-card__body"><div class="task-card__meta"><span>已停用</span><span>人工状态</span></div><h2>@Snapshot.DisabledAuthorizationCount</h2><p><a href="/Lms/License?authorizationStatus=Disabled">查看已停用授权</a></p></div></article>
+        <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-ban"></i></div><div class="task-card__body"><div class="task-card__meta"><span>已作废</span><span>不可恢复</span></div><h2>@Snapshot.RevokedAuthorizationCount</h2><p><a href="/Lms/License?authorizationStatus=Revoked">查看已作废授权</a></p></div></article>
+    </section>
+</div>
+
+@code { private VelrixWorkHub.Application.Lms.LmsLicenseOperationsSnapshot Snapshot => SnapshotService.Get(); }

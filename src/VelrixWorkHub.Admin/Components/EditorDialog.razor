@@ -1,0 +1,30 @@
+@namespace BootstrapBlazor.Components
+
+<AdminModal IsOpen="@IsOpen"
+            Title="@Title"
+            SizeClass="@SizeClass"
+            ClassName="@ClassName"
+            CloseLabel="@CloseLabel"
+            CloseOnBackdropClick="@CloseOnBackdropClick"
+            Animation="@Animation"
+            OnClose="@OnClose">
+    <ChildContent>
+        @ChildContent
+    </ChildContent>
+    <FooterContent>
+        @FooterContent
+    </FooterContent>
+</AdminModal>
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string SizeClass { get; set; } = "modal-lg";
+    [Parameter] public string? ClassName { get; set; }
+    [Parameter] public string CloseLabel { get; set; } = "Close";
+    [Parameter] public bool CloseOnBackdropClick { get; set; }
+    [Parameter] public AdminModalAnimation Animation { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? FooterContent { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+}

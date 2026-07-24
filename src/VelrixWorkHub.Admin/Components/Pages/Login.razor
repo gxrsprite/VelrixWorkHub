@@ -1,0 +1,100 @@
+@page "/Login"
+@layout AdminBlazor.Components.Layout.LayoutEmpty
+@inject IAdminContext Admin
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>登录 - @(Admin.Tenant?.Title ?? "AdminBlazor")</PageTitle>
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header text-center mb-4">
+            <h4>@(Admin.Tenant?.Title ?? "AdminBlazor")</h4>
+            <small class="text-muted">管理后台</small>
+        </div>
+        <div class="form-group mb-3">
+            <label class="form-label">用户名</label>
+            <input @bind="Username" @bind:event="oninput" type="text" class="form-control" placeholder="请输入用户名" />
+        </div>
+        <div class="form-group mb-3">
+            <label class="form-label">密码</label>
+            <input @bind="Password" @bind:event="oninput" type="password" class="form-control" placeholder="请输入密码" @onkeydown="OnKeyDown" />
+        </div>
+        <div class="form-check mb-4">
+            <input @bind="RememberMe" class="form-check-input" type="checkbox" id="remember-me" />
+            <label class="form-check-label" for="remember-me">记住我（15 天）</label>
+        </div>
+        <button class="btn btn-primary w-100" @onclick="SubmitAsync" disabled="@IsSubmitting">
+            @(IsSubmitting ? "登录中..." : "登 录")
+        </button>
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <div class="alert alert-danger mt-3">@ErrorMessage</div>
+        }
+    </div>
+</div>
+
+<style>
+.login-container { width: 100%; max-width: 400px; padding: 2rem; }
+.login-card { background: #fff; border-radius: 8px; padding: 2.5rem 2rem; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+.login-header h4 { color: var(--main-color-primary, #205656); font-weight: 700; }
+</style>
+
+@code {
+    private string Username { get; set; } = "";
+    private string Password { get; set; } = "";
+    private bool RememberMe { get; set; }
+    private bool IsSubmitting;
+    private string? ErrorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (Admin.User != null)
+        {
+            Nav.NavigateTo("/");
+        }
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SubmitAsync();
+    }
+
+    private async Task SubmitAsync()
+    {
+        ErrorMessage = null;
+        if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrWhiteSpace(Password))
+        {
+            ErrorMessage = "请输入用户名和密码";
+            return;
+        }
+
+        IsSubmitting = true;
+        try
+        {
+            var result = await JS.InvokeAsync<LoginResult>("adminAuth.login", Username, Password, RememberMe);
+            if (!result.Ok)
+            {
+                ErrorMessage = result.Error ?? "登录失败，请稍后重试。";
+                return;
+            }
+
+            Nav.NavigateTo("/", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"登录异常: {ex.Message}";
+        }
+        finally
+        {
+            IsSubmitting = false;
+        }
+    }
+
+    private sealed class LoginResult
+    {
+        public bool Ok { get; set; }
+        public string? Error { get; set; }
+    }
+}

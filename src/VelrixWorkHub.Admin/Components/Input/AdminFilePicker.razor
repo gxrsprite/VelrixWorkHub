@@ -1,0 +1,29 @@
+@namespace BootstrapBlazor.Components
+
+<InputFile2 Value="Value"
+            ValueChanged="OnValueChangedAsync"
+            OnValueChanged="OnValueChanged"
+            Disabled="@Disabled"
+            Directory="@Directory"
+            Accept="@Accept"
+            MaxFileCount="@MaxFileCount"
+            MaxFileSize="@MaxFileSize"
+            PageSize="@PageSize" />
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public EventCallback<string?> OnValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string Directory { get; set; } = "uploads";
+    [Parameter] public string Accept { get; set; } = "*/*";
+    [Parameter] public int MaxFileCount { get; set; } = 5;
+    [Parameter] public long MaxFileSize { get; set; } = 10 * 1024 * 1024;
+    [Parameter] public int PageSize { get; set; } = 50;
+
+    private async Task OnValueChangedAsync(string? value)
+    {
+        Value = value;
+        await ValueChanged.InvokeAsync(value);
+    }
+}

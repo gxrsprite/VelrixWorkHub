@@ -1,0 +1,45 @@
+@page "/Oa/OvertimeFinance"
+@using VelrixWorkHub.Application.Employees
+@using VelrixWorkHub.Application.Overtime
+@using VelrixWorkHub.Domain
+@inject OvertimeConversionService OvertimeConversionService
+@inject OvertimeRequestService OvertimeRequestService
+@inject EmployeeDirectoryService DirectoryService
+@inject AdminBlazor.IAdminContext Admin
+
+<PageTitle>加班费财务处理 - Velrix Work Hub</PageTitle>
+
+<div class="task-page leave-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/OvertimeFinance</p><h1>加班费财务处理</h1><p class="task-page__intro">集中处理已登记加班费的小时数。仅记录人工处理结果，不计算薪资金额、不创建付款或银行指令。</p></div><div class="task-page__summary"><strong>@PendingItems.Count</strong><span>笔待处理</span></div></div>
+    <section class="task-toolbar" aria-label="加班费财务处理说明"><span class="customer-note">处理人：@(Admin.User?.Username ?? "未登录") · 已处理记录保留处理人、时间和备注。</span></section>
+    @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-list" aria-live="polite">
+        @if (!FinanceItems.Any()) { <div class="task-empty"><i class="fa fa-money" aria-hidden="true"></i><strong>暂无加班费登记</strong><span>员工将已批准加班登记为财务处理后，会出现在这里。</span></div> }
+        else
+        {
+            @foreach (var item in FinanceItems)
+            {
+                var request = OvertimeRequestService.Get(item.OvertimeRequestId);
+                <article class="task-card leave-card"><div class="schedule-time"><strong>@item.Hours.ToString("0.##")</strong><span>小时</span></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@(item.FinanceProcessingStatus == OaOvertimeFinanceProcessingStatus.Processed ? "approved" : "pending")">@(item.FinanceProcessingStatus == OaOvertimeFinanceProcessingStatus.Processed ? "已处理" : "待处理")</span><span>登记于 @item.CreatedAt.ToString("yyyy-MM-dd HH:mm")</span></div><h2>@EmployeeName(item.UserId) · 加班费人工处理</h2><p>@(request?.StartAt.ToString("yyyy-MM-dd HH:mm") ?? "原加班单不存在") - @(request?.EndAt.ToString("yyyy-MM-dd HH:mm") ?? string.Empty)</p><div class="customer-note">加班事由：@(request?.Reason ?? "原加班单不存在")@if (item.FinanceProcessedAt is DateTime processedAt) { <span> · 处理人：@item.FinanceProcessedBy · @processedAt.ToString("yyyy-MM-dd HH:mm")</span> }@if (!string.IsNullOrWhiteSpace(item.FinanceProcessingNote)) { <span> · 备注：@item.FinanceProcessingNote</span> }</div></div><div class="task-card__actions">@if (item.FinanceProcessingStatus == OaOvertimeFinanceProcessingStatus.Pending && CanProcess) { <button class="task-primary-button" title="完成加班费财务处理" @onclick="() => Process(item)">已处理</button> }</div></article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private string? Error;
+    private bool CanProcess => Admin.AuthButton("Oa/OvertimeFinance/Process");
+    private IReadOnlyList<OaOvertimeConversion> FinanceItems => OvertimeConversionService.ListFinanceProcessing();
+    private IReadOnlyList<OaOvertimeConversion> PendingItems => OvertimeConversionService.ListPendingFinanceProcessing();
+    private IReadOnlyList<EmployeeDirectoryEntry> Employees => DirectoryService.List(status: EmployeeDirectoryStatus.All);
+
+    private void Process(OaOvertimeConversion item)
+    {
+        try { OvertimeConversionService.MarkFinanceProcessed(item.Id, Admin.User?.Username ?? string.Empty, null, CanProcess); Error = null; }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+
+    private string EmployeeName(Guid userId) => Employees.FirstOrDefault(item => item.UserId == userId)?.DisplayName ?? "未知员工";
+}

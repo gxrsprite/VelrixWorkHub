@@ -1,0 +1,80 @@
+@namespace BootstrapBlazor.Components
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="@CssClass">
+    <input type="search"
+           class="@InputClass"
+           value="@Value"
+           placeholder="@Placeholder"
+           disabled="@Disabled"
+           @oninput="HandleInputAsync"
+           @onkeydown="HandleKeyDownAsync" />
+    @if (ShowClear)
+    {
+        <button type="button"
+                class="@ClearButtonClass"
+                title="@ClearTitle"
+                disabled="@DisabledOrEmpty"
+                @onclick="ClearAsync">
+            <i class="@ClearIcon"></i>
+        </button>
+    }
+    <button type="button"
+            class="@SearchButtonClass"
+            title="@SearchTitle"
+            disabled="@Disabled"
+            @onclick="SearchAsync">
+        <i class="@SearchIcon"></i>
+    </button>
+</div>
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public EventCallback<string?> OnSearch { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Search";
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool SearchOnEnter { get; set; } = true;
+    [Parameter] public bool SearchOnInput { get; set; }
+    [Parameter] public bool ShowClear { get; set; } = true;
+    [Parameter] public string CssClass { get; set; } = "admin-search-text input-group";
+    [Parameter] public string InputClass { get; set; } = "form-control";
+    [Parameter] public string ClearButtonClass { get; set; } = "btn btn-outline-secondary";
+    [Parameter] public string SearchButtonClass { get; set; } = "btn btn-outline-primary";
+    [Parameter] public string ClearIcon { get; set; } = "fa fa-times";
+    [Parameter] public string SearchIcon { get; set; } = "fa fa-search";
+    [Parameter] public string ClearTitle { get; set; } = "Clear";
+    [Parameter] public string SearchTitle { get; set; } = "Search";
+
+    private bool DisabledOrEmpty => Disabled || string.IsNullOrEmpty(Value);
+
+    private async Task HandleInputAsync(ChangeEventArgs e)
+    {
+        Value = e.Value?.ToString();
+        await ValueChanged.InvokeAsync(Value);
+
+        if (SearchOnInput)
+            await OnSearch.InvokeAsync(Value);
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (SearchOnEnter && e.Key == "Enter")
+            await SearchAsync();
+    }
+
+    private Task SearchAsync()
+    {
+        return OnSearch.InvokeAsync(Value);
+    }
+
+    private async Task ClearAsync()
+    {
+        if (Disabled)
+            return;
+
+        Value = null;
+        await ValueChanged.InvokeAsync(Value);
+        await OnSearch.InvokeAsync(Value);
+    }
+}

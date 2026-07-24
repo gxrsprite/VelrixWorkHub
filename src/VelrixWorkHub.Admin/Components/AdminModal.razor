@@ -1,0 +1,82 @@
+@namespace BootstrapBlazor.Components
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop fade show"></div>
+    <div class="@ModalClass" tabindex="-1" role="dialog" aria-modal="true" @onclick="HandleBackdropClick">
+        <div class="modal-dialog modal-dialog-scrollable @SizeClass" role="document" @onclick:stopPropagation="true">
+            <div class="modal-content">
+                @if (HeaderContent != null)
+                {
+                    @HeaderContent
+                }
+                else
+                {
+                    <div class="modal-header">
+                        <h5 class="modal-title">@Title</h5>
+                        @if (ShowCloseButton)
+                        {
+                            <button type="button" class="btn-close" aria-label="@CloseLabel" @onclick="OnClose"></button>
+                        }
+                    </div>
+                }
+
+                <div class="modal-body">
+                    @ChildContent
+                </div>
+
+                @if (FooterContent != null)
+                {
+                    <div class="modal-footer">
+                        @FooterContent
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string SizeClass { get; set; } = "modal-lg";
+    [Parameter] public string? ClassName { get; set; }
+    [Parameter] public string CloseLabel { get; set; } = "Close";
+    [Parameter] public bool ShowCloseButton { get; set; } = true;
+    [Parameter] public bool CloseOnBackdropClick { get; set; }
+    [Parameter] public AdminModalAnimation Animation { get; set; }
+    [Parameter] public RenderFragment? HeaderContent { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? FooterContent { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private string ModalClass
+    {
+        get
+        {
+            var classes = new List<string> { "modal", "fade", "show", "d-block" };
+            var animationClass = GetAnimationClass(Animation);
+            if (!string.IsNullOrWhiteSpace(animationClass))
+                classes.Add(animationClass);
+            if (!string.IsNullOrWhiteSpace(ClassName))
+                classes.Add(ClassName);
+            return string.Join(" ", classes);
+        }
+    }
+
+    private async Task HandleBackdropClick()
+    {
+        if (CloseOnBackdropClick)
+            await OnClose.InvokeAsync();
+    }
+
+    private static string? GetAnimationClass(AdminModalAnimation animation) => animation switch
+    {
+        AdminModalAnimation.SlideUp => "modal-fx-slideup",
+        AdminModalAnimation.Zoom => "modal-fx-zoom",
+        AdminModalAnimation.Newspaper => "modal-fx-newspaper",
+        AdminModalAnimation.Flip => "modal-fx-flip",
+        AdminModalAnimation.Fall => "modal-fx-fall",
+        _ => null
+    };
+}

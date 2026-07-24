@@ -1,0 +1,22 @@
+@page "/Pmp/Calendar"
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectCalendarService CalendarService
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectService ProjectService
+@using VelrixWorkHub.Domain
+
+<PageTitle>项目工作日历 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">PMP 项目管理 · Pmp/Calendar</p><h1>项目工作日历</h1><p class="task-page__intro">默认复用平台工作日历，仅维护项目计划周期内的特殊工作日覆盖。</p></div></div>
+    <section class="task-toolbar customer-toolbar"><label>项目<select aria-label="项目日历项目" @bind="ProjectIdText" @bind:after="Refresh"><option value="">请选择项目</option>@foreach (var project in ProjectService.List()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label><label>起始日<input aria-label="日历起始日" @bind="StartText" @bind:after="Refresh" placeholder="2026-07-21" /></label><button class="task-primary-button" @onclick="OpenComposer" disabled="@(ProjectId is null)"><i class="fa fa-plus"></i> 设置特殊日期</button></section>
+    @if (ShowComposer) { <section class="task-composer" aria-label="项目日历覆盖"><div class="task-composer__title">设置特殊日期</div><div class="task-composer__fields"><label>日期<input aria-label="覆盖日期" @bind="DateText" placeholder="2026-07-21" /></label><label>类型<select aria-label="是否工作日" @bind="IsWorkingDayText"><option value="true">工作日</option><option value="false">非工作日</option></select></label></div><label>说明<input aria-label="日历说明" @bind="Note" /></label>@if (Error is not null) { <div class="task-error">@Error</div> }<div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存</button></div></section> }
+    @if (Error is not null && !ShowComposer) { <div class="task-error">@Error</div> }
+    <section class="task-list">@foreach (var day in Days) { <article class="task-card customer-card"><div class="customer-avatar"><i class="fa @(day.IsWorkingDay ? "fa-briefcase" : "fa-bed")"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@(day.IsWorkingDay ? "active" : "planned")">@(day.IsWorkingDay ? "工作日" : "非工作日")</span><span>@(day.IsOverride ? "项目覆盖" : "平台日历")</span></div><h2>@day.Date.ToString("yyyy-MM-dd")</h2><p>@(day.Note ?? "无项目专属说明")</p></div>@if (day.IsOverride) { <div class="task-card__actions"><button class="danger" title="删除项目覆盖" @onclick="() => Remove(day.Date)"><i class="fa fa-trash-o"></i></button></div> }</article> }</section>
+</div>
+@code {
+    private string ProjectIdText = "", StartText = DateTime.Today.ToString("yyyy-MM-dd"), DateText = DateTime.Today.ToString("yyyy-MM-dd"), Note = "", IsWorkingDayText = "false"; private bool ShowComposer; private string? Error; private IReadOnlyList<VelrixWorkHub.Application.PmpProjects.PmpProjectCalendarDay> Days = [];
+    private Guid? ProjectId => Guid.TryParse(ProjectIdText, out var id) ? id : null;
+    private void Refresh() { Error = null; if (ProjectId is not Guid projectId || !DateOnly.TryParse(StartText, out var start)) { Days = []; return; } try { Days = CalendarService.List(projectId, start, start.AddDays(30)); } catch (Exception ex) { Error = ex.Message; } }
+    private void OpenComposer() { Error = null; DateText = StartText; Note = ""; IsWorkingDayText = "false"; ShowComposer = true; }
+    private void Close() { ShowComposer = false; Error = null; }
+    private void Save() { if (ProjectId is not Guid projectId || !DateOnly.TryParse(DateText, out var date) || !bool.TryParse(IsWorkingDayText, out var isWorkingDay)) { Error = "请选择项目并填写日期。"; return; } try { CalendarService.Save(projectId, date, isWorkingDay, Note); Close(); Refresh(); } catch (Exception ex) { Error = ex.Message; } }
+    private void Remove(DateOnly date) { if (ProjectId is not Guid projectId) return; try { CalendarService.Remove(projectId, date); Refresh(); } catch (Exception ex) { Error = ex.Message; } }
+}

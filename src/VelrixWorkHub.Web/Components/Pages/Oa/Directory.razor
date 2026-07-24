@@ -1,0 +1,221 @@
+@page "/Oa/Directory"
+@inject VelrixWorkHub.Application.Employees.EmployeeDirectoryService DirectoryService
+@inject VelrixWorkHub.Application.Employees.EmployeeProfileService ProfileService
+@inject AdminBlazor.IAdminContext Admin
+@using VelrixWorkHub.Application.Employees
+@using VelrixWorkHub.Domain
+
+<PageTitle>员工通讯录 - Velrix Work Hub</PageTitle>
+
+<div class="task-page employee-directory-page">
+    <div class="task-page__header">
+        <div>
+            <p class="eyebrow">协同办公 · OA/Directory</p>
+            <h1>员工通讯录</h1>
+            <p class="task-page__intro">按组织快速找到同事，员工账号和组织主数据统一来自平台。</p>
+        </div>
+        <div class="task-page__summary" aria-label="启用员工统计"><strong>@VisibleDirectoryCount(EmployeeDirectoryStatus.Enabled)</strong><span>名在职员工</span></div>
+    </div>
+
+    <section class="task-toolbar" aria-label="通讯录筛选">
+        <div class="customer-search">
+            <i class="fa fa-search" aria-hidden="true"></i>
+            <input aria-label="搜索员工" @bind="Keyword" @bind:event="oninput" placeholder="搜索姓名、账号、组织或备注" />
+        </div>
+        <select class="directory-org-filter" aria-label="按组织筛选" @bind="SelectedOrganizationId">
+            <option value="">全部组织</option>
+            @foreach (var organization in Organizations)
+            {
+                <option value="@organization.Id">@organization.Name</option>
+            }
+        </select>
+        <div class="task-filters" role="tablist" aria-label="员工状态筛选">
+            @foreach (var filter in Filters)
+            {
+                <button class="task-filter @(SelectedStatus == filter.Status ? "is-active" : "")" role="tab"
+                        aria-selected="@(SelectedStatus == filter.Status)" @onclick="() => SelectedStatus = filter.Status">
+                    @filter.Label <span>@VisibleDirectoryCount(filter.Status)</span>
+                </button>
+            }
+        </div>
+    </section>
+
+    @if (EditingEmployee is not null)
+    {
+        <section class="task-composer" aria-label="编辑员工档案">
+            <div class="task-composer__title">编辑 @EditingEmployee.DisplayName 的员工档案</div>
+            <div class="task-composer__fields">
+                <label>员工编号<input @bind="DraftEmployeeNo" @bind:event="oninput" maxlength="80" placeholder="例如：EMP-001" /></label>
+                <label>职位<input @bind="DraftPositionTitle" @bind:event="oninput" maxlength="100" placeholder="例如：项目经理" /></label>
+            </div>
+            <div class="task-composer__fields">
+                <label>联系电话<input @bind="DraftPhone" @bind:event="oninput" maxlength="50" placeholder="例如：13800001234" /></label>
+                <label>邮箱<input @bind="DraftEmail" @bind:event="oninput" maxlength="200" placeholder="例如：name@example.com" /></label>
+            </div>
+            <div class="task-composer__fields">
+                <label>企业微信用户标识<input @bind="DraftWeComUserId" @bind:event="oninput" maxlength="200" placeholder="例如：zhangsan" /></label>
+                <label>钉钉用户标识<input @bind="DraftDingTalkUserId" @bind:event="oninput" maxlength="200" placeholder="例如：ding-zhangsan" /></label>
+            </div>
+            <div class="task-composer__fields">
+                <label>入职日期<input type="date" @bind="DraftHireDate" /></label>
+                <label>员工状态<select @bind="DraftStatus"><option value="Candidate">候选人</option><option value="PendingOnboarding">待入职</option><option value="Employed">在职</option><option value="Suspended">停职</option><option value="Resigned">离职</option></select></label>
+            </div>
+            <label>扩展信息 OtherInfo JSON 对象<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="2"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(ProfileError)) { <div class="task-error" role="alert">@ProfileError</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseProfileEditor">取消</button><button class="task-primary-button" @onclick="SaveProfile">保存档案</button></div>
+        </section>
+    }
+
+    <section class="task-list" aria-live="polite">
+        @if (!VisibleEmployees.Any())
+        {
+            <div class="task-empty"><i class="fa fa-users" aria-hidden="true"></i><strong>没有匹配的员工</strong><span>调整搜索、组织或状态筛选后重试。</span></div>
+        }
+        else
+        {
+            @foreach (var employee in VisibleEmployees)
+            {
+                var profile = ProfileFor(employee.UserId);
+                <article class="task-card employee-card">
+                    <div class="customer-avatar">@employee.DisplayName.FirstOrDefault()</div>
+                    <div class="task-card__body">
+                        <div class="task-card__meta">
+                            <span class="task-status @(EmployeeStatusIsActive(employee, profile) ? "customer-status--active" : "customer-status--inactive")">@EmployeeStatusLabel(employee, profile)</span>
+                            <span>@(employee.OrganizationName ?? "未分配组织")</span>
+                        </div>
+                        <h2>@employee.DisplayName</h2>
+                        <p>账号：@employee.Username</p>
+                        @if (profile is not null)
+                        {
+                            <p>@(profile.PositionTitle ?? "未设置职位") · @(profile.Phone ?? "未设置电话") · @(profile.Email ?? "未设置邮箱")</p>
+                            <div class="customer-note">员工编号：@(profile.EmployeeNo ?? "未设置") · 状态：@StatusLabel(profile.Status)@(profile.HireDate is DateOnly hireDate ? $" · 入职：{hireDate:yyyy-MM-dd}" : string.Empty)</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(employee.Description))
+                        {
+                            <div class="customer-note">@employee.Description</div>
+                        }
+                    </div>
+                    <div class="task-card__actions employee-card__meta">
+                        <span>最近登录</span>
+                        <strong>@LastLoginLabel(employee.LastLoginTime)</strong>
+                        @if (Admin.AuthButton("Oa/Directory/Edit"))
+                        {
+                            <button title="编辑员工档案" @onclick="() => OpenProfileEditor(employee)"><i class="fa fa-pencil" aria-hidden="true"></i></button>
+                        }
+                    </div>
+                </article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    private readonly List<(string Label, EmployeeDirectoryStatus Status)> Filters =
+    [
+        ("在职", EmployeeDirectoryStatus.Enabled),
+        ("全部", EmployeeDirectoryStatus.All),
+        ("停用", EmployeeDirectoryStatus.Disabled)
+    ];
+
+    private string Keyword { get; set; } = string.Empty;
+    private string SelectedOrganizationId { get; set; } = string.Empty;
+    private EmployeeDirectoryStatus SelectedStatus { get; set; } = EmployeeDirectoryStatus.Enabled;
+    private EmployeeDirectoryEntry? EditingEmployee { get; set; }
+    private Dictionary<Guid, OaEmployeeProfile> Profiles { get; set; } = [];
+    private string DraftEmployeeNo { get; set; } = string.Empty;
+    private string DraftPhone { get; set; } = string.Empty;
+    private string DraftEmail { get; set; } = string.Empty;
+    private string DraftWeComUserId { get; set; } = string.Empty;
+    private string DraftDingTalkUserId { get; set; } = string.Empty;
+    private string DraftPositionTitle { get; set; } = string.Empty;
+    private DateTime? DraftHireDate { get; set; }
+    private OaEmploymentStatus DraftStatus { get; set; } = OaEmploymentStatus.Employed;
+    private string DraftOtherInfo { get; set; } = "{}";
+    private string? ProfileError { get; set; }
+
+    private IReadOnlyList<EmployeeDirectoryOrganization> Organizations => DirectoryService.ListOrganizations();
+    private IEnumerable<EmployeeDirectoryEntry> VisibleEmployees => DirectoryService.List(Keyword, ParseOrganizationId(), SelectedStatus).Where(item => SelectedStatus != EmployeeDirectoryStatus.Enabled || ProfileFor(item.UserId)?.Status != OaEmploymentStatus.Resigned);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        ReloadProfiles();
+    }
+
+    private Guid? ParseOrganizationId() => Guid.TryParse(SelectedOrganizationId, out var organizationId) ? organizationId : null;
+
+    private OaEmployeeProfile? ProfileFor(Guid userId) => Profiles.TryGetValue(userId, out var profile) ? profile : null;
+
+    private int VisibleDirectoryCount(EmployeeDirectoryStatus status) => DirectoryService.List(status: status).Count(item => status != EmployeeDirectoryStatus.Enabled || ProfileFor(item.UserId)?.Status != OaEmploymentStatus.Resigned);
+
+    private static bool EmployeeStatusIsActive(EmployeeDirectoryEntry employee, OaEmployeeProfile? profile) => profile?.Status != OaEmploymentStatus.Resigned && employee.IsEnabled;
+
+    private static string EmployeeStatusLabel(EmployeeDirectoryEntry employee, OaEmployeeProfile? profile) => profile?.Status switch
+    {
+        OaEmploymentStatus.Resigned => "离职",
+        OaEmploymentStatus.Suspended => "停职",
+        OaEmploymentStatus.PendingOnboarding => "待入职",
+        OaEmploymentStatus.Candidate => "候选人",
+        _ => employee.IsEnabled ? "在职" : "停用"
+    };
+
+    private void OpenProfileEditor(EmployeeDirectoryEntry employee)
+    {
+        EditingEmployee = employee;
+        ProfileError = null;
+        var profile = ProfileFor(employee.UserId);
+        DraftEmployeeNo = profile?.EmployeeNo ?? string.Empty;
+        DraftPhone = profile?.Phone ?? string.Empty;
+        DraftEmail = profile?.Email ?? string.Empty;
+        DraftWeComUserId = profile?.WeComUserId ?? string.Empty;
+        DraftDingTalkUserId = profile?.DingTalkUserId ?? string.Empty;
+        DraftPositionTitle = profile?.PositionTitle ?? string.Empty;
+        DraftHireDate = profile?.HireDate?.ToDateTime(TimeOnly.MinValue);
+        DraftStatus = profile?.Status ?? (employee.IsEnabled ? OaEmploymentStatus.Employed : OaEmploymentStatus.Resigned);
+        DraftOtherInfo = profile?.OtherInfo ?? "{}";
+    }
+
+    private void CloseProfileEditor()
+    {
+        EditingEmployee = null;
+        ProfileError = null;
+    }
+
+    private void SaveProfile()
+    {
+        if (EditingEmployee is null) return;
+        try
+        {
+            ProfileService.Save(
+                EditingEmployee.UserId,
+                DraftEmployeeNo,
+                DraftPhone,
+                DraftEmail,
+                DraftPositionTitle,
+                DraftHireDate is DateTime hireDate ? DateOnly.FromDateTime(hireDate) : null,
+                DraftStatus,
+                DraftOtherInfo,
+                Admin.User?.Username ?? string.Empty,
+                Admin.AuthButton("Oa/Directory/Edit"),
+                DraftWeComUserId,
+                DraftDingTalkUserId);
+            ReloadProfiles();
+            CloseProfileEditor();
+        }
+        catch (Exception exception) { ProfileError = exception.Message; }
+    }
+
+    private void ReloadProfiles() => Profiles = ProfileService.List().ToDictionary(item => item.UserId);
+
+    private static string StatusLabel(OaEmploymentStatus status) => status switch
+    {
+        OaEmploymentStatus.Candidate => "候选人",
+        OaEmploymentStatus.PendingOnboarding => "待入职",
+        OaEmploymentStatus.Suspended => "停职",
+        OaEmploymentStatus.Resigned => "离职",
+        _ => "在职"
+    };
+
+    private static string LastLoginLabel(DateTime? lastLoginTime) =>
+        lastLoginTime is null ? "从未登录" : lastLoginTime.Value.ToString("yyyy-MM-dd HH:mm");
+}

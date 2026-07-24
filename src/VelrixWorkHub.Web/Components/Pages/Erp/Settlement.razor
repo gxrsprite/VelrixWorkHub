@@ -1,0 +1,68 @@
+@page "/Erp/Settlement"
+@inject VelrixWorkHub.Application.Settlements.SettlementService SettlementService
+@inject VelrixWorkHub.Application.PurchaseOrders.PurchaseOrderService PurchaseOrderService
+@inject VelrixWorkHub.Application.SalesOrders.SalesOrderService SalesOrderService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.Suppliers.SupplierService SupplierService
+@inject VelrixWorkHub.Application.Workflow.WorkflowBindingService WorkflowBindingService
+@inject VelrixWorkHub.Application.Workflow.WorkflowApprovalService WorkflowApprovalService
+@inject IAdminContext Admin
+@using VelrixWorkHub.Application.Settlements
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Domain
+<PageTitle>收付款核销 - Velrix Work Hub</PageTitle>
+
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">企业资源 · ERP/Settlement</p><h1>收付款核销</h1><p class="task-page__intro">按采购和销售订单登记实际付款/收款；新核销先审批，审批通过后才计入余额，支持部分核销、撤销和流水追溯。</p></div></div>
+    <section class="task-list" aria-label="核销余额"><article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>应付余额</span><span>采购订单</span></div><h2>¥@PayableRemaining().ToString("N2")</h2></div></article><article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>应收余额</span><span>销售订单</span></div><h2>¥@ReceivableRemaining().ToString("N2")</h2></div></article></section>
+    <section class="task-toolbar customer-toolbar"><div class="customer-search"><i class="fa fa-search"></i><input aria-label="搜索核销流水" @bind="Keyword" @bind:event="oninput" placeholder="搜索流水号、备注或撤销原因" /></div><select aria-label="筛选核销方向" @bind="FilterKindText"><option value="">全部方向</option><option value="Payable">付款</option><option value="Receivable">收款</option></select><select aria-label="筛选核销状态" @bind="FilterStatusText"><option value="">全部状态</option><option value="PendingApproval">待审批</option><option value="Rejected">审批拒绝</option><option value="Active">有效</option><option value="Voided">已撤销</option></select><select aria-label="筛选往来单位" @bind="PartyFilterText"><option value="">全部往来单位</option><optgroup label="客户">@foreach(var customer in CustomerService.List()){<option value="Receivable:@customer.Id">@customer.Name</option>}</optgroup><optgroup label="供应商">@foreach(var supplier in SupplierService.List()){<option value="Payable:@supplier.Id">@supplier.Name</option>}</optgroup></select><button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus"></i> 登记核销</button></section>
+    @if (ShowComposer) { <section class="task-composer" aria-label="登记收付款核销"><div class="task-composer__title">登记收付款核销</div><div class="task-composer__fields"><label>核销方向<select aria-label="核销方向" @bind="KindText"><option value="Payable">付款（采购应付）</option><option value="Receivable">收款（销售应收）</option></select></label><label>关联订单<select aria-label="核销订单" @bind="OrderIdText"><option value="">请选择有效订单</option>@foreach(var item in Balances()) { <option value="@item.OrderId">@item.OrderNo · 可提交 ¥@item.AvailableAmount.ToString("N2")@(item.PendingAmount > 0 ? $"（待审批占用 ¥{item.PendingAmount:N2}）" : string.Empty)</option> }</select></label></div><div class="task-composer__fields"><label>核销金额<input aria-label="核销金额" @bind="AmountText" @bind:event="oninput" placeholder="1000.00" /></label><label>流水号<input aria-label="核销流水号" @bind="ReferenceNo" @bind:event="oninput" placeholder="PAY-20260712-001" /></label></div><label>备注<input aria-label="核销备注" @bind="Notes" @bind:event="oninput" placeholder="银行回单号或收款说明" /></label>@if(Error is not null){<div class="task-error" role="alert">@Error</div>}<div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存核销</button></div></section> }
+    @if (!ShowComposer && Error is not null) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-list" aria-label="核销流水">@foreach(var item in Settlements()) { var order = OrderLabel(item); var salesOrder = item.Kind == ErpSettlementKind.Receivable ? SalesOrderService.List().FirstOrDefault(x => x.Id == item.OrderId) : null; var purchaseOrder = item.Kind == ErpSettlementKind.Payable ? PurchaseOrderService.List().FirstOrDefault(x => x.Id == item.OrderId) : null; var partyName = item.Kind == ErpSettlementKind.Receivable ? CustomerService.List().FirstOrDefault(x => x.Id == item.PartyId)?.Name ?? "未知客户" : SupplierService.List().FirstOrDefault(x => x.Id == item.PartyId)?.Name ?? "未知供应商"; var partyHref = item.Kind == ErpSettlementKind.Receivable ? $"/Crm/CustomerLedger/{item.PartyId}" : $"/Erp/SupplierLedger/{item.PartyId}"; var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.SettlementApproval, nameof(ErpSettlement), item.Id); <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-money"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@(item.Status == ErpSettlementStatus.Active ? "active" : item.Status == ErpSettlementStatus.PendingApproval ? "pending" : "inactive")">@SettlementStatusLabel(item)</span><span>@item.ReferenceNo</span><span>@item.OccurredOn.ToString("yyyy-MM-dd")</span></div><h2>@if(salesOrder is not null){<a href="/Erp/SalesOrder?orderId=@salesOrder.Id">@order</a>}else if(purchaseOrder is not null){<a href="/Erp/PurchaseOrder?orderId=@purchaseOrder.Id">@order</a>}else{@order}</h2><p>金额 ¥@item.Amount.ToString("N2") · <a href="@partyHref">@partyName</a></p><div class="customer-note">@(item.Status == ErpSettlementStatus.Voided || item.Status == ErpSettlementStatus.Rejected ? $"审批/撤销原因：{item.VoidReason}" : item.Notes) · 审批：@(workflow is null ? "未发起" : workflow.Status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已拒绝", _ => "已撤回" })</div><AttachmentPanel BusinessType="ErpSettlement" BusinessId="@item.Id" Actor="admin" /></div>@if((item.Status is ErpSettlementStatus.PendingApproval or ErpSettlementStatus.Rejected) && (workflow is null || workflow.Status is WorkflowInstanceStatus.Rejected or WorkflowInstanceStatus.Cancelled)){<div class="task-card__actions"><button title="发起核销审批" @onclick="()=>StartApproval(item)"><i class="fa fa-send-o"></i></button></div>}else if(item.Status == ErpSettlementStatus.Active){<div class="task-card__actions"><button class="danger" title="撤销核销流水" @onclick="()=>Void(item)"><i class="fa fa-undo"></i></button></div>}</article>}</section>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "keyword")] public string? SettlementKeyword { get; set; }
+    [SupplyParameterFromQuery(Name = "settlementId")] public Guid? SettlementId { get; set; }
+    [SupplyParameterFromQuery(Name = "orderId")] public Guid? SettlementOrderId { get; set; }
+    [SupplyParameterFromQuery(Name = "partyId")] public Guid? SettlementPartyId { get; set; }
+    [SupplyParameterFromQuery(Name = "partyKind")] public string? SettlementPartyKindText { get; set; }
+    [SupplyParameterFromQuery(Name = "kind")] public string? SettlementKindFilterText { get; set; }
+    private string KindText = "Payable", OrderIdText = string.Empty, AmountText = string.Empty, ReferenceNo = string.Empty, Notes = string.Empty, Keyword = string.Empty, FilterKindText = string.Empty, FilterStatusText = string.Empty, PartyFilterText = string.Empty;
+    private string? Error;
+    private bool ShowComposer;
+    private ErpSettlementKind Kind => Enum.Parse<ErpSettlementKind>(KindText);
+    private ErpSettlementKind? FilterKind => Enum.TryParse<ErpSettlementKind>(FilterKindText, out var kind) ? kind : null;
+    private ErpSettlementStatus? FilterStatus => Enum.TryParse<ErpSettlementStatus>(FilterStatusText, out var status) ? status : null;
+    private IEnumerable<SettlementOrderBalance> Balances() => SettlementService.OrderBalances(Kind).Where(x => x.AvailableAmount > 0);
+    private ErpSettlementKind? SettlementPartyKind => Enum.TryParse(SettlementPartyKindText, out ErpSettlementKind kind) ? kind : null;
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+    protected override void OnParametersSet()
+    {
+        FilterKindText = SettlementKindFilterText ?? string.Empty;
+        PartyFilterText = SettlementPartyId is Guid partyId && SettlementPartyKind is ErpSettlementKind partyKind
+            ? $"{partyKind}:{partyId}"
+            : string.Empty;
+    }
+    private IEnumerable<ErpSettlement> Settlements() => SettlementService.List(FilterKind, FilterStatus, string.IsNullOrWhiteSpace(Keyword) ? SettlementKeyword ?? string.Empty : Keyword, PartyFilterId ?? SettlementPartyId)
+        .Where(item => (SettlementId is null || item.Id == SettlementId) && (SettlementOrderId is null || item.OrderId == SettlementOrderId) && (PartyFilterKind is null || item.Kind == PartyFilterKind) && (SettlementPartyKind is null || item.Kind == SettlementPartyKind));
+    private Guid? PartyFilterId => ParsePartyFilter(out _);
+    private ErpSettlementKind? PartyFilterKind => ParsePartyFilter(out var kind) is not null ? kind : null;
+    private Guid? ParsePartyFilter(out ErpSettlementKind? kind)
+    {
+        kind = null;
+        var parts = PartyFilterText.Split(':', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 || !Enum.TryParse(parts[0], out ErpSettlementKind parsedKind) || !Guid.TryParse(parts[1], out var partyId)) return null;
+        kind = parsedKind;
+        return partyId;
+    }
+    private decimal PayableRemaining() => SettlementService.OrderBalances(ErpSettlementKind.Payable).Sum(x => x.RemainingAmount);
+    private decimal ReceivableRemaining() => SettlementService.OrderBalances(ErpSettlementKind.Receivable).Sum(x => x.RemainingAmount);
+    private string OrderLabel(ErpSettlement item) => item.Kind == ErpSettlementKind.Payable ? PurchaseOrderService.List().FirstOrDefault(x => x.Id == item.OrderId)?.OrderNo ?? "未知采购订单" : SalesOrderService.List().FirstOrDefault(x => x.Id == item.OrderId)?.OrderNo ?? "未知销售订单";
+    private void OpenComposer(){Error=null;ShowComposer=true;}
+    private void Close(){ShowComposer=false;Error=null;OrderIdText=AmountText=ReferenceNo=Notes=string.Empty;}
+    private void Save(){if(!Guid.TryParse(OrderIdText,out var orderId)||!decimal.TryParse(AmountText,out var amount)||string.IsNullOrWhiteSpace(ReferenceNo)){Error="请选择有效订单并输入核销金额、流水号。";return;}try{var item=SettlementService.CreatePendingApproval(Kind,orderId,amount,ReferenceNo,DateOnly.FromDateTime(DateTime.Today),Notes);WorkflowBindingService.StartOrGet(WorkflowBindingCodes.SettlementApproval,nameof(ErpSettlement),item.Id);Close();}catch(Exception ex){Error=ex.Message;}}
+    private void Void(ErpSettlement item){try{SettlementService.Void(item.Id,"业务撤销（页面操作）");Error=null;}catch(Exception ex){Error=ex.Message;}}
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty; private void StartApproval(ErpSettlement item){try{if(item.Status == ErpSettlementStatus.Rejected) SettlementService.SubmitForApproval(item.Id); WorkflowBindingService.StartOrGet(WorkflowBindingCodes.SettlementApproval,nameof(ErpSettlement),item.Id, startedBy: CurrentActor);Error=null;}catch(Exception ex){Error=ex.Message;}}
+    private static string SettlementStatusLabel(ErpSettlement item) => item.Status switch { ErpSettlementStatus.PendingApproval => "待审批", ErpSettlementStatus.Rejected => "审批拒绝", ErpSettlementStatus.Active => item.Kind == ErpSettlementKind.Payable ? "付款" : "收款", _ => "已撤销" };
+}

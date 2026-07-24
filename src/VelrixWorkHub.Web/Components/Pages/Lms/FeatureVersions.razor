@@ -1,0 +1,48 @@
+@page "/Lms/FeatureVersion"
+@inject VelrixWorkHub.Application.Lms.LmsFeatureService FeatureService
+@inject VelrixWorkHub.Application.Lms.LmsFeatureVersionService VersionService
+@using VelrixWorkHub.Domain
+
+<PageTitle>特性版本与等级 - Velrix Work Hub</PageTitle>
+
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">LMS · Feature Version</p><h1>特性版本与等级</h1><p class="task-page__intro">为启用的许可证特性维护版本、授权等级及客户或机台适用范围。</p></div></div>
+    <section class="task-toolbar customer-toolbar"><button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus"></i> 新建特性版本</button></section>
+    @if (Show)
+    {
+        <section class="task-composer">
+            <div class="task-composer__fields">
+                <label>许可证特性<select @bind="FeatureId"><option value="@Guid.Empty">请选择特性</option>@foreach (var feature in FeatureService.List(includeDisabled: false)) { <option value="@feature.Id">@feature.Code · @feature.Name</option> }</select></label>
+                <label>版本号<input @bind="Version" placeholder="例如 1.0" /></label>
+                <label>授权等级<select @bind="Level">@foreach (var value in Enum.GetValues<LmsFeatureLevel>()) { <option value="@value">@GetLevelName(value)</option> }</select></label>
+                <label>适用范围<select @bind="Scope">@foreach (var value in Enum.GetValues<LmsFeatureScope>()) { <option value="@value">@GetScopeName(value)</option> }</select></label>
+            </div>
+            <label>OtherInfo JSON 对象<textarea @bind="OtherInfo"></textarea></label>
+            @if (Error is not null) { <div class="task-error">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存</button></div>
+        </section>
+    }
+    <section class="task-list">
+        @foreach (var item in VersionService.List())
+        {
+            var feature = FeatureService.List().FirstOrDefault(x => x.Id == item.FeatureId);
+            <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span class="task-status">@(item.Status == LmsFeatureVersionStatus.Active ? "启用" : "停用")</span><span>@(feature is null ? "已删除特性" : feature.Code)</span><span>v@item.Version</span></div><h2>@GetLevelName(item.Level) · @GetScopeName(item.Scope)</h2><p>创建于 @item.CreatedAt.ToString("yyyy-MM-dd HH:mm")</p></div><div class="task-card__actions"><button title="切换状态" @onclick="() => VersionService.SetStatus(item, item.Status == LmsFeatureVersionStatus.Active ? LmsFeatureVersionStatus.Disabled : LmsFeatureVersionStatus.Active)"><i class="fa fa-toggle-on"></i></button></div></article>
+        }
+    </section>
+</div>
+
+@code {
+    private bool Show;
+    private Guid FeatureId;
+    private string Version = string.Empty;
+    private LmsFeatureLevel Level = LmsFeatureLevel.Basic;
+    private LmsFeatureScope Scope = LmsFeatureScope.Customer;
+    private string OtherInfo = "{}";
+    private string? Error;
+
+    private void OpenCreate() { Close(); Show = true; }
+    private void Close() { Show = false; FeatureId = Guid.Empty; Version = string.Empty; Level = LmsFeatureLevel.Basic; Scope = LmsFeatureScope.Customer; OtherInfo = "{}"; Error = null; }
+    private void Save() { try { VersionService.Create(FeatureId, Version, Level, Scope, OtherInfo); Close(); } catch (Exception exception) { Error = exception.Message; } }
+    private static string GetLevelName(LmsFeatureLevel value) => value switch { LmsFeatureLevel.Basic => "基础", LmsFeatureLevel.Intermediate => "中级", LmsFeatureLevel.Advanced => "高级", _ => value.ToString() };
+    private static string GetScopeName(LmsFeatureScope value) => value switch { LmsFeatureScope.Customer => "客户", LmsFeatureScope.Machine => "机台", _ => value.ToString() };
+}

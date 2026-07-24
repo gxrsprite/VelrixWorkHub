@@ -1,0 +1,39 @@
+@page "/Pmp/Resource"
+@inject VelrixWorkHub.Application.PmpProjects.PmpResourceAllocationService ResourceService
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectService ProjectService
+@using VelrixWorkHub.Domain
+@using VelrixWorkHub.Application.PmpProjects
+<PageTitle>资源分配 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">PMP 项目管理 · Pmp/Resource</p><h1>团队资源分配</h1><p class="task-page__intro">按人员×日期查看 WBS 任务数量和已登记工时，负荷颜色只作提示，数字和任务明细始终保留。</p></div></div>
+    <section class="task-toolbar customer-toolbar" aria-label="资源视图筛选"><div class="customer-search"><i class="fa fa-search"></i><input aria-label="搜索资源" @bind="Keyword" @bind:event="oninput" placeholder="搜索人员、部门、角色或项目" /></div><select aria-label="资源项目筛选" @bind="ProjectFilterText"><option value="">全部项目</option>@foreach (var project in ProjectService.List()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select><select aria-label="资源项目状态筛选" @bind="ProjectStatusText"><option value="">全部项目状态</option>@foreach (var status in Enum.GetValues<PmpProjectStatus>()) { <option value="@status">@ProjectStatusLabel(status)</option> }</select><select aria-label="资源任务状态筛选" @bind="TaskStatusText"><option value="">全部任务状态</option>@foreach (var status in Enum.GetValues<PmpWbsTaskStatus>()) { <option value="@status">@TaskStatusLabel(status)</option> }</select><label>开始<input aria-label="资源开始日期" type="date" @bind="StartValue" /></label><label>结束<input aria-label="资源结束日期" type="date" @bind="EndValue" /></label></section>
+    <section class="task-toolbar customer-toolbar" aria-label="资源负荷阈值"><span class="customer-note">负荷阈值</span><label>注意任务数<input aria-label="注意任务数阈值" type="number" min="1" @bind="AttentionTaskThreshold" /></label><label>超负荷任务数<input aria-label="超负荷任务数阈值" type="number" min="1" @bind="OverloadedTaskThreshold" /></label><label>注意工时<input aria-label="注意工时阈值" type="number" min="0.1" step="0.5" @bind="AttentionHoursThreshold" /></label><label>超负荷工时<input aria-label="超负荷工时阈值" type="number" min="0.1" step="0.5" @bind="OverloadedHoursThreshold" /></label></section>
+    @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-card customer-card" aria-label="资源负荷矩阵"><div class="task-card__body"><div class="task-card__meta"><span>人员 @VisibleRows().Select(x => x.MemberId).Distinct().Count()</span><span>资源行 @VisibleRows().Count</span><span>@StartDate.ToString("yyyy-MM-dd") 至 @EndDate.ToString("yyyy-MM-dd")</span><span>红色：任务数或工时达到超负荷阈值</span></div><div style="overflow-x:auto"><table class="table resource-matrix"><thead><tr><th>部门 / 成员</th><th>项目 / 角色</th>@foreach (var day in Days) { <th>@day.ToString("MM-dd")<br />@DayLabel(day.DayOfWeek)</th> }</tr></thead><tbody>@foreach (var row in VisibleRows()) { <tr><td><strong>@(row.DepartmentName ?? "未设置部门")</strong><br />@row.MemberName</td><td>@row.ProjectCode<br /><small>@row.RoleName</small></td>@foreach (var cell in row.Cells) { <td class="resource-cell resource-cell--@cell.LoadLevel.ToString().ToLowerInvariant()" title="@string.Join("、", cell.TaskTitles)"><strong>@cell.TaskCount</strong> 项任务<br /><span>@cell.LoggedHours.ToString("0.##") 小时</span>@if (cell.LoadLevel != PmpResourceLoadLevel.Normal) { <small>@cell.LoadLabel</small> }</td> }</tr> }</tbody></table></div><p class="customer-note">当前矩阵为只读聚合视图；任务数量来自 WBS 计划日期和负责人，工时来自项目工时记录。资源甘特、容量调整、工作交接和批量分配待后续。</p></div></section>
+</div>
+@code {
+    [SupplyParameterFromQuery(Name = "projectId")] public Guid? ProjectFilterId { get; set; }
+    private string Keyword = string.Empty, ProjectFilterText = string.Empty, ProjectStatusText = string.Empty, TaskStatusText = string.Empty;
+    private DateTime StartValue = DateTime.Today, EndValue = DateTime.Today.AddDays(13);
+    private int AttentionTaskThreshold = 2, OverloadedTaskThreshold = 3;
+    private decimal AttentionHoursThreshold = 6m, OverloadedHoursThreshold = 8m;
+    private string? Error;
+    private DateOnly StartDate => DateOnly.FromDateTime(StartValue);
+    private DateOnly EndDate => DateOnly.FromDateTime(EndValue);
+    private IReadOnlyList<DateOnly> Days => Enumerable.Range(0, Math.Max(0, EndDate.DayNumber - StartDate.DayNumber + 1)).Select(StartDate.AddDays).ToArray();
+    private IReadOnlyList<VelrixWorkHub.Application.PmpProjects.PmpResourceAllocationRow> VisibleRows()
+    {
+        try
+        {
+            Guid? projectId = Guid.TryParse(ProjectFilterText, out var selected) ? selected : ProjectFilterId;
+            PmpProjectStatus? projectStatus = Enum.TryParse<PmpProjectStatus>(ProjectStatusText, out var parsedProjectStatus) ? parsedProjectStatus : null;
+            PmpWbsTaskStatus? taskStatus = Enum.TryParse<PmpWbsTaskStatus>(TaskStatusText, out var parsedTaskStatus) ? parsedTaskStatus : null;
+            Error = null;
+            return ResourceService.List(StartDate, EndDate, projectId, projectStatus, taskStatus, Keyword, AttentionTaskThreshold, OverloadedTaskThreshold, AttentionHoursThreshold, OverloadedHoursThreshold);
+        }
+        catch (Exception ex) { Error = ex.Message; return Array.Empty<VelrixWorkHub.Application.PmpProjects.PmpResourceAllocationRow>(); }
+    }
+    private static string DayLabel(DayOfWeek day) => day switch { DayOfWeek.Monday => "一", DayOfWeek.Tuesday => "二", DayOfWeek.Wednesday => "三", DayOfWeek.Thursday => "四", DayOfWeek.Friday => "五", DayOfWeek.Saturday => "六", _ => "日" };
+    private static string ProjectStatusLabel(PmpProjectStatus status) => status switch { PmpProjectStatus.Draft => "草稿", PmpProjectStatus.Active => "进行中", PmpProjectStatus.OnHold => "暂停", PmpProjectStatus.Completed => "已完成", PmpProjectStatus.Cancelled => "已取消", _ => status.ToString() };
+    private static string TaskStatusLabel(PmpWbsTaskStatus status) => status switch { PmpWbsTaskStatus.Todo => "待开始", PmpWbsTaskStatus.InProgress => "进行中", PmpWbsTaskStatus.Done => "已完成", _ => status.ToString() };
+}

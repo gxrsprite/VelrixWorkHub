@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link href="_content/BootstrapBlazor/css/bootstrap.blazor.bundle.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="_content/BootstrapBlazor.FontAwesome/css/all.min.css" />
+    <link rel="stylesheet" href="AdminBlazor/adminblazor.css" />
+    <link rel="stylesheet" href="app.css" />
+    <HeadOutlet @rendermode="@InteractiveServer" />
+</head>
+<body>
+    <Routes @rendermode="new InteractiveServerRenderMode(prerender: false)" />
+    <ReconnectModal />
+    <script src="_content/BootstrapBlazor/js/bootstrap.blazor.bundle.min.js"></script>
+    <script src="auth.js?v=20260718-profile-api"></script>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

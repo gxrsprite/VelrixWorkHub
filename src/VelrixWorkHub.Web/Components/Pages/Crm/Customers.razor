@@ -1,0 +1,62 @@
+@page "/Crm/Customer"
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.Contacts.CustomerContactService ContactService
+@inject VelrixWorkHub.Application.FollowUps.CustomerFollowUpService FollowUpService
+@inject VelrixWorkHub.Application.Contracts.SalesContractService ContractService
+@inject VelrixWorkHub.Application.SalesOrders.SalesOrderService SalesOrderService
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectService ProjectService
+@inject VelrixWorkHub.Application.Settlements.SettlementService SettlementService
+@inject VelrixWorkHub.Application.Lms.LmsCustomerReferenceService LmsCustomerReferenceService
+@using VelrixWorkHub.Application.Customers
+@using VelrixWorkHub.Application.MasterData
+@using VelrixWorkHub.Domain
+
+<PageTitle>客户列表 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">客户经营 · CRM/Customer</p><h1>客户列表</h1><p class="task-page__intro">集中维护客户主数据，为后续联系人、跟进和商机提供可靠基础。</p></div><div class="task-page__summary" aria-label="启用客户统计"><strong>@CustomerService.Count(CustomerFilter.Active)</strong><span>个启用客户</span></div></div>
+    <section class="task-toolbar customer-toolbar" aria-label="客户操作"><div class="customer-search"><i class="fa fa-search" aria-hidden="true"></i><input aria-label="搜索客户" @bind="Keyword" @bind:event="oninput" placeholder="搜索客户名称、联系人或电话" /></div><div class="task-filters" role="tablist" aria-label="客户筛选">@foreach (var filter in Filters) { <button class="task-filter @(SelectedFilter == filter.Key ? "is-active" : "")" role="tab" aria-selected="@(SelectedFilter == filter.Key)" @onclick="() => SelectedFilter = filter.Key">@filter.Label <span>@CustomerService.Count(filter.Filter)</span></button> }</div><button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus" aria-hidden="true"></i> 新建客户</button></section>
+    @if (ShowComposer || EditingCustomer is not null)
+    {
+        <section class="task-composer" aria-label="@(EditingCustomer is null ? "新建客户" : "编辑客户")"><div class="task-composer__title">@(EditingCustomer is null ? "录入一个新客户" : "编辑客户")</div>
+            <div class="task-composer__fields"><label>客户名称<input @bind="DraftName" @bind:event="oninput" placeholder="例如：Aster 科技" autofocus /></label><label>联系人<input @bind="DraftContact" @bind:event="oninput" placeholder="例如：林经理" /></label></div>
+            <div class="task-composer__fields"><label>联系电话<input @bind="DraftPhone" @bind:event="oninput" placeholder="例如：13800001234" /></label><label>电子邮箱<input @bind="DraftEmail" @bind:event="oninput" placeholder="例如：name@example.com" /></label></div>
+            <label>备注<textarea @bind="DraftNotes" @bind:event="oninput" rows="3" placeholder="补充客户来源、需求和合作信息"></textarea></label>
+            <label>扩展信息 OtherInfo JSON 对象<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="2"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(FormError)) { <div class="task-error" role="alert">@FormError</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseForm">取消</button><button class="task-primary-button" @onclick="SaveForm">@(EditingCustomer is null ? "保存客户" : "保存修改")</button></div>
+        </section>
+    }
+    <section class="task-list" aria-live="polite">
+        @if (!VisibleCustomers.Any()) { <div class="task-empty"><i class="fa fa-users" aria-hidden="true"></i><strong>没有匹配的客户</strong><span>调整搜索条件或新建一个客户。</span></div> }
+        else { @foreach (var customer in VisibleCustomers) { var impact = Impact(customer); var lmsImpact = LmsCustomerReferenceService.GetImpact(customer.Id); var hasReferences = impact.HasReferences || lmsImpact.HasReferences; <article class="task-card customer-card"><div class="customer-avatar">@customer.Name.FirstOrDefault()</div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@customer.Status.ToString().ToLowerInvariant()">@(customer.Status == CustomerStatus.Active ? "启用" : "停用")</span></div><h2>@customer.Name</h2><p>@(customer.ContactName ?? "暂无联系人") · @(customer.Phone ?? "暂无电话")</p><div class="customer-note">引用：联系人 @impact.ContactReferenceCount · 跟进 @impact.FollowUpReferenceCount · 合同 @impact.ContractReferenceCount · 销售订单 @impact.SalesOrderReferenceCount · 项目 @impact.ProjectReferenceCount · 核销 @impact.SettlementReferenceCount</div><div class="customer-note">LMS 引用：机台 @lmsImpact.MachineReferenceCount · 客户特性 @lmsImpact.CustomerFeatureReferenceCount · 机台特性 @lmsImpact.MachineFeatureReferenceCount · 许可证申请 @lmsImpact.LicenseRequestReferenceCount · 许可证授权 @lmsImpact.AuthorizationReferenceCount</div>@if (!string.IsNullOrWhiteSpace(customer.Notes)) { <div class="customer-note">@customer.Notes</div> }<AttachmentPanel BusinessType="Customer" BusinessId="@customer.Id" Actor="admin" /></div><div class="task-card__actions"><a href="/Crm/CustomerLedger/@customer.Id" title="查看客户交易"><i class="fa fa-line-chart" aria-hidden="true"></i></a><button title="编辑客户" @onclick="() => OpenEditor(customer)"><i class="fa fa-pencil" aria-hidden="true"></i></button><button title="@(customer.Status == CustomerStatus.Active ? "停用客户" : "启用客户")" @onclick="() => ToggleActive(customer)"><i class="fa @(customer.Status == CustomerStatus.Active ? "fa-toggle-on" : "fa-toggle-off")" aria-hidden="true"></i></button><button class="danger" disabled="@hasReferences" title="@(hasReferences ? "存在业务引用，不能删除客户" : "删除客户")" @onclick="() => Remove(customer)"><i class="fa fa-trash-o" aria-hidden="true"></i></button></div></article> } }
+    </section>
+</div>
+
+@code {
+    private readonly List<(string Key, string Label, CustomerFilter Filter)> Filters = [("all", "全部", CustomerFilter.All), ("active", "启用", CustomerFilter.Active), ("inactive", "停用", CustomerFilter.Inactive)];
+    private string SelectedFilter { get; set; } = "all";
+    private string Keyword { get; set; } = string.Empty;
+    private bool ShowComposer { get; set; }
+    private Customer? EditingCustomer { get; set; }
+    private string DraftName { get; set; } = string.Empty;
+    private string DraftContact { get; set; } = string.Empty;
+    private string DraftPhone { get; set; } = string.Empty;
+    private string DraftEmail { get; set; } = string.Empty;
+    private string DraftNotes { get; set; } = string.Empty;
+    private string DraftOtherInfo { get; set; } = "{}";
+    private string? FormError { get; set; }
+    private IEnumerable<Customer> VisibleCustomers => CustomerService.List(Keyword, Filters.First(item => item.Key == SelectedFilter).Filter);
+    private void OpenComposer() { CloseForm(); ShowComposer = true; }
+    private void OpenEditor(Customer item) { CloseForm(); EditingCustomer = item; DraftName = item.Name; DraftContact = item.ContactName ?? string.Empty; DraftPhone = item.Phone ?? string.Empty; DraftEmail = item.Email ?? string.Empty; DraftNotes = item.Notes ?? string.Empty; DraftOtherInfo = item.OtherInfo; }
+    private void CloseForm() { ShowComposer = false; EditingCustomer = null; FormError = null; DraftName = DraftContact = DraftPhone = DraftEmail = DraftNotes = string.Empty; DraftOtherInfo = "{}"; }
+    private void SaveForm()
+    {
+        if (string.IsNullOrWhiteSpace(DraftName)) { FormError = "请填写客户名称。"; return; }
+        try { if (EditingCustomer is null) CustomerService.Create(DraftName, DraftContact, DraftPhone, DraftEmail, DraftNotes, DraftOtherInfo); else CustomerService.Edit(EditingCustomer, DraftName, DraftContact, DraftPhone, DraftEmail, DraftNotes, DraftOtherInfo); }
+        catch (Exception exception) { FormError = exception.Message; return; }
+        CloseForm();
+    }
+    private void ToggleActive(Customer item) => CustomerService.SetActive(item, item.Status != CustomerStatus.Active);
+    private void Remove(Customer item) => CustomerService.Remove(item);
+    private CustomerMasterDataImpact Impact(Customer item) => MasterDataImpactService.Customer(item.Id, ContactService.List(), FollowUpService.List(), ContractService.List(), SalesOrderService.List(), ProjectService.List(), SettlementService.List());
+}

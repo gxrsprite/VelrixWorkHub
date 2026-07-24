@@ -1,0 +1,146 @@
+@page "/Oa/Task"
+@inject VelrixWorkHub.Application.Tasks.WorkTaskService TaskService
+@using VelrixWorkHub.Application.Tasks
+@using VelrixWorkHub.Domain
+
+<PageTitle>我的任务 - Velrix Work Hub</PageTitle>
+
+<div class="task-page">
+    <div class="task-page__header">
+        <div>
+            <p class="eyebrow">协同办公 · OA/Task</p>
+            <h1>我的任务</h1>
+            <p class="task-page__intro">把今天最重要的工作放在这里，完成后留下清晰的结果。</p>
+        </div>
+        <div class="task-page__summary" aria-label="任务统计"><strong>@OpenCount</strong><span>项待处理</span></div>
+    </div>
+
+    <section class="task-toolbar" aria-label="任务操作">
+        <div class="task-filters" role="tablist" aria-label="任务筛选">
+            @foreach (var filter in Filters)
+            {
+                <button class="task-filter @(SelectedFilter == filter.Key ? "is-active" : "")" role="tab"
+                        aria-selected="@(SelectedFilter == filter.Key)" @onclick="() => SelectedFilter = filter.Key">
+                    @filter.Label <span>@CountFor(filter.Filter)</span>
+                </button>
+            }
+        </div>
+        <button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus" aria-hidden="true"></i> 新建任务</button>
+    </section>
+
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="新建任务">
+            <div class="task-composer__title">创建一项新任务</div>
+            <div class="task-composer__fields">
+                <label>任务标题<input @bind="DraftTitle" @bind:event="oninput" placeholder="例如：整理本周客户跟进资料" autofocus /></label>
+                <label>截止日期<input type="date" @bind="DraftDueDate" /></label>
+            </div>
+            <label>备注 <span class="muted">（可选）</span><textarea @bind="DraftDescription" @bind:event="oninput" rows="2" placeholder="补充目标、交付物或协作信息"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(ComposerError)) { <div class="task-error" role="alert">@ComposerError</div> }
+            <div class="task-composer__actions">
+                <button class="task-secondary-button" @onclick="CloseComposer">取消</button>
+                <button class="task-primary-button" @onclick="CreateTask">保存任务</button>
+            </div>
+        </section>
+    }
+
+    @if (EditingTask is not null)
+    {
+        <section class="task-composer" aria-label="编辑任务">
+            <div class="task-composer__title">编辑任务</div>
+            <div class="task-composer__fields">
+                <label>任务标题<input @bind="DraftTitle" @bind:event="oninput" placeholder="例如：整理本周客户跟进资料" autofocus /></label>
+                <label>截止日期<input type="date" @bind="DraftDueDate" /></label>
+            </div>
+            <label>备注 <span class="muted">（可选）</span><textarea @bind="DraftDescription" @bind:event="oninput" rows="2" placeholder="补充目标、交付物或协作信息"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(EditorError)) { <div class="task-error" role="alert">@EditorError</div> }
+            <div class="task-composer__actions">
+                <button class="task-secondary-button" @onclick="CloseEditor">取消</button>
+                <button class="task-primary-button" @onclick="SaveEdit">保存修改</button>
+            </div>
+        </section>
+    }
+
+    <section class="task-list" aria-live="polite">
+        @if (!VisibleTasks.Any())
+        {
+            <div class="task-empty"><i class="fa fa-check-circle" aria-hidden="true"></i><strong>这里暂时没有任务</strong><span>可以新建一项，给今天安排一个清晰的下一步。</span></div>
+        }
+        else
+        {
+            @foreach (var task in VisibleTasks)
+            {
+                <article class="task-card @(task.Status == WorkTaskStatus.Done ? "is-done" : "")">
+                    <button class="task-check" title="@(task.Status == WorkTaskStatus.Done ? "恢复任务" : "标记完成")" aria-label="@(task.Status == WorkTaskStatus.Done ? "恢复任务" : "标记完成")" @onclick="() => ToggleTask(task)">
+                        <i class="fa @(task.Status == WorkTaskStatus.Done ? "fa-check" : "fa-circle-o")" aria-hidden="true"></i>
+                    </button>
+                    <div class="task-card__body">
+                        <h2>@task.Title</h2>
+                        @if (!string.IsNullOrWhiteSpace(task.Description)) { <p>@task.Description</p> }
+                        <div class="task-card__meta">
+                            <span class="task-status task-status--@task.Status.ToString().ToLowerInvariant()">@StatusLabel(task.Status)</span>
+                            @if (task.DueDate is not null)
+                            {
+                                <span class="task-due @(task.DueDate < DateOnly.FromDateTime(DateTime.Today) && task.Status != WorkTaskStatus.Done ? "is-overdue" : "")"><i class="fa fa-calendar-o" aria-hidden="true"></i> @task.DueDate.Value.ToString("MM月dd日")</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="task-card__actions">
+                        @if (task.Status == WorkTaskStatus.Todo) { <button title="开始处理" @onclick="() => StartTask(task)"><i class="fa fa-play" aria-hidden="true"></i></button> }
+                        @if (task.Status == WorkTaskStatus.Done) { <button title="恢复任务" @onclick="() => ToggleTask(task)"><i class="fa fa-undo" aria-hidden="true"></i></button> }
+                        <button title="编辑任务" @onclick="() => OpenEditor(task)"><i class="fa fa-pencil" aria-hidden="true"></i></button>
+                        <button class="danger" title="删除任务" @onclick="() => RemoveTask(task)"><i class="fa fa-trash-o" aria-hidden="true"></i></button>
+                    </div>
+                </article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    private readonly List<(string Key, string Label, WorkTaskFilter Filter)> Filters =
+    [("all", "全部", WorkTaskFilter.All), ("open", "待处理", WorkTaskFilter.Open), ("done", "已完成", WorkTaskFilter.Done), ("overdue", "已逾期", WorkTaskFilter.Overdue)];
+    private IReadOnlyList<WorkTask> TaskItems => TaskService.List();
+
+    private string SelectedFilter { get; set; } = "all";
+    private bool ShowComposer { get; set; }
+    private string DraftTitle { get; set; } = string.Empty;
+    private string DraftDescription { get; set; } = string.Empty;
+    private DateTime? DraftDueDate { get; set; } = DateTime.Today.AddDays(3);
+    private string? ComposerError { get; set; }
+    private WorkTask? EditingTask { get; set; }
+    private string? EditorError { get; set; }
+    private IEnumerable<WorkTask> VisibleTasks => TaskService.List(Filters.First(filter => filter.Key == SelectedFilter).Filter);
+    private int OpenCount => TaskItems.Count(t => t.Status != WorkTaskStatus.Done);
+    private int CountFor(WorkTaskFilter filter) => TaskService.Count(filter);
+    private void OpenComposer() { CloseEditor(); ShowComposer = true; }
+    private void CloseComposer() { ShowComposer = false; ComposerError = null; }
+    private void OpenEditor(WorkTask task)
+    {
+        CloseComposer();
+        EditingTask = task;
+        EditorError = null;
+        DraftTitle = task.Title;
+        DraftDescription = task.Description ?? string.Empty;
+        DraftDueDate = task.DueDate?.ToDateTime(TimeOnly.MinValue);
+    }
+    private void CloseEditor() { EditingTask = null; EditorError = null; }
+    private void CreateTask()
+    {
+        if (string.IsNullOrWhiteSpace(DraftTitle)) { ComposerError = "请填写任务标题。"; return; }
+        TaskService.Create(DraftTitle, DraftDescription, DraftDueDate is null ? null : DateOnly.FromDateTime(DraftDueDate.Value));
+        DraftTitle = string.Empty; DraftDescription = string.Empty; DraftDueDate = DateTime.Today.AddDays(3); CloseComposer();
+    }
+    private void SaveEdit()
+    {
+        if (EditingTask is null) return;
+        if (string.IsNullOrWhiteSpace(DraftTitle)) { EditorError = "请填写任务标题。"; return; }
+        TaskService.Edit(EditingTask, DraftTitle, DraftDescription, DraftDueDate is null ? null : DateOnly.FromDateTime(DraftDueDate.Value));
+        CloseEditor();
+    }
+    private void ToggleTask(WorkTask task) => TaskService.ToggleCompleted(task);
+    private void StartTask(WorkTask task) => TaskService.Start(task);
+    private void RemoveTask(WorkTask task) => TaskService.Remove(task);
+    private static string StatusLabel(WorkTaskStatus status) => status switch { WorkTaskStatus.InProgress => "进行中", WorkTaskStatus.Done => "已完成", _ => "待开始" };
+}

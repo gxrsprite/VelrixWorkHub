@@ -1,0 +1,33 @@
+@page "/Lms/CustomerFeature"
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.Lms.LmsFeatureService FeatureService
+@inject VelrixWorkHub.Application.Lms.LmsFeatureVersionService FeatureVersionService
+@inject VelrixWorkHub.Application.Lms.LmsCustomerFeatureService CustomerFeatureService
+@using VelrixWorkHub.Domain
+
+<PageTitle>客户特性 - Velrix Work Hub</PageTitle>
+
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">LMS · Customer Feature</p><h1>客户特性</h1><p class="task-page__intro">维护客户级授权基线；仅可选择启用且适用于客户的特性版本。</p></div></div>
+    <section class="task-toolbar customer-toolbar"><button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus"></i> 新建客户特性</button></section>
+    @if (Show)
+    {
+        <section class="task-composer"><div class="task-composer__fields">
+            <label>CRM 客户<select @bind="CustomerId"><option value="@Guid.Empty">请选择客户</option>@foreach (var customer in CustomerService.List(filter: VelrixWorkHub.Application.Customers.CustomerFilter.Active)) { <option value="@customer.Id">@customer.Name</option> }</select></label>
+            <label>特性版本<select @bind="FeatureVersionId"><option value="@Guid.Empty">请选择特性版本</option>@foreach (var version in CustomerVersions) { <option value="@version.Id">@VersionLabel(version)</option> }</select></label>
+            <label>到期时间（可选）<input type="text" @bind="ExpiresAtText" placeholder="yyyy-MM-dd" /></label>
+        </div><label>备注<textarea @bind="Notes"></textarea></label><label>OtherInfo JSON 对象<textarea @bind="OtherInfo"></textarea></label>
+        @if (Error is not null) { <div class="task-error">@Error</div> }
+        <div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存</button></div></section>
+    }
+    <section class="task-list">@foreach (var item in CustomerFeatureService.List()) { var customer = CustomerService.List().FirstOrDefault(x => x.Id == item.CustomerId); var version = FeatureVersionService.List().FirstOrDefault(x => x.Id == item.FeatureVersionId); <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span class="task-status">@(item.Status == LmsCustomerFeatureStatus.Active ? "启用" : "停用")</span><span>@(customer?.Name ?? "CRM 客户已不可用")</span></div><h2>@(version is null ? "特性版本已不可用" : VersionLabel(version))</h2><p>到期：@(item.ExpiresAt?.ToString("yyyy-MM-dd") ?? "长期有效")</p></div><div class="task-card__actions"><button title="切换状态" @onclick="() => CustomerFeatureService.SetStatus(item, item.Status == LmsCustomerFeatureStatus.Active ? LmsCustomerFeatureStatus.Disabled : LmsCustomerFeatureStatus.Active)"><i class="fa fa-toggle-on"></i></button></div></article> }</section>
+</div>
+
+@code {
+    private bool Show; private Guid CustomerId, FeatureVersionId; private string ExpiresAtText = string.Empty, Notes = string.Empty, OtherInfo = "{}"; private string? Error;
+    private IReadOnlyList<LmsFeatureVersion> CustomerVersions => FeatureVersionService.List(includeDisabled: false).Where(x => x.Scope == LmsFeatureScope.Customer).ToArray();
+    private string VersionLabel(LmsFeatureVersion version) { var feature = FeatureService.List().FirstOrDefault(x => x.Id == version.FeatureId); return $"{feature?.Code ?? "未知特性"} · v{version.Version} · {version.Level}"; }
+    private void OpenCreate() { Close(); Show = true; }
+    private void Close() { Show = false; CustomerId = FeatureVersionId = Guid.Empty; ExpiresAtText = Notes = string.Empty; OtherInfo = "{}"; Error = null; }
+    private void Save() { try { CustomerFeatureService.Create(CustomerId, FeatureVersionId, string.IsNullOrWhiteSpace(ExpiresAtText) ? null : DateTime.Parse(ExpiresAtText), Notes, OtherInfo); Close(); } catch (Exception exception) { Error = exception.Message; } }
+}

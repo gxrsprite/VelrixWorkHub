@@ -1,0 +1,58 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using VelrixWorkHub.Application.Attachments
+@using VelrixWorkHub.Application.Lms
+@using VelrixWorkHub.Domain
+@inject LmsLicenseAttachmentService LmsAttachmentService
+@inject IAttachmentContentStore AttachmentContentStore
+
+<section class="customer-note attachment-panel" aria-label="许可证申请附件">
+    <div class="attachment-panel__header"><strong>申请附件 @Attachments.Count</strong><span> · 单个不超过 2MB，最多 6 个 · 记录来源与扩展信息</span></div>
+    @if (CanWrite) { <InputFile OnChange="Upload" accept=".pdf,.txt,.json,.zip,.doc,.docx,.png,.jpg,.jpeg" /> }
+    @if (CanWrite) { <label>附件来源与扩展信息 OtherInfo JSON 对象<textarea @bind="OtherInfo" rows="2" placeholder='例如 {"source":"客户提供","category":"授权材料"}'></textarea></label> }
+    @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+    @if (Attachments.Count > 0)
+    {
+        <div class="attachment-panel__list">
+            @foreach (var item in Attachments)
+            {
+                <div @key="item.Id" class="attachment-panel__item"><span>V@(item.VersionNumber) · @item.FileName · @FormatSize(item.SizeBytes) · @item.UploadedBy · @item.OtherInfo</span><span><a href="/api/attachments/@item.Id/download">下载</a>@if (CanWrite && item.Status == BusinessAttachmentStatus.Active) { <button type="button" class="danger" title="删除申请附件" @onclick="() => Delete(item)">删除</button> }</span></div>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public LmsLicenseRequest Request { get; set; } = null!;
+    [Parameter] public string Actor { get; set; } = string.Empty;
+    [Parameter] public bool IsAdministrator { get; set; }
+    private IReadOnlyList<BusinessAttachment> Attachments { get; set; } = [];
+    private string OtherInfo { get; set; } = "{}";
+    private string? Error { get; set; }
+    private bool CanWrite => Request.Status is LmsLicenseRequestStatus.Draft or LmsLicenseRequestStatus.Submitted or LmsLicenseRequestStatus.Rejected or LmsLicenseRequestStatus.Withdrawn;
+
+    protected override void OnParametersSet() => Load();
+    private void Load() => Attachments = Request is null ? [] : LmsAttachmentService.List(Request.Id, Actor, IsAdministrator);
+
+    private async Task Upload(InputFileChangeEventArgs args)
+    {
+        Error = null;
+        var file = args.File;
+        if (file is null) return;
+        try
+        {
+            await using var stream = file.OpenReadStream(LmsLicenseAttachmentService.MaxFileBytes);
+            await LmsAttachmentService.UploadAsync(Request.Id, file.Name, file.ContentType, stream, Actor, AttachmentContentStore, otherInfo: OtherInfo, isAdministrator: IsAdministrator);
+            OtherInfo = "{}";
+            Load();
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+
+    private void Delete(BusinessAttachment item)
+    {
+        try { if (!CanWrite) throw new InvalidOperationException("当前申请状态不允许删除附件。"); LmsAttachmentService.Delete(item, Actor, "用户从 LMS 申请详情删除附件", IsAdministrator); Load(); }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+
+    private static string FormatSize(long size) => size switch { < 1024 => $"{size} B", < 1024 * 1024 => $"{size / 1024d:0.0} KB", _ => $"{size / 1024d / 1024d:0.0} MB" };
+}

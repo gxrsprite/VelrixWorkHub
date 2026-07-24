@@ -1,0 +1,365 @@
+@namespace BootstrapBlazor.Components
+
+<div class="input-tags-container @CssClass" @onclick="FocusInputAsync">
+    @foreach (var tag in _tags.Select((value, index) => new { value, index }))
+    {
+        <span class="input-tags-badge">
+            @tag.value
+            <button type="button"
+                    class="input-tags-btn-close"
+                    disabled="@Disabled"
+                    title="删除"
+                    @onclick:stopPropagation="true"
+                    @onclick="() => RemoveTagAsync(tag.index)">
+            </button>
+        </span>
+    }
+
+    <input @ref="_inputRef"
+           class="input-tags-field"
+           type="text"
+           placeholder="@CurrentPlaceholder"
+           value="@_inputText"
+           readonly="@Disabled"
+           @oninput="OnInputAsync"
+           @onkeydown="OnKeyDownAsync"
+           @onkeyup="OnKeyUpAsync"
+           @onblur="OnBlurAsync" />
+
+    @if (ShowDropdown)
+    {
+        <div class="@DropdownClass">
+            @for (var i = 0; i < FilteredSuggestions.Count; i++)
+            {
+                var suggestion = FilteredSuggestions[i];
+                <button type="button"
+                        class="input-tags-dropdown-item @(i == _activeIndex ? "active" : null)"
+                        @onmousedown="HandleSuggestionMouseDown"
+                        @onmousedown:preventDefault="true"
+                        @onclick:stopPropagation="true"
+                        @onclick="() => SelectSuggestionAsync(suggestion)">
+                    @suggestion
+                </button>
+            }
+        </div>
+    }
+</div>
+
+<style>
+.input-tags-container {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+    padding: .4rem .7rem;
+    min-height: calc(1.5em + .9rem + 2px);
+    cursor: text;
+    position: relative;
+    background-color: #fff;
+    border: 1px solid #d7deea;
+    border-radius: .7rem;
+    transition: border-color .2s ease, box-shadow .2s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+}
+
+.input-tags-container:focus-within {
+    border-color: #205656;
+    box-shadow: 0 0 0 3px rgba(32, 86, 86, .12);
+}
+
+.input-tags-badge {
+    display: flex;
+    align-items: center;
+    padding: .3em .5em .3em .7em;
+    border-radius: .5rem;
+    font-size: .875em;
+    font-weight: 500;
+    line-height: 1.3;
+    color: #fff;
+    background-image: linear-gradient(135deg, #205656, #2c7a7b);
+}
+
+.input-tags-btn-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    margin-left: .4rem;
+    border: none;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, .2);
+    cursor: pointer;
+    position: relative;
+}
+
+.input-tags-btn-close::before,
+.input-tags-btn-close::after {
+    content: "";
+    position: absolute;
+    width: 55%;
+    height: 2px;
+    background-color: #fff;
+    border-radius: 2px;
+}
+
+.input-tags-btn-close::before { transform: rotate(45deg); }
+.input-tags-btn-close::after { transform: rotate(-45deg); }
+
+.input-tags-field {
+    border: none;
+    outline: 0;
+    box-shadow: none;
+    flex-grow: 1;
+    min-width: 120px;
+    padding: .2rem;
+    background-color: transparent;
+}
+
+.input-tags-dropdown,
+.input-tags-dropdown-grid {
+    position: absolute;
+    top: calc(100% + .35rem);
+    left: 0;
+    right: 0;
+    z-index: 1050;
+    max-height: 280px;
+    overflow-y: auto;
+    background-color: #fff;
+    border-radius: .7rem;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .08);
+}
+
+.input-tags-dropdown { padding: .3rem; }
+
+.input-tags-dropdown-grid {
+    padding: .5rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: .5rem;
+}
+
+.input-tags-dropdown-item {
+    display: block;
+    width: 100%;
+    text-align: center;
+    border: 1px solid #eef2f7;
+    background-color: #f8fafc;
+    color: #205656;
+    padding: .5rem;
+    border-radius: .6rem;
+    cursor: pointer;
+    transition: all .2s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+}
+
+.input-tags-dropdown-item:hover,
+.input-tags-dropdown-item.active {
+    background-color: #ecfdf5;
+    color: #134e4a;
+    border-color: #99f6e4;
+}
+</style>
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public IReadOnlyList<string> Source { get; set; } = Array.Empty<string>();
+    [Parameter] public string Placeholder { get; set; } = "输入后按回车确认";
+    [Parameter] public string CssClass { get; set; } = "";
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool AllowCustom { get; set; } = true;
+    [Parameter] public bool UseGridDropdown { get; set; } = true;
+    [Parameter] public int MaxCount { get; set; } = 20;
+
+    private readonly List<string> _tags = new();
+    private readonly List<string> _filteredSuggestions = new();
+    private ElementReference _inputRef;
+    private string _inputText = "";
+    private int _activeIndex = -1;
+    private bool _suppressBlurCommit;
+
+    private IReadOnlyList<string> FilteredSuggestions => _filteredSuggestions;
+    private bool ShowDropdown => !Disabled && FilteredSuggestions.Count > 0 && !string.IsNullOrWhiteSpace(_inputText);
+    private string DropdownClass => UseGridDropdown ? "input-tags-dropdown-grid" : "input-tags-dropdown";
+    private string CurrentPlaceholder => _tags.Count == 0 ? Placeholder : "";
+
+    protected override void OnParametersSet()
+    {
+        var incoming = ParseTags(Value);
+        if (!incoming.SequenceEqual(_tags, StringComparer.OrdinalIgnoreCase))
+        {
+            _tags.Clear();
+            _tags.AddRange(incoming);
+        }
+
+        RefreshSuggestions();
+    }
+
+    private Task OnInputAsync(ChangeEventArgs e)
+    {
+        _inputText = e.Value?.ToString()?.Trim() ?? "";
+        RefreshSuggestions();
+        return Task.CompletedTask;
+    }
+
+    private Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "ArrowDown" && FilteredSuggestions.Count > 0)
+        {
+            _activeIndex = (_activeIndex + 1 + FilteredSuggestions.Count) % FilteredSuggestions.Count;
+        }
+        else if (e.Key == "ArrowUp" && FilteredSuggestions.Count > 0)
+        {
+            _activeIndex = _activeIndex <= 0 ? FilteredSuggestions.Count - 1 : _activeIndex - 1;
+        }
+        else if (e.Key == "Escape")
+        {
+            _inputText = "";
+            RefreshSuggestions();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task OnKeyUpAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Backspace" && string.IsNullOrWhiteSpace(_inputText) && _tags.Count > 0)
+        {
+            _tags.RemoveAt(_tags.Count - 1);
+            await UpdateValueAsync();
+            return;
+        }
+
+        if ((e.Key == "Enter" || e.Key == ",") && !string.IsNullOrWhiteSpace(_inputText))
+        {
+            if (_activeIndex >= 0 && _activeIndex < FilteredSuggestions.Count && e.Key == "Enter")
+            {
+                await AddTagAsync(FilteredSuggestions[_activeIndex]);
+            }
+            else
+            {
+                await AddTagAsync(_inputText.TrimEnd(','));
+            }
+        }
+    }
+
+    private async Task OnBlurAsync(FocusEventArgs _)
+    {
+        if (_suppressBlurCommit)
+        {
+            _suppressBlurCommit = false;
+            return;
+        }
+
+        if (AllowCustom && !string.IsNullOrWhiteSpace(_inputText))
+        {
+            await AddTagAsync(_inputText);
+            return;
+        }
+
+        _inputText = "";
+        RefreshSuggestions();
+    }
+
+    private async Task AddTagAsync(string? rawValue)
+    {
+        var normalizedTags = ParseTags(rawValue);
+        if (normalizedTags.Count == 0)
+        {
+            _inputText = "";
+            RefreshSuggestions();
+            return;
+        }
+
+        foreach (var tag in normalizedTags)
+        {
+            if (_tags.Count >= MaxCount)
+                break;
+
+            if (_tags.Contains(tag, StringComparer.OrdinalIgnoreCase))
+                continue;
+
+            _tags.Add(tag);
+        }
+
+        _inputText = "";
+        await UpdateValueAsync();
+    }
+
+    private async Task RemoveTagAsync(int index)
+    {
+        if (index < 0 || index >= _tags.Count)
+            return;
+
+        _tags.RemoveAt(index);
+        await UpdateValueAsync();
+    }
+
+    private void HandleSuggestionMouseDown(MouseEventArgs _)
+    {
+        _suppressBlurCommit = true;
+    }
+
+    private async Task SelectSuggestionAsync(string suggestion)
+    {
+        _suppressBlurCommit = false;
+        await AddTagAsync(suggestion);
+        await FocusInputAsync();
+    }
+
+    private async Task FocusInputAsync()
+    {
+        if (Disabled)
+            return;
+
+        await _inputRef.FocusAsync();
+    }
+
+    private async Task UpdateValueAsync()
+    {
+        Value = string.Join(", ", _tags);
+        RefreshSuggestions();
+        await ValueChanged.InvokeAsync(Value);
+        StateHasChanged();
+    }
+
+    private void RefreshSuggestions()
+    {
+        _filteredSuggestions.Clear();
+        var keyword = _inputText.Trim().Trim(',');
+
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            _filteredSuggestions.AddRange(
+                Source.Where(static item => !string.IsNullOrWhiteSpace(item))
+                    .Select(static item => item.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Where(item => !_tags.Contains(item, StringComparer.OrdinalIgnoreCase))
+                    .Where(item => item.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                    .Take(12));
+        }
+
+        _activeIndex = _filteredSuggestions.Count == 0 ? -1 : Math.Clamp(_activeIndex, 0, _filteredSuggestions.Count - 1);
+        if (_activeIndex == -1 && _filteredSuggestions.Count > 0)
+        {
+            _activeIndex = 0;
+        }
+    }
+
+    private static List<string> ParseTags(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return new();
+
+        return text.Split([',', '，', ';', '；', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(static item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+}

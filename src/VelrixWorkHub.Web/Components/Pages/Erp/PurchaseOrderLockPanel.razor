@@ -1,0 +1,38 @@
+@using VelrixWorkHub.Domain
+@using VelrixWorkHub.Application.PurchaseOrders
+@inject PurchaseOrderService OrderService
+
+@if (Orders.Any(x => x.Status is PurchaseOrderStatus.Draft or PurchaseOrderStatus.Submitted))
+{
+    <section class="task-toolbar customer-toolbar" aria-label="采购订单锁定控制">
+        <div class="customer-note">订单锁定控制：锁定后不能推进或取消，解锁后恢复正常操作。</div>
+        @foreach (var item in Orders.Where(x => x.Status is PurchaseOrderStatus.Draft or PurchaseOrderStatus.Submitted))
+        {
+            <button class="task-secondary-button" title="@(item.IsLocked ? "解除采购订单锁定" : "锁定采购订单")" @onclick="() => Toggle(item)">
+                @(item.IsLocked ? "解除锁定" : "锁定") · @item.OrderNo
+            </button>
+        }
+    </section>
+    @if (Error is not null)
+    {
+        <div class="task-error" role="alert">@Error</div>
+    }
+}
+
+@code {
+    [Parameter] public IReadOnlyList<PurchaseOrder> Orders { get; set; } = [];
+    private string? Error { get; set; }
+
+    private void Toggle(PurchaseOrder item)
+    {
+        try
+        {
+            OrderService.SetLocked(item, !item.IsLocked);
+            Error = null;
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+    }
+}

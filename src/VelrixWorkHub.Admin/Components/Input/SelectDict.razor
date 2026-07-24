@@ -1,0 +1,59 @@
+@namespace BootstrapBlazor.Components
+@inject IFreeSql Fsql
+
+<select class="@CssClass" disabled="@Disabled" value="@CurrentValueAsString" @onchange="OnChangeAsync">
+    @if (ShowPlaceholder)
+    {
+        <option value="">@Placeholder</option>
+    }
+    @if (_items != null)
+    {
+        @foreach (var item in _items)
+        {
+            <option value="@item.Value">@item.Label</option>
+        }
+    }
+</select>
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public string? DictParentName { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool ShowPlaceholder { get; set; } = true;
+    [Parameter] public string Placeholder { get; set; } = "请选择..";
+    [Parameter] public string CssClass { get; set; } = "form-control";
+
+    private List<(string Label, string Value)>? _items;
+    private string CurrentValueAsString => Value ?? "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(DictParentName))
+        {
+            _items = new();
+            return;
+        }
+
+        var parent = await Fsql.Select<SysDict>()
+            .Where(d => d.ParentId == Guid.Empty && d.Name == DictParentName)
+            .FirstAsync();
+
+        if (parent != null)
+        {
+            var items = await Fsql.Select<SysDict>()
+                .Where(d => d.ParentId == parent.Id)
+                .OrderBy(d => d.Sort)
+                .ToListAsync();
+
+            _items = items.Select(d => (Label: d.Name ?? "", Value: d.Value ?? "")).ToList();
+        }
+    }
+
+    private async Task OnChangeAsync(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        Value = value;
+        await ValueChanged.InvokeAsync(value);
+    }
+}

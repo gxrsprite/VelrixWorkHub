@@ -1,0 +1,230 @@
+@using AdminBlazor
+@using BootstrapBlazor.Components
+@inject NavigationManager Navigation
+
+@foreach (var menu in Menus.Where(HasVisibleContent))
+{
+    @RenderMenu(ToItem(menu), Depth)
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<SysMenu> Menus { get; set; } = [];
+    [Parameter] public IReadOnlySet<Guid> HiddenMenuIds { get; set; } = new HashSet<Guid>();
+    [Parameter] public int Depth { get; set; }
+
+    private readonly HashSet<string> expanded = [];
+
+    protected override void OnParametersSet()
+    {
+        foreach (var menu in Menus.Where(HasVisibleContent))
+        {
+            ExpandCurrentBranch(ToItem(menu), Depth);
+        }
+    }
+
+    private RenderFragment RenderMenu(NavigationItem menu, int depth) => builder =>
+    {
+        var children = GetChildren(menu, depth);
+        var hasChildren = children.Count > 0;
+        var isExpanded = expanded.Contains(menu.Key);
+        var classes = $"hub-menu-item hub-menu-item--depth-{Math.Min(depth, 2)}";
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", classes);
+        if (!string.IsNullOrWhiteSpace(menu.Path))
+        {
+            builder.OpenComponent<NavLink>(2);
+            builder.AddAttribute(3, "class", "hub-menu-link");
+            builder.AddAttribute(4, "href", menu.Path);
+            builder.AddAttribute(5, "Match", NavLinkMatch.Prefix);
+            builder.AddAttribute(6, "ChildContent", (RenderFragment)(content =>
+            {
+                content.OpenElement(0, "i");
+                content.AddAttribute(1, "class", string.IsNullOrWhiteSpace(menu.Icon) ? "fa fa-circle-o" : menu.Icon);
+                content.CloseElement();
+                content.AddContent(2, menu.Label);
+            }));
+            builder.CloseComponent();
+        }
+        else
+        {
+            builder.OpenElement(7, "span");
+            builder.AddAttribute(8, "class", "hub-menu-label");
+            builder.AddContent(9, menu.Label);
+            builder.CloseElement();
+        }
+        if (hasChildren)
+        {
+            builder.OpenElement(10, "button");
+            builder.AddAttribute(11, "type", "button");
+            builder.AddAttribute(12, "class", "hub-menu-toggle");
+            builder.AddAttribute(13, "title", isExpanded ? "收起子菜单" : "展开子菜单");
+            builder.AddAttribute(14, "aria-label", isExpanded ? $"收起{menu.Label}子菜单" : $"展开{menu.Label}子菜单");
+            builder.AddAttribute(15, "aria-expanded", isExpanded);
+            builder.AddAttribute(16, "onclick", EventCallback.Factory.Create(this, () => Toggle(menu.Key)));
+            builder.OpenElement(17, "i");
+            builder.AddAttribute(18, "class", isExpanded ? "fa fa-chevron-down" : "fa fa-chevron-right");
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+        if (hasChildren && isExpanded)
+        {
+            builder.OpenElement(19, "div");
+            builder.AddAttribute(20, "class", "hub-menu-children");
+            foreach (var child in children) builder.AddContent(21, RenderMenu(child, depth + 1));
+            builder.CloseElement();
+        }
+    };
+
+    private void Toggle(string key)
+    {
+        if (!expanded.Add(key)) expanded.Remove(key);
+    }
+
+    private void ExpandCurrentBranch(NavigationItem menu, int depth)
+    {
+        if (!ContainsCurrentPath(menu, depth)) return;
+        expanded.Add(menu.Key);
+        foreach (var child in GetChildren(menu, depth)) ExpandCurrentBranch(child, depth + 1);
+    }
+
+    private bool HasVisibleContent(SysMenu menu)
+        => (!string.IsNullOrWhiteSpace(menu.Path) && !HiddenMenuIds.Contains(menu.Id))
+            || menu.Children?.Any(HasVisibleContent) == true;
+
+    private NavigationItem ToItem(SysMenu menu)
+    {
+        var children = menu.Children?.Where(HasVisibleContent).Select(ToItem).ToArray() ?? [];
+        return new NavigationItem(
+            $"menu:{menu.Id}",
+            menu.Label,
+            ResolveDestination(menu, children),
+            menu.Icon,
+            menu,
+            children);
+    }
+
+    private IReadOnlyList<NavigationItem> GetChildren(NavigationItem menu, int depth)
+    {
+        if (depth != 0 || menu.Source is null) return menu.Children;
+
+        var groups = GetGroups(menu.Label);
+        if (groups.Count == 0) return menu.Children;
+
+        var remaining = menu.Children.ToList();
+        var result = new List<NavigationItem>();
+        foreach (var group in groups)
+        {
+            var children = remaining.Where(item => group.Paths.Contains(item.Path ?? "", StringComparer.OrdinalIgnoreCase)).ToArray();
+            if (children.Length == 0) continue;
+            remaining.RemoveAll(item => children.Contains(item));
+            var destination = children.FirstOrDefault(item => string.Equals(item.Path, group.Path, StringComparison.OrdinalIgnoreCase))?.Path
+                ?? children[0].Path;
+            var displayChildren = children
+                .Where(item => !string.Equals(item.Path, destination, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            result.Add(new NavigationItem(
+                $"group:{menu.Source.Id}:{group.Label}",
+                group.Label,
+                destination,
+                group.Icon,
+                null,
+                displayChildren));
+        }
+
+        if (remaining.Count > 0)
+        {
+            result.Add(new NavigationItem(
+                $"group:{menu.Source.Id}:其他",
+                "其他功能",
+                remaining[0].Path,
+                "fa fa-ellipsis-h",
+                null,
+                remaining));
+        }
+
+        return result;
+    }
+
+    private bool ContainsCurrentPath(NavigationItem menu, int depth)
+    {
+        var current = Navigation.ToBaseRelativePath(Navigation.Uri).TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(menu.Path) && current.StartsWith(menu.Path, StringComparison.OrdinalIgnoreCase)) return true;
+        return GetChildren(menu, depth).Any(child => ContainsCurrentPath(child, depth + 1));
+    }
+
+    private static string? ResolveDestination(SysMenu menu, IReadOnlyList<NavigationItem> children)
+    {
+        if (!string.IsNullOrWhiteSpace(menu.Path)) return menu.Path;
+        var preferred = menu.Label switch
+        {
+            "协同办公" => "Oa/Overview",
+            "客户经营" => "Crm/Overview",
+            "企业资源" => "Erp/Overview",
+            "项目管理" => "Pmp/Overview",
+            "流程平台" => "Workflow/Overview",
+            "许可证管理" => "Lms/Overview",
+            "系统管理" => "Admin/Overview",
+            _ => null
+        };
+        return children.FirstOrDefault(item => string.Equals(item.Path, preferred, StringComparison.OrdinalIgnoreCase))?.Path
+            ?? children.FirstOrDefault(item => !string.IsNullOrWhiteSpace(item.Path))?.Path;
+    }
+
+    private static IReadOnlyList<NavigationGroup> GetGroups(string rootLabel) => rootLabel switch
+    {
+        "协同办公" =>
+        [
+            new("我的协作看板", "Oa/Overview", "fa fa-dashboard", ["Oa/Overview", "Oa/Task", "Oa/Announcement", "Oa/Schedule", "Oa/Notification"]),
+            new("员工与组织", "Oa/Directory", "fa fa-users", ["Oa/Directory", "Oa/Recruitment", "Oa/Onboarding", "Oa/Offboarding"]),
+            new("申请与费用", "Oa/Leave", "fa fa-file-text-o", ["Oa/Leave", "Oa/LeaveBalance", "Oa/Overtime", "Oa/ExpenseReimbursement", "Oa/CashAdvance", "Oa/PaymentRequest", "Oa/ProcurementRequest"]),
+            new("资产与行政", "Oa/Asset", "fa fa-briefcase", ["Oa/Asset", "Oa/Vehicle"]),
+            new("资产与出行", "Oa/Vehicle", "fa fa-car", ["Oa/Vehicle"])
+        ],
+        "客户经营" =>
+        [
+            new("客户经营看板", "Crm/Overview", "fa fa-dashboard", ["Crm/Overview", "Crm/Customer", "Crm/Contact", "Crm/FollowUp"]),
+            new("销售履约", "Crm/Opportunity", "fa fa-line-chart", ["Crm/Opportunity", "Crm/Contract", "Crm/CustomerLedger", "Crm/ContractLedger"])
+        ],
+        "企业资源" =>
+        [
+            new("经营看板", "Erp/Overview", "fa fa-dashboard", ["Erp/Overview", "Erp/Report"]),
+            new("主数据与库存", "Erp/Product", "fa fa-cubes", ["Erp/Product", "Erp/Warehouse", "Erp/Inventory", "Erp/InventoryTransfer", "Erp/InventoryStocktake"]),
+            new("采购与结算", "Erp/PurchaseOrder", "fa fa-shopping-cart", ["Erp/Supplier", "Erp/PurchaseOrder", "Erp/Settlement", "Erp/SupplierLedger"]),
+            new("销售履约", "Erp/SalesOrder", "fa fa-truck", ["Erp/SalesOrder"])
+        ],
+        "项目管理" =>
+        [
+            new("项目组合看板", "Pmp/Overview", "fa fa-dashboard", ["Pmp/Overview"]),
+            new("项目规划", "Pmp/Project", "fa fa-sitemap", ["Pmp/Project", "Pmp/Phase", "Pmp/Wbs", "Pmp/Member", "Pmp/Calendar"]),
+            new("项目执行", "Pmp/WorkItem", "fa fa-tasks", ["Pmp/WorkItem", "Pmp/Meeting", "Pmp/WorkLog", "Pmp/Resource"]),
+            new("治理与交付", "Pmp/Delivery", "fa fa-flag-checkered", ["Pmp/Issue", "Pmp/Baseline", "Pmp/Change", "Pmp/Evm", "Pmp/Requirement", "Pmp/Delivery"])
+        ],
+        "流程平台" =>
+        [
+            new("流程工作台", "Workflow/Overview", "fa fa-dashboard", ["Workflow/Overview", "Workflow/Inbox"]),
+            new("流程与表单", "Workflow/Definition", "fa fa-random", ["Workflow/Definition", "Workflow/SimpleForm"])
+        ],
+        "许可证管理" =>
+        [
+            new("运营看板", "Lms/Overview", "fa fa-dashboard", ["Lms/Overview", "Lms/License", "Lms/LicenseReplacement"]),
+            new("产品与特性", "Lms/Product", "fa fa-cube", ["Lms/Product", "Lms/Feature", "Lms/FeatureVersion"]),
+            new("客户与授权", "Lms/Machine", "fa fa-desktop", ["Lms/Machine", "Lms/CustomerFeature", "Lms/MachineFeature"])
+        ],
+        "系统管理" =>
+        [
+            new("系统运维工作台", "Admin/Overview", "fa fa-dashboard", ["Admin/Overview", "Admin/PermissionAudit", "Admin/NotificationFailures"])
+        ],
+        _ => []
+    };
+
+    private sealed record NavigationItem(
+        string Key,
+        string Label,
+        string? Path,
+        string? Icon,
+        SysMenu? Source,
+        IReadOnlyList<NavigationItem> Children);
+
+    private sealed record NavigationGroup(string Label, string Path, string Icon, IReadOnlyList<string> Paths);
+}

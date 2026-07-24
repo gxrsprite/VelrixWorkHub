@@ -1,0 +1,199 @@
+@page "/Oa/CashAdvance"
+@using VelrixWorkHub.Application.CashAdvances
+@using VelrixWorkHub.Application.ExpenseReimbursements
+@using VelrixWorkHub.Application.PmpProjects
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Domain
+@inject CashAdvanceService CashAdvanceService
+@inject CashAdvanceRepaymentService CashAdvanceRepaymentService
+@inject ExpenseReimbursementService ExpenseService
+@inject PmpProjectService ProjectService
+@inject WorkflowApprovalService WorkflowApprovalService
+@inject AdminBlazor.IAdminContext Admin
+
+<PageTitle>借款与备用金 - Velrix Work Hub</PageTitle>
+
+<div class="task-page cash-advance-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/CashAdvance</p><h1>借款与备用金</h1><p class="task-page__intro">记录临时借款、差旅借款和备用金申请；批准后可用同一申请人的已批准报销进行冲销，付款和 ERP 结算仍由后续财务流程负责。</p></div><div class="task-page__summary"><strong>@Requests.Count</strong><span>份我的借款</span></div></div>
+    <section class="task-toolbar" aria-label="借款操作"><span class="customer-note">当前申请人：@(Admin.User?.Username ?? "未登录")</span>@if (Admin.AuthButton("Oa/CashAdvance/Create")) { <button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus" aria-hidden="true"></i> 新建借款</button> }</section>
+
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="借款编辑器">
+            <div class="task-composer__title">@(Editing is null ? "填写借款申请" : $"编辑借款 · {Editing.DocumentNo}")</div>
+            <div class="task-composer__fields"><label>借款单号<input @bind="DraftDocumentNo" @bind:event="oninput" maxlength="100" placeholder="例如：JK-202607-001" /></label><label>借款标题<input @bind="DraftTitle" @bind:event="oninput" maxlength="200" placeholder="例如：华南出差备用金" /></label></div>
+            <div class="task-composer__fields"><label>申请部门<input @bind="DraftDepartment" @bind:event="oninput" maxlength="100" /></label><label>主体公司<input @bind="DraftLegalEntity" @bind:event="oninput" maxlength="200" /></label></div>
+            <div class="task-composer__fields"><label>借款类型<select @bind="DraftType"><option value="Temporary">临时借款</option><option value="Travel">差旅借款</option><option value="PettyCash">备用金</option><option value="Other">其他</option></select></label><label>申请日期<input type="date" @bind="DraftRequestDate" /></label></div>
+            <div class="task-composer__fields"><label>预计冲销日期<input type="date" @bind="DraftExpectedSettlementDate" /></label><label>借款金额<input type="number" step="0.01" min="0.01" @bind="DraftAmount" /></label></div>
+            <div class="task-composer__fields"><label>归属项目<select @bind="DraftProjectId"><option value="">不关联项目</option>@foreach (var project in ProjectService.List()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label><label>扩展信息 OtherInfo JSON<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="1"></textarea></label></div>
+            <label>借款用途<textarea @bind="DraftPurpose" @bind:event="oninput" rows="3" maxlength="2000" placeholder="说明借款用途和预计冲销安排"></textarea></label>
+            @if (Editing is null || (Editing.Status is OaCashAdvanceStatus.Draft or OaCashAdvanceStatus.Rejected)) { <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseComposer">取消</button><button class="task-primary-button" @onclick="SaveMain">保存借款</button></div> }
+        </section>
+    }
+
+    @if (Editing is not null && (Editing.Status is OaCashAdvanceStatus.Approved or OaCashAdvanceStatus.PartiallySettled))
+    {
+        var availableReimbursements = ExpenseService.ListMine(CurrentUserId).Where(x => x.Status is OaExpenseReimbursementStatus.Approved or OaExpenseReimbursementStatus.Reimbursed).ToArray();
+        <section class="task-composer" aria-label="借款冲销与还款">
+            <div class="task-composer__title">借款结清 · 剩余 ¥@Editing.RemainingAmount.ToString("N2")</div>
+            <p class="customer-note">报销冲销和已批准还款共同计入借款结清余额；还款审批不生成 ERP 或银行交易。</p>
+            <div class="task-composer__fields"><label>关联报销<select @bind="DraftOffsetReimbursementId"><option value="">请选择已批准报销</option>@foreach (var reimbursement in availableReimbursements) { <option value="@reimbursement.Id">@reimbursement.DocumentNo · @reimbursement.Title · ¥@reimbursement.ActualAmount.ToString("N2")</option> }</select></label><label>冲销金额<input type="number" min="0.01" step="0.01" @bind="DraftOffsetAmount" /></label></div>
+            <div class="task-composer__fields"><label>冲销日期<input type="date" @bind="DraftOffsetDate" /></label><label>冲销说明<input @bind="DraftOffsetNotes" @bind:event="oninput" maxlength="1000" /></label></div>
+            @if (Admin.AuthButton("Oa/CashAdvance/Offset")) { <div class="task-composer__actions"><button class="task-primary-button" @onclick="ApplyOffset">登记冲销</button></div> }
+            @foreach (var offset in CashAdvanceService.ListOffsets(Editing.Id)) { <div class="customer-note">报销冲销 · @offset.OffsetDate.ToString("yyyy-MM-dd") · 报销 @offset.ReimbursementId · ¥@offset.Amount.ToString("N2") · @offset.Notes</div> }
+            <hr />
+            <div class="task-composer__title">登记借款还款</div>
+            <div class="task-composer__fields"><label>还款单号<input @bind="DraftRepaymentDocumentNo" @bind:event="oninput" maxlength="100" placeholder="例如：HK-202607-001" /></label><label>还款标题<input @bind="DraftRepaymentTitle" @bind:event="oninput" maxlength="200" placeholder="例如：归还差旅借款" /></label></div>
+            <div class="task-composer__fields"><label>本次还款金额<input type="number" min="0.01" step="0.01" max="@Editing.RemainingAmount" @bind="DraftRepaymentAmount" /></label><label>收款日期<input type="date" @bind="DraftRepaymentDate" /></label></div>
+            <div class="task-composer__fields"><label>还款方式<select @bind="DraftRepaymentMethod"><option value="Cash">现金</option><option value="BankTransfer">银行转账</option><option value="Other">其他</option></select></label><label>收款凭据引用<input @bind="DraftRepaymentReceiptReference" @bind:event="oninput" maxlength="200" placeholder="回单号、受控账户引用或末四位" /></label></div>
+            <div class="task-composer__fields"><label>还款说明<input @bind="DraftRepaymentNotes" @bind:event="oninput" maxlength="2000" /></label><label>扩展信息 OtherInfo JSON<textarea @bind="DraftRepaymentOtherInfo" @bind:event="oninput" rows="1"></textarea></label></div>
+            <div class="task-composer__actions">
+                @if (EditingRepayment is not null) { <button class="task-secondary-button" @onclick="ResetRepaymentDraft">取消编辑</button> }
+                @if (EditingRepayment is null && Admin.AuthButton("Oa/CashAdvance/Repayment")) { <button class="task-primary-button" @onclick="CreateRepayment">保存还款并提交审批</button> }
+                @if (EditingRepayment is not null && Admin.AuthButton("Oa/CashAdvance/Repayment/Submit")) { <button class="task-primary-button" @onclick="SaveAndResubmitRepayment">保存并重新提交</button> }
+            </div>
+            @foreach (var repayment in CashAdvanceRepaymentService.ListByCashAdvance(Editing.Id))
+            {
+                var repaymentWorkflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.CashAdvanceRepaymentApproval, nameof(OaCashAdvanceRepayment), repayment.Id);
+                <div class="customer-note">还款 · @repayment.RepaymentDate.ToString("yyyy-MM-dd") · @repayment.DocumentNo · ¥@repayment.Amount.ToString("N2") · @RepaymentStatusLabel(repayment.Status) · 审批：@WorkflowLabel(repaymentWorkflow?.Status) · @repayment.ReceiptReference@(string.IsNullOrWhiteSpace(repayment.RejectionReason) ? "" : $" · 驳回原因：{repayment.RejectionReason}")
+                    <span class="task-card__actions">
+                        @if ((repayment.Status is OaCashAdvanceRepaymentStatus.Draft or OaCashAdvanceRepaymentStatus.Rejected) && Admin.AuthButton("Oa/CashAdvance/Repayment/Edit")) { <button title="编辑还款" @onclick="() => OpenRepaymentEdit(repayment)"><i class="fa fa-pencil"></i></button> }
+                        @if ((repayment.Status is OaCashAdvanceRepaymentStatus.Draft or OaCashAdvanceRepaymentStatus.Submitted) && Admin.AuthButton("Oa/CashAdvance/Repayment/Cancel")) { <button class="danger" title="撤回还款" @onclick="() => CancelRepayment(repayment)"><i class="fa fa-undo"></i></button> }
+                    </span>
+                    <AttachmentPanel BusinessType="@nameof(OaCashAdvanceRepayment)" BusinessId="@repayment.Id" Actor="@(Admin.User?.Username ?? "system")" />
+                </div>
+            }
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-list" aria-live="polite">
+        @if (!Requests.Any()) { <div class="task-empty"><i class="fa fa-credit-card" aria-hidden="true"></i><strong>还没有借款申请</strong><span>新建借款后提交审批。</span></div> }
+        else
+        {
+            @foreach (var item in Requests)
+            {
+                var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.CashAdvanceApproval, nameof(OaCashAdvance), item.Id);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-credit-card"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@StatusLabel(item.Status)</span><span>@item.DocumentNo</span><span>@item.RequestDate.ToString("yyyy-MM-dd")</span></div><h2>@item.Title</h2><p>@item.DepartmentName · @item.LegalEntity · 借款 ¥@item.Amount.ToString("N2") · 剩余 ¥@item.RemainingAmount.ToString("N2")</p><div class="customer-note">@item.Purpose · 审批：@WorkflowLabel(workflow?.Status)@(string.IsNullOrWhiteSpace(item.RejectionReason) ? "" : $" · 驳回原因：{item.RejectionReason}")</div><AttachmentPanel BusinessType="@nameof(OaCashAdvance)" BusinessId="@item.Id" Actor="@(Admin.User?.Username ?? "system")" /></div><div class="task-card__actions">@if ((item.Status is OaCashAdvanceStatus.Draft or OaCashAdvanceStatus.Rejected) && Admin.AuthButton("Oa/CashAdvance/Edit")) { <button title="编辑借款" @onclick="() => OpenEdit(item)"><i class="fa fa-pencil"></i></button> } @if ((item.Status is OaCashAdvanceStatus.Draft or OaCashAdvanceStatus.Rejected) && Admin.AuthButton("Oa/CashAdvance/Submit")) { <button title="提交借款审批" @onclick="() => Submit(item)"><i class="fa fa-send-o"></i></button> } @if ((item.Status is OaCashAdvanceStatus.Draft or OaCashAdvanceStatus.Submitted) && Admin.AuthButton("Oa/CashAdvance/Cancel")) { <button class="danger" title="撤回借款" @onclick="() => Cancel(item)"><i class="fa fa-undo"></i></button> } @if ((item.Status is OaCashAdvanceStatus.Approved or OaCashAdvanceStatus.PartiallySettled) && Admin.AuthButton("Oa/CashAdvance/Repayment")) { <button title="登记借款还款" @onclick="() => OpenSettlement(item)"><i class="fa fa-money"></i></button> }</div></article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowComposer;
+    private OaCashAdvance? Editing;
+    private OaCashAdvanceRepayment? EditingRepayment;
+    private string DraftDocumentNo = string.Empty, DraftTitle = string.Empty, DraftDepartment = string.Empty, DraftLegalEntity = string.Empty, DraftPurpose = string.Empty, DraftOtherInfo = "{}";
+    private OaCashAdvanceType DraftType = OaCashAdvanceType.Temporary;
+    private DateTime DraftRequestDate = DateTime.Today, DraftExpectedSettlementDate = DateTime.Today.AddDays(30);
+    private decimal DraftAmount;
+    private string DraftProjectId = string.Empty;
+    private string DraftOffsetReimbursementId = string.Empty, DraftOffsetNotes = string.Empty;
+    private DateTime DraftOffsetDate = DateTime.Today;
+    private decimal DraftOffsetAmount;
+    private string DraftRepaymentDocumentNo = string.Empty, DraftRepaymentTitle = string.Empty, DraftRepaymentReceiptReference = string.Empty, DraftRepaymentNotes = string.Empty, DraftRepaymentOtherInfo = "{}";
+    private DateTime DraftRepaymentDate = DateTime.Today;
+    private decimal DraftRepaymentAmount;
+    private OaCashAdvanceRepaymentMethod DraftRepaymentMethod = OaCashAdvanceRepaymentMethod.BankTransfer;
+    private string? Error;
+    private Guid CurrentUserId => Admin.User?.Id ?? Guid.Empty;
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private IReadOnlyList<OaCashAdvance> Requests => CashAdvanceService.ListMine(CurrentUserId);
+
+    private void OpenCreate() { CloseComposer(); ShowComposer = true; DraftDocumentNo = $"JK-{DateTime.Today:yyyyMM}-{DateTime.Now:HHmmss}"; DraftRequestDate = DateTime.Today; DraftExpectedSettlementDate = DateTime.Today.AddDays(30); }
+    private void OpenEdit(OaCashAdvance item) { CloseComposer(); Editing = item; ShowComposer = true; DraftDocumentNo = item.DocumentNo; DraftTitle = item.Title; DraftDepartment = item.DepartmentName; DraftLegalEntity = item.LegalEntity; DraftType = item.AdvanceType; DraftRequestDate = item.RequestDate.ToDateTime(TimeOnly.MinValue); DraftExpectedSettlementDate = item.ExpectedSettlementDate.ToDateTime(TimeOnly.MinValue); DraftAmount = item.Amount; DraftProjectId = item.ProjectId?.ToString() ?? string.Empty; DraftPurpose = item.Purpose; DraftOtherInfo = item.OtherInfo; }
+    private void CloseComposer() { ShowComposer = false; Editing = null; ResetRepaymentDraft(); Error = null; DraftTitle = DraftPurpose = string.Empty; DraftOtherInfo = "{}"; }
+    private void SaveMain()
+    {
+        try
+        {
+            var projectId = Guid.TryParse(DraftProjectId, out var parsedProjectId) ? parsedProjectId : (Guid?)null;
+            if (Editing is null) Editing = CashAdvanceService.Create(CurrentUserId, CurrentActor, DraftDepartment, DraftLegalEntity, DraftDocumentNo, DraftTitle, DraftType, DateOnly.FromDateTime(DraftRequestDate), DateOnly.FromDateTime(DraftExpectedSettlementDate), projectId, DraftAmount, DraftPurpose, DraftOtherInfo);
+            else CashAdvanceService.Edit(Editing, CurrentUserId, CurrentActor, DraftDepartment, DraftLegalEntity, DraftDocumentNo, DraftTitle, DraftType, DateOnly.FromDateTime(DraftRequestDate), DateOnly.FromDateTime(DraftExpectedSettlementDate), projectId, DraftAmount, DraftPurpose, DraftOtherInfo);
+            Error = null;
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void Submit(OaCashAdvance item) { try { CashAdvanceService.SubmitAndStartWorkflow(item, CurrentUserId, CurrentActor); CloseComposer(); } catch (Exception ex) { Error = ex.Message; } }
+    private void Cancel(OaCashAdvance item) { try { CashAdvanceService.Cancel(item, CurrentUserId, CurrentActor); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void ApplyOffset()
+    {
+        if (Editing is null || !Guid.TryParse(DraftOffsetReimbursementId, out var reimbursementId)) { Error = "请选择要冲销的报销单。"; return; }
+        try { CashAdvanceService.ApplyOffset(Editing, CurrentUserId, reimbursementId, DraftOffsetAmount, DateOnly.FromDateTime(DraftOffsetDate), DraftOffsetNotes, "{}"); DraftOffsetReimbursementId = DraftOffsetNotes = string.Empty; DraftOffsetAmount = 0; Error = null; } catch (Exception ex) { Error = ex.Message; }
+    }
+    private void CreateRepayment()
+    {
+        if (Editing is null) { Error = "请先选择需要还款的借款。"; return; }
+        try
+        {
+            var repayment = CashAdvanceRepaymentService.Create(Editing.Id, CurrentUserId, CurrentActor, Editing.DepartmentName, Editing.LegalEntity,
+                DraftRepaymentDocumentNo, DraftRepaymentTitle, DraftRepaymentAmount, DateOnly.FromDateTime(DraftRepaymentDate), DraftRepaymentMethod,
+                DraftRepaymentReceiptReference, DraftRepaymentNotes, DraftRepaymentOtherInfo);
+            CashAdvanceRepaymentService.SubmitAndStartWorkflow(repayment, CurrentUserId, CurrentActor);
+            ResetRepaymentDraft();
+            Error = null;
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void OpenSettlement(OaCashAdvance item)
+    {
+        CloseComposer();
+        Editing = item;
+        DraftRepaymentDocumentNo = $"HK-{DateTime.Today:yyyyMM}-{DateTime.Now:HHmmss}";
+        DraftRepaymentTitle = $"归还借款 · {item.DocumentNo}";
+        DraftRepaymentDate = DateTime.Today;
+        DraftRepaymentMethod = OaCashAdvanceRepaymentMethod.BankTransfer;
+    }
+    private void OpenRepaymentEdit(OaCashAdvanceRepayment item)
+    {
+        EditingRepayment = item;
+        DraftRepaymentDocumentNo = item.DocumentNo;
+        DraftRepaymentTitle = item.Title;
+        DraftRepaymentAmount = item.Amount;
+        DraftRepaymentDate = item.RepaymentDate.ToDateTime(TimeOnly.MinValue);
+        DraftRepaymentMethod = item.RepaymentMethod;
+        DraftRepaymentReceiptReference = item.ReceiptReference;
+        DraftRepaymentNotes = item.Notes;
+        DraftRepaymentOtherInfo = item.OtherInfo;
+        Error = null;
+    }
+    private void SaveAndResubmitRepayment()
+    {
+        if (EditingRepayment is null) return;
+        try
+        {
+            CashAdvanceRepaymentService.Edit(EditingRepayment, CurrentUserId, CurrentActor, EditingRepayment.DepartmentName, EditingRepayment.LegalEntity,
+                DraftRepaymentDocumentNo, DraftRepaymentTitle, DraftRepaymentAmount, DateOnly.FromDateTime(DraftRepaymentDate), DraftRepaymentMethod,
+                DraftRepaymentReceiptReference, DraftRepaymentNotes, DraftRepaymentOtherInfo);
+            CashAdvanceRepaymentService.SubmitAndStartWorkflow(EditingRepayment, CurrentUserId, CurrentActor);
+            ResetRepaymentDraft();
+            Error = null;
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void CancelRepayment(OaCashAdvanceRepayment item)
+    {
+        try
+        {
+            CashAdvanceRepaymentService.Cancel(item, CurrentUserId, CurrentActor);
+            if (EditingRepayment?.Id == item.Id) ResetRepaymentDraft();
+            Error = null;
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void ResetRepaymentDraft()
+    {
+        EditingRepayment = null;
+        DraftRepaymentDocumentNo = DraftRepaymentTitle = DraftRepaymentReceiptReference = DraftRepaymentNotes = string.Empty;
+        DraftRepaymentOtherInfo = "{}";
+        DraftRepaymentAmount = 0;
+        DraftRepaymentDate = DateTime.Today;
+        DraftRepaymentMethod = OaCashAdvanceRepaymentMethod.BankTransfer;
+    }
+    private static string StatusLabel(OaCashAdvanceStatus status) => status switch { OaCashAdvanceStatus.Draft => "草稿", OaCashAdvanceStatus.Submitted => "审批中", OaCashAdvanceStatus.Rejected => "已驳回", OaCashAdvanceStatus.Approved => "已批准", OaCashAdvanceStatus.PartiallySettled => "部分结清", OaCashAdvanceStatus.Settled => "已结清", _ => "已撤回" };
+    private static string RepaymentStatusLabel(OaCashAdvanceRepaymentStatus status) => status switch { OaCashAdvanceRepaymentStatus.Draft => "草稿", OaCashAdvanceRepaymentStatus.Submitted => "审批中", OaCashAdvanceRepaymentStatus.Rejected => "已驳回", OaCashAdvanceRepaymentStatus.Approved => "已批准", _ => "已撤回" };
+    private static string WorkflowLabel(WorkflowInstanceStatus? status) => status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已拒绝", WorkflowInstanceStatus.Cancelled => "已撤回", _ => "未发起" };
+}

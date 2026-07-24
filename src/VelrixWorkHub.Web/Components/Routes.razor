@@ -1,0 +1,24 @@
+@using System.Reflection
+@using BootstrapBlazor.Components
+
+<BootstrapBlazorRoot>
+    <Router AppAssembly="@typeof(Program).Assembly" AdditionalAssemblies="@AdditionalAssemblies">
+        <Found Context="routeData">
+            <RouteView RouteData="@routeData" DefaultLayout="@typeof(WorkHubLayout)" />
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>未找到页面</PageTitle>
+            <LayoutView Layout="@typeof(WorkHubLayout)">
+                <p class="m-4">页面不存在或尚未开放。</p>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</BootstrapBlazorRoot>
+
+@code {
+    private static readonly Assembly[] AdditionalAssemblies =
+    [
+        typeof(AdminBlazor.Components.Pages.Login).Assembly
+    ];
+}

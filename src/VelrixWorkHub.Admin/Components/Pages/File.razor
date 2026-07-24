@@ -1,0 +1,52 @@
+@page "/Admin/File"
+
+
+<PageTitle>文件管理</PageTitle>
+
+<AdminTable2 TItem="SysFile" PageSize="20" Title="文件管理" IsAdd="false"
+    OnQuery="OnQueryFile" InitQuery="InitQueryFile" OnRemoving="OnRemovingFile">
+    <TableHeader>
+        <AdminSortHeader Field="OriginFileName">文件名</AdminSortHeader>
+        <AdminSortHeader Field="Extension">扩展名</AdminSortHeader>
+        <AdminSortHeader Field="Size">大小</AdminSortHeader>
+        <th>链接</th>
+        <AdminSortHeader Field="CreatedTime">创建时间</AdminSortHeader>
+    </TableHeader>
+    <TableRow>
+        <td>@context.OriginFileName</td>
+        <td>@context.Extension</td>
+        <td>@context.SizeFormat</td>
+        <td>
+            @if (!string.IsNullOrWhiteSpace(context.LinkUrl))
+            {
+                <a href="@context.LinkUrl" target="_blank">查看</a>
+            }
+        </td>
+        <td>@context.CreatedTime?.ToString("yyyy-MM-dd HH:mm")</td>
+    </TableRow>
+</AdminTable2>
+
+@code {
+    [Inject] IFreeSql fsql { get; set; } = default!;
+    [Inject] IFileService FileService { get; set; } = default!;
+
+    async Task InitQueryFile(AdminQueryInfo e)
+    {
+        e.Filters = Array.Empty<AdminFilterInfo>();
+        await Task.CompletedTask;
+    }
+
+    void OnQueryFile(AdminQueryEventArgs<SysFile> e)
+    {
+        e.Select.WhereIf(!string.IsNullOrWhiteSpace(e.SearchText), a =>
+            (a.OriginFileName ?? "").Contains(e.SearchText!) || (a.Extension ?? "").Contains(e.SearchText!));
+    }
+
+    async Task OnRemovingFile(List<SysFile> items)
+    {
+        foreach (var file in items)
+        {
+            await FileService.DeleteAsync(file.Id);
+        }
+    }
+}

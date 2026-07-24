@@ -1,0 +1,74 @@
+@page "/Oa/Overtime"
+@using VelrixWorkHub.Application.Overtime
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Domain
+@inject OvertimeRequestService OvertimeService
+@inject OvertimeConversionService OvertimeConversionService
+@inject WorkflowApprovalService WorkflowApprovalService
+@inject AdminBlazor.IAdminContext Admin
+
+<PageTitle>加班申请 - Velrix Work Hub</PageTitle>
+
+<div class="task-page leave-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/Overtime</p><h1>加班申请</h1><p class="task-page__intro">加班批准后 30 天内可二选一兑换调休，或登记加班小时交由财务自行处理。</p></div><div class="task-page__summary"><strong>@Requests.Count</strong><span>份我的申请</span></div></div>
+    <section class="task-toolbar" aria-label="加班申请操作"><span class="customer-note">当前用户：@(Admin.User?.Username ?? "未登录")</span>@if (Admin.AuthButton("Oa/Overtime/Create")) { <button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus" aria-hidden="true"></i> 新建加班</button> }</section>
+
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="@(Editing is null ? "新建加班申请" : "编辑加班申请")">
+            <div class="task-composer__title">@(Editing is null ? "填写加班申请" : "编辑加班草稿")</div>
+            <div class="task-composer__fields"><label>开始时间<input type="datetime-local" @bind="DraftStartAt" /></label><label>结束时间<input type="datetime-local" @bind="DraftEndAt" /></label></div>
+            <label>加班事由<textarea @bind="DraftReason" @bind:event="oninput" rows="3" maxlength="1000" placeholder="说明加班事项和必要安排"></textarea></label>
+            <label>扩展信息 OtherInfo JSON 对象<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="1"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存草稿</button></div>
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error) && !ShowComposer) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-list" aria-live="polite">
+        @if (!Requests.Any()) { <div class="task-empty"><i class="fa fa-clock-o" aria-hidden="true"></i><strong>还没有加班申请</strong><span>新建一份草稿后提交审批。</span></div> }
+        else
+        {
+            @foreach (var request in Requests)
+            {
+                var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.OvertimeApproval, nameof(OaOvertimeRequest), request.Id);
+                var conversion = OvertimeConversionService.GetByOvertimeRequest(request.Id);
+                <article class="task-card leave-card"><div class="schedule-time"><strong>@request.StartAt.ToString("MM月dd日")</strong><span>@request.DurationHours.ToString("0.##") 小时</span></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@request.Status.ToString().ToLowerInvariant()">@StatusLabel(request.Status)</span><span>@request.StartAt.ToString("yyyy-MM-dd HH:mm") - @request.EndAt.ToString("yyyy-MM-dd HH:mm")</span></div><h2>@request.Reason</h2><p>申请时间：@request.CreatedAt.ToString("yyyy-MM-dd HH:mm")@(request.SubmittedAt is DateTime submittedAt ? $" · 提交于 {submittedAt:yyyy-MM-dd HH:mm}" : string.Empty)</p><div class="customer-note">审批：@WorkflowLabel(workflow?.Status)@if (conversion is not null) { <span> · @(conversion.Type == OaOvertimeConversionType.CompensatoryLeave ? "已兑换调休" : "已登记财务处理") @conversion.Hours.ToString("0.##") 小时</span> }@if (!string.IsNullOrWhiteSpace(request.RejectionReason)) { <span> · 驳回原因：@request.RejectionReason</span> }</div><AttachmentPanel BusinessType="@nameof(OaOvertimeRequest)" BusinessId="@request.Id" Actor="@CurrentActor" /></div><div class="task-card__actions">@if (request.Status is (OaOvertimeRequestStatus.Draft or OaOvertimeRequestStatus.Rejected) && Admin.AuthButton("Oa/Overtime/Edit")) { <button title="编辑加班" @onclick="() => OpenEdit(request)"><i class="fa fa-pencil" aria-hidden="true"></i></button> } @if (request.Status is (OaOvertimeRequestStatus.Draft or OaOvertimeRequestStatus.Rejected) && Admin.AuthButton("Oa/Overtime/Submit")) { <button title="提交加班审批" @onclick="() => Submit(request)"><i class="fa fa-paper-plane-o" aria-hidden="true"></i></button> } @if (request.Status == OaOvertimeRequestStatus.Approved && conversion is null) { <button title="兑换调休" @onclick="() => Convert(request, OaOvertimeConversionType.CompensatoryLeave)"><i class="fa fa-clock-o" aria-hidden="true"></i></button><button title="登记加班费财务处理" @onclick="() => Convert(request, OaOvertimeConversionType.FinanceManual)"><i class="fa fa-money" aria-hidden="true"></i></button> } @if (request.Status is (OaOvertimeRequestStatus.Draft or OaOvertimeRequestStatus.Submitted) && Admin.AuthButton("Oa/Overtime/Cancel")) { <button class="danger" title="撤回加班" @onclick="() => Cancel(request)"><i class="fa fa-undo" aria-hidden="true"></i></button> }</div></article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowComposer;
+    private OaOvertimeRequest? Editing;
+    private DateTime DraftStartAt = DateTime.Now.AddDays(1).Date.AddHours(18);
+    private DateTime DraftEndAt = DateTime.Now.AddDays(1).Date.AddHours(21);
+    private string DraftReason = string.Empty, DraftOtherInfo = "{}";
+    private string? Error;
+    private Guid CurrentUserId => Admin.User?.Id ?? Guid.Empty;
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private IReadOnlyList<OaOvertimeRequest> Requests => OvertimeService.ListMine(CurrentUserId);
+
+    private void OpenCreate() { Close(); ShowComposer = true; DraftStartAt = DateTime.Now.AddDays(1).Date.AddHours(18); DraftEndAt = DraftStartAt.AddHours(3); }
+    private void OpenEdit(OaOvertimeRequest request) { Close(); Editing = request; ShowComposer = true; DraftStartAt = request.StartAt; DraftEndAt = request.EndAt; DraftReason = request.Reason; DraftOtherInfo = request.OtherInfo; }
+    private void Close() { ShowComposer = false; Editing = null; Error = null; DraftReason = string.Empty; DraftOtherInfo = "{}"; }
+    private void Save()
+    {
+        try
+        {
+            if (Editing is null) Editing = OvertimeService.Create(CurrentUserId, DraftStartAt, DraftEndAt, DraftReason, DraftOtherInfo);
+            else OvertimeService.Edit(Editing, CurrentUserId, DraftStartAt, DraftEndAt, DraftReason, DraftOtherInfo);
+            Error = null;
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void Submit(OaOvertimeRequest request) { try { OvertimeService.SubmitAndStartWorkflow(request, CurrentUserId, CurrentActor); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Cancel(OaOvertimeRequest request) { try { OvertimeService.Cancel(request, CurrentUserId, CurrentActor); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Convert(OaOvertimeRequest request, OaOvertimeConversionType type) { try { OvertimeConversionService.Convert(request, CurrentUserId, type); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private static string StatusLabel(OaOvertimeRequestStatus status) => status switch { OaOvertimeRequestStatus.Draft => "草稿", OaOvertimeRequestStatus.Submitted => "审批中", OaOvertimeRequestStatus.Approved => "已批准", OaOvertimeRequestStatus.Rejected => "已驳回", _ => "已撤回" };
+    private static string WorkflowLabel(WorkflowInstanceStatus? status) => status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已拒绝", WorkflowInstanceStatus.Cancelled => "已撤回", _ => "未发起" };
+}

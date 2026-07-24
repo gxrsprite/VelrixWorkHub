@@ -1,0 +1,122 @@
+@page "/Oa/ProcurementSourcing"
+@using VelrixWorkHub.Application.Products
+@using VelrixWorkHub.Application.ProcurementRequests
+@using VelrixWorkHub.Application.Suppliers
+@using VelrixWorkHub.Domain
+@inject ProcurementSourcingService ProcurementSourcingService
+@inject ProcurementSourcingPurchaseOrderService ProcurementSourcingPurchaseOrderService
+@inject ProcurementRequestService ProcurementRequestService
+@inject ProductService ProductService
+@inject SupplierService SupplierService
+@inject AdminBlazor.IAdminContext Admin
+
+<PageTitle>采购寻源 - Velrix Work Hub</PageTitle>
+
+<div class="task-page procurement-sourcing-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/ProcurementSourcing</p><h1>采购寻源</h1><p class="task-page__intro">对已批准的寻源需求收集供应商报价，至少两家报价后提交比价并选择中选报价；定标后可在采购复核时带入供应商和报价金额生成 ERP 草稿订单。</p></div><div class="task-page__summary"><strong>@Sourcings.Count</strong><span>个寻源单</span></div></div>
+    <section class="task-toolbar" aria-label="采购寻源操作"><span class="customer-note">产品和采购数量因寻源需求不绑定产品，由采购复核时明确选择；中选供应商和报价金额由系统自动带入订单。</span></section>
+
+    @if (Admin.AuthButton("Oa/ProcurementSourcing/Create"))
+    {
+        <section class="task-composer" aria-label="新建采购寻源">
+            <div class="task-composer__title">新建寻源单</div>
+            <div class="task-composer__fields"><label>已批准寻源需求<select @bind="DraftRequestId"><option value="">请选择寻源需求</option>@foreach (var request in EligibleRequests) { <option value="@request.Id">@request.DocumentNo · @request.Purpose</option> }</select></label><label>寻源编号<input @bind="DraftSourcingNo" @bind:event="oninput" maxlength="100" /></label></div>
+            <div class="task-composer__fields"><label>OtherInfo JSON<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="1"></textarea></label><span class="customer-note">只有 Workflow 已批准、类型为“寻源需求”的采购申请可以创建寻源单。</span></div>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-primary-button" @onclick="CreateSourcing">创建寻源单</button></div>
+        </section>
+    }
+
+    @if (SelectedSourcing is not null && SelectedSourcing.Status == OaProcurementSourcingStatus.Draft && Admin.AuthButton("Oa/ProcurementSourcing/AddQuote"))
+    {
+        <section class="task-composer" aria-label="供应商报价编辑器">
+            <div class="task-composer__title">录入供应商报价 · @SelectedSourcing.SourcingNo</div>
+            <div class="task-composer__fields"><label>供应商<select @bind="DraftSupplierId"><option value="">请选择已准入供应商</option>@foreach (var supplier in AvailableSuppliers) { <option value="@supplier.Id">@supplier.Code · @supplier.Name</option> }</select></label><label>报价金额<input type="number" min="0.01" step="0.01" @bind="DraftQuoteAmount" /></label></div>
+            <div class="task-composer__fields"><label>交付天数<input type="number" min="0" step="1" @bind="DraftDeliveryDays" /></label><label>报价有效期<input type="date" @bind="DraftValidUntil" /></label></div>
+            <div class="task-composer__fields"><label>备注<textarea @bind="DraftQuoteNotes" @bind:event="oninput" rows="1"></textarea></label><label>OtherInfo JSON<textarea @bind="DraftQuoteOtherInfo" @bind:event="oninput" rows="1"></textarea></label></div>
+            <div class="task-composer__actions"><button class="task-primary-button" @onclick="AddQuote">保存报价</button></div>
+        </section>
+    }
+
+    @if (SelectedSourcing is not null && SelectedSourcing.Status == OaProcurementSourcingStatus.Awarded && ExistingPurchaseOrder is null && Admin.AuthButton("Oa/ProcurementSourcing/CreatePurchaseOrder"))
+    {
+        <section class="task-composer" aria-label="中选报价转采购订单">
+            <div class="task-composer__title">中选报价转采购订单 · @SelectedSourcing.SourcingNo</div>
+            <div class="task-composer__fields"><label>采购商品<select @bind="DraftProductId"><option value="">请选择启用商品</option>@foreach (var product in AvailableProducts) { <option value="@product.Id">@product.Code · @product.Name</option> }</select></label><label>采购数量<input type="number" min="0.01" step="0.01" @bind="DraftPurchaseQuantity" /></label></div>
+            <div class="task-composer__fields"><label>采购订单号<input @bind="DraftOrderNo" @bind:event="oninput" maxlength="80" /></label><label>付款到期日<input type="date" @bind="DraftPurchaseDueDate" /></label></div>
+            <div class="task-composer__actions"><button class="task-primary-button" @onclick="CreatePurchaseOrder">生成 ERP 草稿采购订单</button></div>
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error) && SelectedSourcing is null) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-list" aria-live="polite">
+        @if (!Sourcings.Any())
+        {
+            <div class="task-empty"><i class="fa fa-balance-scale" aria-hidden="true"></i><strong>还没有采购寻源单</strong><span>先在采购申请中创建并批准“寻源需求”。</span></div>
+        }
+        else
+        {
+            @foreach (var sourcing in Sourcings)
+            {
+                var quotes = ProcurementSourcingService.ListQuotes(sourcing.Id);
+                var request = ProcurementRequestService.Get(sourcing.ProcurementRequestId);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-balance-scale"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status @(sourcing.Status == OaProcurementSourcingStatus.Awarded ? "customer-status--active" : sourcing.Status == OaProcurementSourcingStatus.Cancelled ? "customer-status--inactive" : "")">@StatusLabel(sourcing.Status)</span><span>@sourcing.SourcingNo</span><span>@quotes.Count 家报价</span></div><h2>@(request?.DocumentNo ?? sourcing.ProcurementRequestId.ToString()) · @(request?.Purpose ?? "申请已删除")</h2><p>创建人：@sourcing.CreatedBy · @QuoteSummary(quotes)</p></div><div class="task-card__actions"><button title="查看报价" @onclick="() => SelectSourcing(sourcing)"><i class="fa fa-list"></i></button>@if (sourcing.Status == OaProcurementSourcingStatus.Draft && Admin.AuthButton("Oa/ProcurementSourcing/Submit")) { <button class="task-primary-button" title="提交寻源比价" @onclick="() => SubmitSourcing(sourcing)">提交</button> } @if (sourcing.Status == OaProcurementSourcingStatus.Submitted && Admin.AuthButton("Oa/ProcurementSourcing/Award")) { <span class="customer-note">请选择报价</span> } @if (sourcing.Status is OaProcurementSourcingStatus.Draft or OaProcurementSourcingStatus.Submitted && Admin.AuthButton("Oa/ProcurementSourcing/Cancel")) { <button class="danger" title="撤回寻源单" @onclick="() => CancelSourcing(sourcing)"><i class="fa fa-undo"></i></button> }</div></article>
+                @if (SelectedSourcing?.Id == sourcing.Id)
+                {
+                    <div class="task-card__details"><strong>@sourcing.SourcingNo 报价明细</strong>@if (!quotes.Any()) { <div class="customer-note">尚未录入报价。</div> } @foreach (var quote in quotes) { var supplier = SupplierService.List().FirstOrDefault(x => x.Id == quote.SupplierId); <div class="customer-note">@(supplier?.Name ?? quote.SupplierId.ToString()) · 报价 @quote.QuoteAmount.ToString("N2") · 交付 @quote.DeliveryDays 天 · 有效至 @quote.ValidUntil.ToString("yyyy-MM-dd")@(sourcing.AwardedQuoteId == quote.Id ? " · 中选" : string.Empty) @if (sourcing.Status == OaProcurementSourcingStatus.Submitted && Admin.AuthButton("Oa/ProcurementSourcing/Award")) { <button class="task-primary-button" @onclick="() => AwardQuote(sourcing, quote.Id)">选择中选</button> }</div> } @if (ExistingPurchaseOrder is not null) { <div class="customer-note">已生成采购订单：@ExistingPurchaseOrder.OrderNo · @ExistingPurchaseOrder.Status</div> }</div>
+                }
+            }
+        }
+    </section>
+</div>
+
+@code {
+    private string DraftRequestId = string.Empty, DraftSourcingNo = string.Empty, DraftOtherInfo = "{}", DraftSupplierId = string.Empty, DraftQuoteNotes = string.Empty, DraftQuoteOtherInfo = "{}", DraftProductId = string.Empty, DraftOrderNo = string.Empty;
+    private decimal DraftQuoteAmount;
+    private int DraftDeliveryDays;
+    private decimal DraftPurchaseQuantity = 1;
+    private DateTime DraftValidUntil = DateTime.Today.AddDays(30);
+    private DateTime DraftPurchaseDueDate = DateTime.Today.AddDays(30);
+    private OaProcurementSourcing? SelectedSourcing;
+    private string? Error;
+    private IReadOnlyList<OaProcurementSourcing> Sourcings => ProcurementSourcingService.List();
+    private IReadOnlyList<OaProcurementRequest> EligibleRequests => Admin.AuthButton("Oa/ProcurementSourcing/Create") ? ProcurementSourcingService.ListEligibleRequests(ProcurementRequestService.List(), true) : [];
+    private IReadOnlyList<Product> AvailableProducts => ProductService.List(status: ProductStatus.Active);
+    private PurchaseOrder? ExistingPurchaseOrder => SelectedSourcing is null ? null : ProcurementSourcingPurchaseOrderService.GetExistingOrder(SelectedSourcing);
+    private IReadOnlyList<Supplier> AvailableSuppliers => SelectedSourcing is null ? [] : SupplierService.List().Where(x => x.Status == SupplierStatus.Active && x.QualificationStatus == SupplierQualificationStatus.Qualified && !ProcurementSourcingService.ListQuotes(SelectedSourcing.Id).Any(q => q.SupplierId == x.Id)).ToArray();
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        DraftSourcingNo = $"SOURCE-{DateTime.Today:yyyyMMdd}-{DateTime.Now:HHmmss}";
+        DraftOrderNo = $"PO-SOURCE-{DateTime.Today:yyyyMMdd}-{DateTime.Now:HHmmss}";
+    }
+    private void SelectSourcing(OaProcurementSourcing sourcing) { SelectedSourcing = sourcing; Error = null; ResetQuote(); }
+    private void CreateSourcing()
+    {
+        try { if (!Guid.TryParse(DraftRequestId, out var requestId)) throw new InvalidOperationException("请选择已批准的寻源需求。"); var request = ProcurementRequestService.Get(requestId) ?? throw new InvalidOperationException("寻源需求不存在。"); SelectedSourcing = ProcurementSourcingService.CreateForApprovedRequest(request, DraftSourcingNo, CurrentActor, DraftOtherInfo, Admin.AuthButton("Oa/ProcurementSourcing/Create")); Error = null; }
+        catch (Exception exception) { Error = exception.Message; }
+    }
+    private void AddQuote()
+    {
+        try { if (SelectedSourcing is null || !Guid.TryParse(DraftSupplierId, out var supplierId)) throw new InvalidOperationException("请选择供应商。"); ProcurementSourcingService.AddQuote(SelectedSourcing, supplierId, DraftQuoteAmount, DraftDeliveryDays, DateOnly.FromDateTime(DraftValidUntil), DraftQuoteNotes, DraftQuoteOtherInfo, Admin.AuthButton("Oa/ProcurementSourcing/AddQuote")); ResetQuote(); Error = null; }
+        catch (Exception exception) { Error = exception.Message; }
+    }
+    private void SubmitSourcing(OaProcurementSourcing sourcing) { try { ProcurementSourcingService.Submit(sourcing, Admin.AuthButton("Oa/ProcurementSourcing/Submit")); Error = null; } catch (Exception exception) { Error = exception.Message; } }
+    private void AwardQuote(OaProcurementSourcing sourcing, Guid quoteId) { try { ProcurementSourcingService.Award(sourcing, quoteId, Admin.AuthButton("Oa/ProcurementSourcing/Award")); Error = null; } catch (Exception exception) { Error = exception.Message; } }
+    private void CreatePurchaseOrder()
+    {
+        try
+        {
+            if (SelectedSourcing is null || !Guid.TryParse(DraftProductId, out var productId)) throw new InvalidOperationException("请选择启用商品。");
+            ProcurementSourcingPurchaseOrderService.CreateFromAwardedQuote(SelectedSourcing, DraftOrderNo, productId, DraftPurchaseQuantity, DateOnly.FromDateTime(DraftPurchaseDueDate), Admin.AuthButton("Oa/ProcurementSourcing/CreatePurchaseOrder"));
+            Error = null;
+        }
+        catch (Exception exception) { Error = exception.Message; }
+    }
+    private void CancelSourcing(OaProcurementSourcing sourcing) { try { ProcurementSourcingService.Cancel(sourcing, Admin.AuthButton("Oa/ProcurementSourcing/Cancel")); Error = null; } catch (Exception exception) { Error = exception.Message; } }
+    private void ResetQuote() { DraftSupplierId = DraftQuoteNotes = string.Empty; DraftQuoteOtherInfo = "{}"; DraftQuoteAmount = 0; DraftDeliveryDays = 0; DraftValidUntil = DateTime.Today.AddDays(30); }
+    private static string QuoteSummary(IReadOnlyList<OaProcurementSourcingQuote> quotes) => quotes.Count == 0 ? "尚无报价" : $"最低报价 {quotes.Min(x => x.QuoteAmount):N2} · 最快交付 {quotes.Min(x => x.DeliveryDays)} 天";
+    private static string StatusLabel(OaProcurementSourcingStatus status) => status switch { OaProcurementSourcingStatus.Draft => "草稿", OaProcurementSourcingStatus.Submitted => "比价中", OaProcurementSourcingStatus.Awarded => "已定标", OaProcurementSourcingStatus.Cancelled => "已撤回", _ => status.ToString() };
+}

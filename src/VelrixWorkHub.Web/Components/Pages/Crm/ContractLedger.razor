@@ -1,0 +1,41 @@
+@page "/Crm/ContractLedger"
+@page "/Crm/ContractLedger/{ContractId:guid}"
+@inject VelrixWorkHub.Application.Contracts.SalesContractService ContractService
+@inject VelrixWorkHub.Application.SalesOrders.SalesOrderService SalesOrderService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@using VelrixWorkHub.Application.Reports
+@using VelrixWorkHub.Domain
+<PageTitle>合同订单追溯 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">客户经营 · CRM/ContractLedger</p><h1>合同订单追溯</h1><p class="task-page__intro">从 CRM 合同回溯 ERP 销售订单和发货进度，统一核对合同金额、承接金额与履约余额。</p></div></div>
+    <section class="task-toolbar customer-toolbar"><label>合同<select aria-label="选择追溯合同" @bind="ContractIdText"><option value="">请选择合同</option>@foreach(var contract in ContractService.List()){<option value="@contract.Id">@contract.ContractNo · @contract.Title</option>}</select></label>@if(SelectedContract is not null){<a class="task-primary-button" href="/Erp/SalesOrder"><i class="fa fa-plus"></i> 新建销售订单</a>}</section>
+    @if(SelectedContract is null)
+    {
+        <div class="task-empty"><i class="fa fa-file-text-o"></i><strong>请选择一份合同</strong><span>查看与该合同关联的销售订单和发货进度。</span></div>
+    }
+    else
+    {
+        var insight=Insight();
+        <section class="task-list" aria-label="合同订单指标">
+            <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>合同金额</span><span>CRM 合同</span></div><h2>¥@insight.ContractAmount.ToString("N2")</h2><p>@SelectedContract.ContractNo</p></div></article>
+            <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>有效关联订单</span><span>ERP 销售</span></div><h2>@insight.OrderCount</h2><p>已承接 ¥@insight.OrderAmount.ToString("N2")</p></div></article>
+            <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>待承接金额</span><span>合同履约</span></div><h2>¥@insight.RemainingAmount.ToString("N2")</h2><p>合同金额减有效订单</p></div></article>
+            <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>已发货订单</span><span>履约进度</span></div><h2>@insight.ShippedOrderCount</h2><p>已完成出库的关联订单</p></div></article>
+        </section>
+        <section class="task-list" aria-label="合同关联订单">
+            @foreach(var item in RelatedOrders())
+            {
+                var product=ProductService.List().FirstOrDefault(x=>x.Id==item.ProductId);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-truck"></i></div><div class="task-card__body"><div class="task-card__meta"><span>@StatusLabel(item.Status)</span><a href="/Erp/SalesOrder?orderId=@item.Id">@item.OrderNo</a><span>@item.OrderDate.ToString("yyyy-MM-dd")</span></div><h2>@(product?.Name??"未知商品")</h2><p>数量 @item.Quantity.ToString("N2") · 订单金额 ¥@item.Amount.ToString("N2")</p></div></article>
+            }
+        </section>
+    }
+</div>
+@code {
+    [Parameter] public Guid? ContractId { get; set; }
+    private string ContractIdText { get => ContractId?.ToString() ?? string.Empty; set => ContractId = Guid.TryParse(value, out var id) ? id : null; }
+    private SalesContract? SelectedContract => ContractId is Guid id ? ContractService.List().FirstOrDefault(x => x.Id == id) : null;
+    private ContractOrderInsight Insight() => ContractOrderInsightService.Build(SelectedContract!, SalesOrderService.List());
+    private IEnumerable<SalesOrder> RelatedOrders() => SalesOrderService.List().Where(x => x.ContractId == ContractId && x.Status != SalesOrderStatus.Cancelled).OrderByDescending(x => x.OrderDate);
+    private static string StatusLabel(SalesOrderStatus status) => status switch { SalesOrderStatus.Draft => "草稿", SalesOrderStatus.Submitted => "已提交", SalesOrderStatus.Shipped => "已发货", _ => "已取消" };
+}

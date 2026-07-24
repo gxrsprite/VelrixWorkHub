@@ -1,0 +1,96 @@
+@page "/Crm/Overview"
+@inject ILogger<Overview> Logger
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.FollowUps.CustomerFollowUpService FollowUpService
+@inject VelrixWorkHub.Application.Opportunities.SalesOpportunityService OpportunityService
+@inject VelrixWorkHub.Application.Contracts.SalesContractService ContractService
+@using VelrixWorkHub.Application.Customers
+@using VelrixWorkHub.Application.FollowUps
+@using VelrixWorkHub.Application.Opportunities
+@using VelrixWorkHub.Application.Contracts
+@using VelrixWorkHub.Domain
+
+<PageTitle>CRM 经营看板 - Velrix Work Hub</PageTitle>
+
+<div class="task-page">
+    <div class="task-page__header">
+        <div>
+            <p class="eyebrow">客户经营 · Crm/Overview</p>
+            <h1>CRM 经营看板</h1>
+            <p class="task-page__intro">从客户跟进、销售机会和合同执行三个环节识别今天需要推进的经营工作。</p>
+        </div>
+        <div class="task-page__summary"><strong>@OverdueFollowUps.Count</strong><span>项逾期跟进</span></div>
+    </div>
+
+    @if (LoadError is not null)
+    {
+        <div class="alert alert-warning mt-3" role="alert">@LoadError</div>
+    }
+
+    <section class="module-overview-grid" aria-label="CRM 经营摘要">
+        <a class="module-overview-stat" href="Crm/Customer"><span>启用客户</span><strong>@ActiveCustomerCount</strong><small>进入客户主数据</small></a>
+        <a class="module-overview-stat" href="Crm/FollowUp"><span>逾期跟进</span><strong>@OverdueFollowUps.Count</strong><small>优先联系客户</small></a>
+        <a class="module-overview-stat" href="Crm/Opportunity"><span>进行中商机</span><strong>@OpenOpportunities.Count</strong><small>预计 ¥@OpenOpportunityAmount.ToString("N2")</small></a>
+        <a class="module-overview-stat" href="Crm/Contract"><span>生效合同</span><strong>@ActiveContracts.Count</strong><small>合同额 ¥@ActiveContractAmount.ToString("N2")</small></a>
+    </section>
+
+    <section class="module-overview-grid module-overview-grid--details" aria-label="CRM 工作区">
+        <article class="module-overview-panel">
+            <div class="module-overview-panel__header"><div><p class="eyebrow">客户跟进</p><h2>优先联系</h2></div><a href="Crm/FollowUp">全部跟进</a></div>
+            @if (!AttentionFollowUps.Any()) { <p class="workhub-empty-line">当前没有待推进的客户跟进。</p> }
+            else { <ul class="workhub-list">@foreach (var item in AttentionFollowUps.Take(5)) { <li><span class="workhub-list__marker"></span><div><strong>@CustomerName(item.CustomerId)</strong><small>@FollowUpDateLabel(item) · @item.Content</small></div></li> }</ul> }
+        </article>
+        <article class="module-overview-panel">
+            <div class="module-overview-panel__header"><div><p class="eyebrow">销售机会</p><h2>进行中管道</h2></div><a href="Crm/Opportunity">全部商机</a></div>
+            @if (!OpenOpportunities.Any()) { <p class="workhub-empty-line">当前没有进行中的商机。</p> }
+            else { <ul class="workhub-list">@foreach (var item in OpenOpportunities.OrderBy(x => x.ExpectedCloseDate ?? DateOnly.MaxValue).Take(5)) { <li><span class="workhub-list__marker"></span><div><strong>@item.Title</strong><small>@StageLabel(item.Stage) · ¥@((item.ExpectedAmount ?? 0m).ToString("N2")) · @CloseDateLabel(item)</small></div></li> }</ul> }
+        </article>
+        <article class="module-overview-panel">
+            <div class="module-overview-panel__header"><div><p class="eyebrow">合同执行</p><h2>生效合同</h2></div><a href="Crm/Contract">全部合同</a></div>
+            @if (!ActiveContracts.Any()) { <p class="workhub-empty-line">当前没有生效合同。</p> }
+            else { <ul class="workhub-list">@foreach (var item in ActiveContracts.OrderBy(x => x.EndDate).Take(5)) { <li><span class="workhub-list__marker"></span><div><strong>@item.ContractNo · @item.Title</strong><small>@CustomerName(item.CustomerId) · 到期 @item.EndDate.ToString("MM月dd日") · ¥@item.Amount.ToString("N2")</small></div></li> }</ul> }
+        </article>
+    </section>
+</div>
+
+@code {
+    private IReadOnlyDictionary<Guid, string> CustomerNames { get; set; } = new Dictionary<Guid, string>();
+    private IReadOnlyList<CustomerFollowUp> OverdueFollowUps { get; set; } = [];
+    private IReadOnlyList<CustomerFollowUp> AttentionFollowUps { get; set; } = [];
+    private IReadOnlyList<SalesOpportunity> OpenOpportunities { get; set; } = [];
+    private IReadOnlyList<SalesContract> ActiveContracts { get; set; } = [];
+    private int ActiveCustomerCount { get; set; }
+    private string? LoadError { get; set; }
+
+    private decimal OpenOpportunityAmount => OpenOpportunities.Sum(x => x.ExpectedAmount ?? 0m);
+    private decimal ActiveContractAmount => ActiveContracts.Sum(x => x.Amount);
+
+    protected override void OnInitialized()
+    {
+        try
+        {
+            var customers = CustomerService.List();
+            CustomerNames = customers.ToDictionary(x => x.Id, x => x.Name);
+            ActiveCustomerCount = customers.Count(x => x.Status == CustomerStatus.Active);
+            OverdueFollowUps = FollowUpService.List(filter: FollowUpFilter.Overdue)
+                .OrderBy(x => x.NextFollowUpDate)
+                .ToArray();
+            AttentionFollowUps = FollowUpService.List()
+                .Where(x => x.NextFollowUpDate is not null)
+                .OrderBy(x => x.NextFollowUpDate)
+                .ToArray();
+            OpenOpportunities = OpportunityService.List(filter: OpportunityFilter.Open);
+            ActiveContracts = ContractService.List(filter: ContractFilter.Active);
+        }
+        catch (Exception exception)
+        {
+            LoadError = "部分客户经营摘要暂时不可用，请稍后重试。";
+            Logger.LogError(exception, "CRM 经营看板摘要加载失败");
+        }
+    }
+
+    private string CustomerName(Guid customerId) => CustomerNames.GetValueOrDefault(customerId, "未知客户");
+    private static string FollowUpDateLabel(CustomerFollowUp item) => item.NextFollowUpDate is { } due && due < DateOnly.FromDateTime(DateTime.Today) ? $"已逾期 {due:MM月dd日}" : $"计划 {item.NextFollowUpDate:MM月dd日}";
+    private static string CloseDateLabel(SalesOpportunity item) => item.ExpectedCloseDate is null ? "未设置预计成交日" : $"预计 {item.ExpectedCloseDate:MM月dd日}";
+    private static string StageLabel(OpportunityStage stage) => stage switch { OpportunityStage.Prospecting => "初步接触", OpportunityStage.Qualified => "需求确认", OpportunityStage.Proposal => "方案报价", OpportunityStage.Negotiation => "商务谈判", _ => stage.ToString() };
+}

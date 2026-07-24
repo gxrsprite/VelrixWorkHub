@@ -1,0 +1,144 @@
+@page "/Admin/Holiday"
+@inject IFreeSql fsql
+@inject WorkingDayCalendar Calendar
+
+<PageTitle>节假日管理</PageTitle>
+
+<AdminTable2 TItem="SysHoliday" PageSize="20" Title="节假日管理"
+    OnQuery="OnQueryHoliday" InitQuery="InitQueryHoliday" OnEdit="OnEditHoliday"
+    OnSaving="OnSavingHoliday" OnSaved="OnSavedHoliday" OnRemoved="OnRemovedHoliday">
+    <TableHeader>
+        <AdminSortHeader Field="Date">日期</AdminSortHeader>
+        <AdminSortHeader Field="Name">名称</AdminSortHeader>
+        <AdminSortHeader Field="Type">类型</AdminSortHeader>
+        <AdminSortHeader Field="Enabled">启用</AdminSortHeader>
+        <th>备注</th>
+    </TableHeader>
+    <TableRow>
+        <td>@context.Date.ToString("yyyy-MM-dd")</td>
+        <td>@context.Name</td>
+        <td>@context.Type.ToDescription()</td>
+        <td>@(context.Enabled ? "是" : "否")</td>
+        <td>@context.Description</td>
+    </TableRow>
+    <EditTemplate>
+        <div class="row">
+            <div class="form-group col-6">
+                <label class="form-label">日期</label>
+                <input @bind="context.Date" @bind:format="yyyy-MM-dd" type="date" class="form-control" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">名称</label>
+                <input @bind="context.Name" @bind:event="oninput" type="text" class="form-control" maxlength="50" placeholder="如：春节、国庆调休" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">类型</label>
+                <SelectEnum TEnum="SysHolidayType" @bind-Value="context.Type" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">启用</label>
+                <Switch @bind-Value="context.Enabled" />
+            </div>
+            <div class="form-group col-12">
+                <label class="form-label">备注</label>
+                <textarea @bind="context.Description" @bind:event="oninput" class="form-control" maxlength="500"></textarea>
+            </div>
+        </div>
+    </EditTemplate>
+</AdminTable2>
+
+@code {
+    async Task InitQueryHoliday(AdminQueryInfo e)
+    {
+        e.Filters = new[]
+        {
+            new AdminFilterInfo
+            {
+                Label = "类型",
+                QueryStringName = "Type",
+                Col = 3,
+                Options = Enum.GetValues<SysHolidayType>()
+                    .Select(t => new AdminOptions { Label = t.ToDescription(), Text = t.ToString(), Value = (int)t })
+                    .ToArray()
+            },
+        };
+        await Task.CompletedTask;
+    }
+
+    void OnQueryHoliday(AdminQueryEventArgs<SysHoliday> e)
+    {
+        if (e.Filters.Length > 0 && e.Filters[0].HasValue)
+        {
+            var type = e.Filters[0].Value<SysHolidayType>();
+            e.Select.Where(a => a.Type == type);
+        }
+
+        e.Select
+            .WhereIf(!string.IsNullOrWhiteSpace(e.SearchText), a =>
+                a.Name.Contains(e.SearchText!) || (a.Description ?? "").Contains(e.SearchText!))
+            .OrderByDescending(a => a.Date);
+    }
+
+    Task OnEditHoliday(SysHoliday item)
+    {
+        if (item.Id == Guid.Empty)
+        {
+            item.Id = Guid.CreateVersion7();
+            item.Date = DateTime.Today;
+            item.Enabled = true;
+            item.Type = SysHolidayType.Holiday;
+        }
+        else
+        {
+            item.Date = item.Date.Date;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    async Task OnSavingHoliday(AdminConfirmEventArgs<SysHoliday> e)
+    {
+        e.Argument.Date = e.Argument.Date.Date;
+        if (e.Argument.Id == Guid.Empty)
+            e.Argument.Id = Guid.CreateVersion7();
+
+        if (e.Argument.Date.Year < 2000 || e.Argument.Date.Year > 2100 || string.IsNullOrWhiteSpace(e.Argument.Name))
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        var exists = await fsql.Select<SysHoliday>()
+            .Where(a => a.Date == e.Argument.Date && a.Id != e.Argument.Id)
+            .AnyAsync();
+        if (exists)
+        {
+            e.Cancel = true;
+            return;
+        }
+    }
+
+    Task OnSavedHoliday(SysHoliday item)
+    {
+        ApplyCalendar(item);
+        return Task.CompletedTask;
+    }
+
+    Task OnRemovedHoliday(List<SysHoliday> items)
+    {
+        foreach (var item in items)
+            Calendar.RemoveOverride(item.Date);
+        return Task.CompletedTask;
+    }
+
+    void ApplyCalendar(SysHoliday item)
+    {
+        if (!item.Enabled)
+        {
+            Calendar.RemoveOverride(item.Date);
+            return;
+        }
+
+        Calendar.ApplyOverride(item.Date, item.Type == SysHolidayType.Workday);
+    }
+}

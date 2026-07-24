@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<RootNamespace>AdminBlazor</RootNamespace>
+		<AssemblyName>VelrixWorkHub.Admin</AssemblyName>
+		<StaticWebAssetBasePath>AdminBlazor</StaticWebAssetBasePath>
+		<NoWarn>1701;1702;CS1573;CS8600;CS8601;CS8602;CS8603;CS8604;CS8605;CS8618;CS8619;CS8620;CS8622;CS8625;CS8629;CS8714;CS1591;CS1591;CS0618</NoWarn>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\VelrixWorkHub.Domain\VelrixWorkHub.Domain.csproj" />
+		<ProjectReference Include="..\VelrixWorkHub.Application\VelrixWorkHub.Application.csproj" />
+		<PackageReference Include="BootstrapBlazor" Version="9.12.1" />
+		<PackageReference Include="BootstrapBlazor.FontAwesome" Version="9.0.2" />
+		<PackageReference Include="BootstrapBlazor.Middleware" Version="9.0.0" />
+		<PackageReference Include="BootstrapBlazor.Chart" Version="10.0.0" />
+		<PackageReference Include="FreeSql" Version="3.5.309" />
+		<PackageReference Include="FreeSql.Cloud" Version="2.0.1" />
+		<PackageReference Include="FreeSql.Extensions.AggregateRoot" Version="3.5.309" />
+		<PackageReference Include="FreeSql.Provider.PostgreSQL" Version="3.5.309" />
+		<PackageReference Include="FreeSql.Provider.Sqlite" Version="3.5.215" />
+		<PackageReference Include="FreeScheduler" Version="2.0.37" />
+		<PackageReference Include="Rougamo.Fody" Version="5.0.1" />
+		<PackageReference Include="Yitter.IdGenerator" Version="1.0.14" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+		<PackageReference Include="NCrontab" Version="3.3.3" />
+		<PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="10.0.0-preview.3.25172.1" />
+			</ItemGroup>
+
+	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
+
+</Project>

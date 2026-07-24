@@ -1,0 +1,63 @@
+@page "/Oa/ProcurementBudget"
+@using VelrixWorkHub.Application.ProcurementRequests
+@using VelrixWorkHub.Domain
+@inject ProcurementBudgetService ProcurementBudgetService
+@inject AdminBlazor.IAdminContext Admin
+
+<PageTitle>采购预算 - Velrix Work Hub</PageTitle>
+
+<div class="task-page procurement-budget-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/ProcurementBudget</p><h1>采购预算</h1><p class="task-page__intro">维护 OA 采购申请可引用的预算额度；提交申请时占用，驳回/撤回释放，生成采购订单后转为已执行。</p></div><div class="task-page__summary"><strong>@Budgets.Count</strong><span>个采购预算</span></div></div>
+    <section class="task-toolbar" aria-label="采购预算操作"><span class="customer-note">采购预算只作为 OA 采购申请的额度门禁，不替代 ERP 财务预算总账。</span>@if (Admin.AuthButton("Oa/ProcurementBudget/Create")) { <button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus" aria-hidden="true"></i> 新建采购预算</button> }</section>
+
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="采购预算编辑器">
+            <div class="task-composer__title">新建采购预算</div>
+            <div class="task-composer__fields"><label>预算编号<input @bind="DraftBudgetNo" @bind:event="oninput" maxlength="100" placeholder="例如：PURCHASE-2026-07" /></label><label>主体公司<input @bind="DraftLegalEntity" @bind:event="oninput" maxlength="200" /></label></div>
+            <div class="task-composer__fields"><label>部门<input @bind="DraftDepartment" @bind:event="oninput" maxlength="100" /></label><label>预算总额<input type="number" min="0.01" step="0.01" @bind="DraftTotalAmount" /></label></div>
+            <div class="task-composer__fields"><label>OtherInfo JSON<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="1"></textarea></label></div>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseCreate">取消</button><button class="task-primary-button" @onclick="SaveBudget">保存预算</button></div>
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error) && !ShowComposer) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-list" aria-live="polite">
+        @if (!Budgets.Any())
+        {
+            <div class="task-empty"><i class="fa fa-pie-chart" aria-hidden="true"></i><strong>还没有采购预算</strong><span>创建预算后，采购申请可按预算编号提交并占用额度。</span></div>
+        }
+        else
+        {
+            @foreach (var budget in Budgets)
+            {
+                var reservations = ProcurementBudgetService.ListReservations(budget.Id);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-pie-chart"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status @(budget.Status == OaProcurementBudgetStatus.Active ? "customer-status--active" : "customer-status--inactive")">@(budget.Status == OaProcurementBudgetStatus.Active ? "启用" : "已关闭")</span><span>@budget.BudgetNo</span></div><h2>总额 @budget.TotalAmount.ToString("N2") · 可用 @budget.AvailableAmount.ToString("N2")</h2><p>@budget.LegalEntity · @budget.DepartmentName</p><div class="customer-note">待占用 @budget.ReservedAmount.ToString("N2") · 已执行 @budget.ConsumedAmount.ToString("N2") · 占用记录 @reservations.Count</div></div><div class="task-card__actions">@if (budget.Status == OaProcurementBudgetStatus.Active && Admin.AuthButton("Oa/ProcurementBudget/Close")) { <button class="danger" title="关闭采购预算" @onclick="() => CloseBudget(budget)"><i class="fa fa-lock"></i></button> }</div></article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowComposer;
+    private string DraftBudgetNo = string.Empty, DraftLegalEntity = string.Empty, DraftDepartment = string.Empty, DraftOtherInfo = "{}";
+    private decimal DraftTotalAmount;
+    private string? Error;
+    private IReadOnlyList<OaProcurementBudget> Budgets => ProcurementBudgetService.List();
+
+    private void OpenCreate() { Error = null; ShowComposer = true; DraftBudgetNo = $"PURCHASE-{DateTime.Today:yyyyMM}-{DateTime.Now:HHmmss}"; DraftLegalEntity = string.Empty; DraftDepartment = string.Empty; DraftTotalAmount = 0; DraftOtherInfo = "{}"; }
+    private void CloseCreate() { ShowComposer = false; Error = null; }
+    private void SaveBudget()
+    {
+        try { ProcurementBudgetService.Create(DraftBudgetNo, DraftLegalEntity, DraftDepartment, DraftTotalAmount, DraftOtherInfo, Admin.AuthButton("Oa/ProcurementBudget/Create")); CloseCreate(); }
+        catch (Exception exception) { Error = exception.Message; }
+    }
+    private void CloseBudget(OaProcurementBudget item)
+    {
+        try { ProcurementBudgetService.Close(item, Admin.AuthButton("Oa/ProcurementBudget/Close")); Error = null; }
+        catch (Exception exception) { Error = exception.Message; }
+    }
+}

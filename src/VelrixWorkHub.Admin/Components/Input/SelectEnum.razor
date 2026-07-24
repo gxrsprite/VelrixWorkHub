@@ -1,0 +1,42 @@
+@namespace BootstrapBlazor.Components
+@typeparam TEnum where TEnum : struct, Enum
+
+<select class="@CssClass" disabled="@Disabled" @bind="@CurrentValue">
+    @foreach (var item in Enum.GetValues<TEnum>())
+    {
+        <option value="@item.ToString()">@GetDisplayText(item)</option>
+    }
+</select>
+
+@code {
+    [Parameter] public TEnum Value { get; set; }
+    [Parameter] public EventCallback<TEnum> ValueChanged { get; set; }
+    [Parameter] public EventCallback<TEnum> OnValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string CssClass { get; set; } = "form-control";
+
+    private IEnumerable<SelectedItem> _items => Enum.GetValues<TEnum>().Select(e => new SelectedItem
+    {
+        Value = e.ToString(),
+        Text = GetDisplayText(e)
+    });
+
+    private string CurrentValue
+    {
+        get => Value.ToString();
+        set
+        {
+            if (Enum.TryParse<TEnum>(value, out var parsed))
+            {
+                Value = parsed;
+                ValueChanged.InvokeAsync(parsed);
+                OnValueChanged.InvokeAsync(parsed);
+            }
+        }
+    }
+
+    private static string GetDisplayText(TEnum value)
+    {
+        return ((Enum)(object)value).ToDescription();
+    }
+}

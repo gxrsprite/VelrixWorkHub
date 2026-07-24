@@ -1,0 +1,66 @@
+@page "/Oa/LeaveBalance"
+@inject VelrixWorkHub.Application.Leave.LeaveBalanceService LeaveBalanceService
+@inject VelrixWorkHub.Application.Employees.EmployeeDirectoryService DirectoryService
+@inject AdminBlazor.IAdminContext Admin
+@using VelrixWorkHub.Application.Employees
+@using VelrixWorkHub.Domain
+
+<PageTitle>请假额度 - Velrix Work Hub</PageTitle>
+
+<div class="task-page leave-balance-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/LeaveBalance</p><h1>请假额度</h1><p class="task-page__intro">年假和调休按员工、年度建立额度台账；提交申请先占用，驳回或撤回释放，审批批准后转为已使用。</p></div><div class="task-page__summary"><strong>@Balances.Count</strong><span>@SelectedYear 年额度</span></div></div>
+
+    @if (CanManage)
+    {
+        <section class="task-composer" aria-label="维护请假额度">
+            <div class="task-composer__title">维护员工年度额度</div>
+            <div class="task-composer__fields"><label>员工<select @bind="SelectedUserIdText"><option value="">请选择员工</option>@foreach (var employee in Employees) { <option value="@employee.UserId">@employee.DisplayName · @employee.Username</option>}</select></label><label>年度<input type="number" min="2000" max="2200" @bind="SelectedYear" /></label><label>额度类型<select @bind="SelectedLeaveType"><option value="Annual">年假</option><option value="Compensatory">调休</option></select></label><label>额度小时数<input type="number" min="0" step="0.01" @bind="EntitledHours" /></label></div>
+            <label>扩展信息 OtherInfo JSON 对象<textarea @bind="OtherInfo" @bind:event="oninput" rows="2"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-primary-button" @onclick="Save">保存额度</button></div>
+        </section>
+    }
+    else if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+
+    <section class="task-toolbar" aria-label="请假额度筛选"><span class="customer-note">查看员工：@EmployeeName(EffectiveUserId)</span><label>年度<select @bind="SelectedYear"><option value="@DateTime.Today.Year">@DateTime.Today.Year</option><option value="@(DateTime.Today.Year - 1)">@(DateTime.Today.Year - 1)</option><option value="@(DateTime.Today.Year + 1)">@(DateTime.Today.Year + 1)</option></select></label>@if (CanManage) { <label>员工<select @bind="SelectedUserIdText"><option value="">当前用户</option>@foreach (var employee in Employees) { <option value="@employee.UserId">@employee.DisplayName · @employee.Username</option>}</select></label> }</section>
+
+    @if (!Balances.Any())
+    {
+        <div class="task-empty"><i class="fa fa-hourglass-o" aria-hidden="true"></i><strong>尚未配置额度</strong><span>年假或调休申请提交前必须先配置对应年度额度。</span></div>
+    }
+    else
+    {
+        <section class="task-list" aria-live="polite">
+            @foreach (var balance in Balances)
+            {
+                <article class="task-card leave-balance-card"><div class="customer-avatar"><i class="fa fa-calendar-check-o" aria-hidden="true"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--approved">@LeaveTypeLabel(balance.LeaveType)</span><span>@balance.Year 年</span></div><h2>可用 @balance.AvailableHours.ToString("0.##") 小时</h2><p>总额度 @balance.EntitledHours.ToString("0.##") 小时 · 已占用 @balance.ReservedHours.ToString("0.##") 小时 · 已使用 @balance.UsedHours.ToString("0.##") 小时</p><div class="customer-note">OtherInfo：@balance.OtherInfo</div></div></article>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private string SelectedUserIdText = string.Empty;
+    private int SelectedYear = DateTime.Today.Year;
+    private OaLeaveType SelectedLeaveType = OaLeaveType.Annual;
+    private decimal EntitledHours = 0m;
+    private string OtherInfo = "{}";
+    private string? Error;
+
+    private bool CanManage => Admin.AuthButton("Oa/LeaveBalance/Manage");
+    private Guid EffectiveUserId => CanManage && Guid.TryParse(SelectedUserIdText, out var selected) && selected != Guid.Empty ? selected : Admin.User?.Id ?? Guid.Empty;
+    private IReadOnlyList<EmployeeDirectoryEntry> Employees => DirectoryService.List(status: EmployeeDirectoryStatus.All);
+    private IReadOnlyList<OaLeaveBalance> Balances => EffectiveUserId == Guid.Empty ? [] : LeaveBalanceService.List(EffectiveUserId, SelectedYear);
+
+    private void Save()
+    {
+        if (!Guid.TryParse(SelectedUserIdText, out var userId) || userId == Guid.Empty) { Error = "请选择员工。"; return; }
+        try { LeaveBalanceService.Save(userId, SelectedYear, SelectedLeaveType, EntitledHours, OtherInfo, Admin.User?.Username ?? string.Empty, CanManage); Error = null; }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+
+    private string EmployeeName(Guid userId) => Employees.FirstOrDefault(item => item.UserId == userId)?.DisplayName ?? "未选择员工";
+    private static string LeaveTypeLabel(OaLeaveType leaveType) => leaveType == OaLeaveType.Annual ? "年假" : "调休";
+}

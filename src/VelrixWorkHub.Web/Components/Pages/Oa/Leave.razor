@@ -1,0 +1,67 @@
+@page "/Oa/Leave"
+@inject VelrixWorkHub.Application.Leave.LeaveRequestService LeaveService
+@inject VelrixWorkHub.Application.Workflow.WorkflowApprovalService WorkflowApprovalService
+@inject AdminBlazor.IAdminContext Admin
+@using VelrixWorkHub.Domain
+@using VelrixWorkHub.Application.Workflow
+
+<PageTitle>请假申请 - Velrix Work Hub</PageTitle>
+
+<div class="task-page leave-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/Leave</p><h1>请假申请</h1><p class="task-page__intro">提交个人请假申请后进入 OA_LEAVE_APPROVAL 审批；批准后生成只读请假日历记录，余额和考勤联动按路线图后续接入。</p></div><div class="task-page__summary"><strong>@Requests.Count</strong><span>份我的申请</span></div></div>
+    <section class="task-toolbar" aria-label="请假申请操作"><span class="customer-note">当前用户：@(Admin.User?.Username ?? "未登录")</span>@if (Admin.AuthButton("Oa/Leave/Create")) { <button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus" aria-hidden="true"></i> 新建请假</button> }</section>
+
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="@(Editing is null ? "新建请假申请" : "编辑请假申请")">
+            <div class="task-composer__title">@(Editing is null ? "填写请假申请" : "编辑请假草稿")</div>
+            <div class="task-composer__fields"><label>请假类型<select @bind="DraftLeaveType"><option value="Annual">年假</option><option value="Sick">病假</option><option value="Personal">事假</option><option value="Compensatory">调休</option><option value="Other">其他</option></select></label><label>扩展信息 OtherInfo JSON 对象<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="1"></textarea></label></div>
+            <div class="task-composer__fields"><label>开始时间<input type="datetime-local" @bind="DraftStartAt" /></label><label>结束时间<input type="datetime-local" @bind="DraftEndAt" /></label></div>
+            <label>请假事由<textarea @bind="DraftReason" @bind:event="oninput" rows="3" maxlength="1000" placeholder="说明请假原因和必要安排"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存草稿</button></div>
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error) && !ShowComposer) { <div class="task-error" role="alert">@Error</div> }
+    <section class="task-list" aria-live="polite">
+        @if (!Requests.Any()) { <div class="task-empty"><i class="fa fa-calendar-minus-o" aria-hidden="true"></i><strong>还没有请假申请</strong><span>新建一份草稿后提交审批。</span></div> }
+        else
+        {
+            @foreach (var request in Requests)
+            {
+                var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.LeaveApproval, nameof(OaLeaveRequest), request.Id);
+                <article class="task-card leave-card"><div class="schedule-time"><strong>@request.StartAt.ToString("MM月dd日")</strong><span>@request.DurationHours.ToString("0.##") 小时</span></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@request.Status.ToString().ToLowerInvariant()">@StatusLabel(request.Status)</span><span>@LeaveTypeLabel(request.LeaveType)</span><span>@request.StartAt.ToString("yyyy-MM-dd HH:mm") - @request.EndAt.ToString("yyyy-MM-dd HH:mm")</span></div><h2>@request.Reason</h2><p>申请时间：@request.CreatedAt.ToString("yyyy-MM-dd HH:mm")@(request.SubmittedAt is DateTime submittedAt ? $" · 提交于 {submittedAt:yyyy-MM-dd HH:mm}" : string.Empty)</p><div class="customer-note">审批：@WorkflowLabel(workflow?.Status)@if (!string.IsNullOrWhiteSpace(request.RejectionReason)) { <span> · 驳回原因：@request.RejectionReason</span> }</div><AttachmentPanel BusinessType="@nameof(OaLeaveRequest)" BusinessId="@request.Id" Actor="@CurrentActor" /></div><div class="task-card__actions">@if (request.Status is (OaLeaveRequestStatus.Draft or OaLeaveRequestStatus.Rejected) && Admin.AuthButton("Oa/Leave/Edit")) { <button title="编辑请假" @onclick="() => OpenEdit(request)"><i class="fa fa-pencil" aria-hidden="true"></i></button> } @if (request.Status is (OaLeaveRequestStatus.Draft or OaLeaveRequestStatus.Rejected) && Admin.AuthButton("Oa/Leave/Submit")) { <button title="提交请假审批" @onclick="() => Submit(request)"><i class="fa fa-paper-plane-o" aria-hidden="true"></i></button> } @if (request.Status is (OaLeaveRequestStatus.Draft or OaLeaveRequestStatus.Submitted) && Admin.AuthButton("Oa/Leave/Cancel")) { <button class="danger" title="撤回请假" @onclick="() => Cancel(request)"><i class="fa fa-undo" aria-hidden="true"></i></button> }</div></article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowComposer;
+    private OaLeaveRequest? Editing;
+    private OaLeaveType DraftLeaveType = OaLeaveType.Annual;
+    private DateTime DraftStartAt = DateTime.Now.AddDays(1).Date.AddHours(9);
+    private DateTime DraftEndAt = DateTime.Now.AddDays(1).Date.AddHours(18);
+    private string DraftReason = string.Empty, DraftOtherInfo = "{}";
+    private string? Error;
+    private Guid CurrentUserId => Admin.User?.Id ?? Guid.Empty;
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private IReadOnlyList<OaLeaveRequest> Requests => LeaveService.ListMine(CurrentUserId);
+
+    private void OpenCreate() { Close(); ShowComposer = true; DraftStartAt = DateTime.Now.AddDays(1).Date.AddHours(9); DraftEndAt = DraftStartAt.AddHours(9); }
+    private void OpenEdit(OaLeaveRequest request) { Close(); Editing = request; ShowComposer = true; DraftLeaveType = request.LeaveType; DraftStartAt = request.StartAt; DraftEndAt = request.EndAt; DraftReason = request.Reason; DraftOtherInfo = request.OtherInfo; }
+    private void Close() { ShowComposer = false; Editing = null; Error = null; DraftReason = string.Empty; DraftOtherInfo = "{}"; }
+    private void Save()
+    {
+        try { if (Editing is null) LeaveService.Create(CurrentUserId, DraftLeaveType, DraftStartAt, DraftEndAt, DraftReason, DraftOtherInfo); else LeaveService.Edit(Editing, CurrentUserId, DraftLeaveType, DraftStartAt, DraftEndAt, DraftReason, DraftOtherInfo); Close(); }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void Submit(OaLeaveRequest request) { try { LeaveService.SubmitAndStartWorkflow(request, CurrentUserId, CurrentActor); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Cancel(OaLeaveRequest request) { try { LeaveService.Cancel(request, CurrentUserId, CurrentActor); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private static string LeaveTypeLabel(OaLeaveType type) => type switch { OaLeaveType.Annual => "年假", OaLeaveType.Sick => "病假", OaLeaveType.Personal => "事假", OaLeaveType.Compensatory => "调休", _ => "其他" };
+    private static string StatusLabel(OaLeaveRequestStatus status) => status switch { OaLeaveRequestStatus.Draft => "草稿", OaLeaveRequestStatus.Submitted => "待审批", OaLeaveRequestStatus.Approved => "已批准", OaLeaveRequestStatus.Rejected => "已驳回", _ => "已撤回" };
+    private static string WorkflowLabel(WorkflowInstanceStatus? status) => status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已拒绝", WorkflowInstanceStatus.Cancelled => "已撤回", _ => "未发起" };
+}

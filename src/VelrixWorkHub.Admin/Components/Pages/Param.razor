@@ -1,0 +1,84 @@
+@page "/Admin/Param"
+
+
+<PageTitle>参数配置</PageTitle>
+
+<AdminTable2 TItem="SysParam" PageSize="20" Title="参数配置"
+    OnQuery="OnQueryParam" InitQuery="InitQueryParam" OnEdit="OnEditParam" OnSaving="OnSavingParam">
+    <TableHeader>
+        <AdminSortHeader Field="Id">编码</AdminSortHeader>
+        <AdminSortHeader Field="Title">标题</AdminSortHeader>
+        <AdminSortHeader Field="Value">值1</AdminSortHeader>
+        <AdminSortHeader Field="Value2">值2</AdminSortHeader>
+        <th>描述</th>
+        <AdminSortHeader Field="Enabled">是否启用</AdminSortHeader>
+    </TableHeader>
+    <TableRow>
+        <td>@context.Id</td>
+        <td>@context.Title</td>
+        <td>@context.Value</td>
+        <td>@context.Value2</td>
+        <td>@context.Description</td>
+        <td>@(context.Enabled ? "是" : "否")</td>
+    </TableRow>
+    <EditTemplate>
+        <div class="row">
+            <div class="form-group col-6">
+                <label class="form-label">编码</label>
+                <input @bind="context.Id" type="text" class="form-control" maxlength="50" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">标题</label>
+                <input @bind="context.Title" type="text" class="form-control" maxlength="50" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">值1</label>
+                <input @bind="context.Value" type="text" class="form-control" maxlength="1024" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">值2</label>
+                <input @bind="context.Value2" type="text" class="form-control" maxlength="1024" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">是否启用</label>
+                <Switch @bind-Value="context.Enabled" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">排序</label>
+                <input @bind="context.Sort" type="number" class="form-control" />
+            </div>
+            <div class="form-group col-12">
+                <label class="form-label">描述</label>
+                <textarea @bind="context.Description" class="form-control" maxlength="500"></textarea>
+            </div>
+        </div>
+    </EditTemplate>
+</AdminTable2>
+
+@code {
+    [Inject] IFreeSql fsql { get; set; } = default!;
+
+    async Task InitQueryParam(AdminQueryInfo e)
+    {
+        e.Filters = Array.Empty<AdminFilterInfo>();
+        await Task.CompletedTask;
+    }
+
+    void OnQueryParam(AdminQueryEventArgs<SysParam> e)
+    {
+        e.Select.WhereIf(!string.IsNullOrWhiteSpace(e.SearchText), a =>
+            (a.Id ?? "").Contains(e.SearchText!) || (a.Title ?? "").Contains(e.SearchText!) || (a.Description ?? "").Contains(e.SearchText!));
+    }
+
+    Task OnEditParam(SysParam item) => Task.CompletedTask;
+
+    async Task OnSavingParam(AdminConfirmEventArgs<SysParam> e)
+    {
+        if (string.IsNullOrWhiteSpace(e.Argument.Id))
+        {
+            e.Cancel = true;
+            return;
+        }
+        await Task.CompletedTask;
+    }
+}

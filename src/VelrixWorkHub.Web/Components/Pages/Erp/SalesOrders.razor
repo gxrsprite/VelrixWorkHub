@@ -1,0 +1,55 @@
+@page "/Erp/SalesOrder"
+@inject VelrixWorkHub.Application.SalesOrders.SalesOrderService OrderService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.Contracts.SalesContractService ContractService
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectService ProjectService
+@inject VelrixWorkHub.Application.Settlements.SettlementService SettlementService
+@inject VelrixWorkHub.Application.Inventory.InventoryService InventoryService
+@inject VelrixWorkHub.Application.Workflow.WorkflowBindingService WorkflowBindingService
+@inject VelrixWorkHub.Application.Workflow.WorkflowApprovalService WorkflowApprovalService
+@inject IAdminContext Admin
+@using VelrixWorkHub.Domain
+@using VelrixWorkHub.Application.Inventory
+@using VelrixWorkHub.Application.PmpProjects
+@using VelrixWorkHub.Application.Workflow
+<PageTitle>销售订单 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">企业资源 · ERP/SalesOrder</p><h1>销售订单</h1><p class="task-page__intro">引用客户、商品、生效合同和 PMP 项目主数据，登记销售订单；提交前完成审批，发货后自动生成出库流水。</p></div></div>
+    <section class="task-toolbar customer-toolbar"><div class="customer-search"><i class="fa fa-search"></i><input aria-label="搜索销售订单" @bind="Keyword" @bind:event="oninput" placeholder="搜索订单号" /></div><select aria-label="筛选销售订单状态" @bind="StatusFilterText"><option value="">全部状态</option><option value="Draft">草稿</option><option value="Submitted">已提交</option><option value="Shipped">已发货</option><option value="Cancelled">已取消</option></select><select aria-label="筛选销售订单项目" @bind="ProjectFilterText"><option value="">全部项目</option>@foreach(var project in ProjectService.List()){<option value="@project.Id">@project.Code · @project.Name</option>}</select><button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus"></i> 新建销售订单</button></section>
+    @if(ShowComposer)
+    {
+        <section class="task-composer" aria-label="新建销售订单"><div class="task-composer__title">新建销售订单</div><div class="task-composer__fields"><label>订单号<input aria-label="销售订单号" @bind="OrderNo" @bind:event="oninput" placeholder="SO-20260712-002" /></label><label>客户<select aria-label="销售客户" @bind="CustomerIdText" @bind:after="CustomerChanged"><option value="">请选择客户</option>@foreach(var x in CustomerService.List()){<option value="@x.Id">@x.Name</option>}</select></label></div><div class="task-composer__fields"><label>商品<select aria-label="销售商品" @bind="ProductIdText"><option value="">请选择商品</option>@foreach(var x in ProductService.List()){<option value="@x.Id">@x.Code · @x.Name</option>}</select></label><label>关联合同<select aria-label="销售合同" @bind="ContractIdText"><option value="">不关联合同</option>@foreach(var x in ActiveContracts()){<option value="@x.Id">@x.ContractNo · @x.Title</option>}</select></label></div><div class="task-composer__fields"><label>关联项目<select aria-label="销售项目" @bind="ProjectIdText"><option value="">不关联项目</option>@foreach(var x in CustomerProjects()){<option value="@x.Id">@x.Code · @x.Name</option>}</select></label><label>数量<input aria-label="销售数量" @bind="QuantityText" @bind:event="oninput" placeholder="1" /></label></div><div class="task-composer__fields"><label>销售单价<input aria-label="销售单价" @bind="UnitPriceText" @bind:event="oninput" placeholder="1680.00" /></label><label>收款到期日<input aria-label="收款到期日" @bind="DueDateText" @bind:event="oninput" placeholder="2026-08-18" /></label></div><div class="customer-note">默认订单日期后 30 天；不能早于订单日期。</div><div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存订单</button></div></section>
+    }
+    @if(Error is not null){<div class="task-error" role="alert">@Error</div>}
+    <div class="customer-note" aria-label="销售库存口径">库存口径：已提交销售订单计入冻结量，可用量 = 实物结存 - 冻结量。</div>
+    <section class="task-list" aria-live="polite">
+        @foreach(var item in FilteredOrders())
+        {
+            var customer=CustomerService.List().FirstOrDefault(x=>x.Id==item.CustomerId); var product=ProductService.List().FirstOrDefault(x=>x.Id==item.ProductId); var contract=ContractService.List().FirstOrDefault(x=>x.Id==item.ContractId); var project=ProjectService.List().FirstOrDefault(x=>x.Id==item.PmpProjectId); var balance=SettlementService.GetOrderBalance(ErpSettlementKind.Receivable,item.Id); var availability=Availability(item.ProductId); var workflow=WorkflowApprovalService.Latest(WorkflowBindingCodes.SalesOrderApproval, nameof(SalesOrder), item.Id);
+            <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-truck"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@Label(item.Status)</span><span>@item.OrderNo</span><span>@item.OrderDate.ToString("yyyy-MM-dd")</span></div><h2>@if(customer is not null){<a href="/Crm/CustomerLedger/@customer.Id">@customer.Name</a>}else{<span>未知客户</span>}</h2><p>@(product?.Name??"未知商品") · 数量 @item.Quantity · 单价 ¥@item.UnitPrice.ToString("N2")</p><div class="customer-note">订单金额：¥@item.Amount.ToString("N2")@if(contract is not null){<span> · </span><a href="/Crm/ContractLedger/@contract.Id">合同 @contract.ContractNo</a>}@if(project is not null){<span> · </span><a href="/Pmp/Project?customerId=@project.CustomerId">项目 @project.Code</a>}@if(balance is not null){<span> · 已收 ¥@balance.SettledAmount.ToString("N2") · 待收 ¥@balance.RemainingAmount.ToString("N2")@if(balance.PendingAmount > 0){<span> · 待审批 ¥@balance.PendingAmount.ToString("N2")</span>} · </span><a href="/Erp/Settlement?orderId=@item.Id">核销明细</a>}</div><div class="customer-note">库存 @availability.OnHandQuantity.ToString("N2") · 待发货 @availability.SubmittedQuantity.ToString("N2") · 可用 @availability.AvailableQuantity.ToString("N2") · 审批 @(workflow is null ? "未发起" : workflow.Status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已拒绝", _ => "已撤回" })</div><AttachmentPanel BusinessType="SalesOrder" BusinessId="@item.Id" Actor="admin" /></div><div class="task-card__actions">@if(item.Status == SalesOrderStatus.Draft && (workflow is null || workflow.Status is WorkflowInstanceStatus.Rejected or WorkflowInstanceStatus.Cancelled)){<button title="发起销售订单审批" @onclick="()=>StartApproval(item)"><i class="fa fa-send-o"></i></button>}@if((item.Status == SalesOrderStatus.Draft && workflow?.Status == WorkflowInstanceStatus.Completed) || item.Status == SalesOrderStatus.Submitted){<button title="推进销售订单" @onclick="()=>Advance(item)"><i class="fa fa-forward"></i></button>}@if((item.Status is SalesOrderStatus.Draft or SalesOrderStatus.Submitted) && workflow?.Status != WorkflowInstanceStatus.Running){<button class="danger" title="取消销售订单" @onclick="()=>Cancel(item)"><i class="fa fa-ban"></i></button>}</div></article>
+        }
+    </section>
+</div>
+@code {
+    [SupplyParameterFromQuery(Name="orderId")] public Guid? OrderId { get; set; }
+    [SupplyParameterFromQuery(Name="customerId")] public Guid? CustomerFilterId { get; set; }
+    [SupplyParameterFromQuery(Name="activeOnly")] public bool ActiveOnly { get; set; }
+    [SupplyParameterFromQuery(Name="projectId")] public Guid? ProjectFilterId { get; set; }
+    private string ProjectFilterText { get => ProjectFilterId?.ToString() ?? string.Empty; set => ProjectFilterId = Guid.TryParse(value, out var id) ? id : null; }
+    [SupplyParameterFromQuery(Name="status")] public string? StatusFilterText { get; set; } = string.Empty;
+    private string Keyword=string.Empty,OrderNo=string.Empty,CustomerIdText=string.Empty,ProductIdText=string.Empty,ContractIdText=string.Empty,ProjectIdText=string.Empty,QuantityText=string.Empty,UnitPriceText=string.Empty,DueDateText=string.Empty;
+    private string? Error; private bool ShowComposer;
+    private SalesOrderInventoryAvailability Availability(Guid productId)=>SalesOrderInventoryService.Get(productId,InventoryService.Balances(),OrderService.List());
+    private IEnumerable<SalesOrder> FilteredOrders(){IEnumerable<SalesOrder> orders=OrderService.List(Keyword);if(OrderId is Guid id){orders=orders.Where(x=>x.Id==id);}if(CustomerFilterId is Guid customerId){orders=orders.Where(x=>x.CustomerId==customerId);}if(ProjectFilterId is Guid projectId){orders=orders.Where(x=>x.PmpProjectId==projectId);}if(ActiveOnly){orders=orders.Where(x=>x.Status!=SalesOrderStatus.Cancelled);}return orders.Where(x=>!Enum.TryParse<SalesOrderStatus>(StatusFilterText,out var status)||x.Status==status);}
+    private IEnumerable<SalesContract> ActiveContracts(){var customerId=Guid.TryParse(CustomerIdText,out var id)?id:Guid.Empty;return ContractService.List().Where(x=>x.Status==ContractStatus.Active&&x.CustomerId==customerId);}
+    private IEnumerable<PmpProject> CustomerProjects(){var customerId=Guid.TryParse(CustomerIdText,out var id)?id:Guid.Empty;return ProjectService.List().Where(x=>x.CustomerId==customerId&&x.Status!=PmpProjectStatus.Cancelled);}
+    private void OpenComposer(){Error=null;DueDateText=DateTime.Today.AddDays(30).ToString("yyyy-MM-dd");ShowComposer=true;}
+    private void CustomerChanged(){ContractIdText=ProjectIdText=string.Empty;}
+    private void Close(){ShowComposer=false;Error=null;OrderNo=CustomerIdText=ProductIdText=ContractIdText=ProjectIdText=QuantityText=UnitPriceText=DueDateText=string.Empty;}
+    private void Save(){if(!Guid.TryParse(CustomerIdText,out var customerId)||!Guid.TryParse(ProductIdText,out var productId)||!decimal.TryParse(QuantityText,out var quantity)||!decimal.TryParse(UnitPriceText,out var unitPrice)||!DateOnly.TryParse(DueDateText,out var dueDate)){Error="请选择客户、商品并输入有效数量、单价和收款到期日。";return;}try{OrderService.Create(OrderNo,customerId,productId,DateOnly.FromDateTime(DateTime.Today),quantity,unitPrice,Guid.TryParse(ContractIdText,out var contractId)?contractId:null,Guid.TryParse(ProjectIdText,out var projectId)?projectId:null,dueDate);Close();}catch(Exception ex){Error=ex.Message;}}
+    private void Advance(SalesOrder item){try{if(item.Status==SalesOrderStatus.Draft)OrderService.SetStatus(item,SalesOrderStatus.Submitted);else if(item.Status==SalesOrderStatus.Submitted)OrderService.Ship(item);Error=null;}catch(Exception ex){Error=ex.Message;}}
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty; protected override async Task OnInitializedAsync() => await Admin.InitAsync(); private void StartApproval(SalesOrder item){try{WorkflowBindingService.StartOrGet(WorkflowBindingCodes.SalesOrderApproval,nameof(SalesOrder),item.Id, startedBy: CurrentActor);Error=null;}catch(Exception ex){Error=ex.Message;}}
+    private void Cancel(SalesOrder item){try{OrderService.SetStatus(item,SalesOrderStatus.Cancelled);Error=null;}catch(Exception ex){Error=ex.Message;}}
+    private static string Label(SalesOrderStatus x)=>x switch{SalesOrderStatus.Draft=>"草稿",SalesOrderStatus.Submitted=>"已提交",SalesOrderStatus.Shipped=>"已发货",SalesOrderStatus.Cancelled=>"已取消",_=>x.ToString()};
+}

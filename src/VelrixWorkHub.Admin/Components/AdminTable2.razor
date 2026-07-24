@@ -1,0 +1,882 @@
+@namespace BootstrapBlazor.Components
+@typeparam TItem where TItem : class, new()
+@implements IAdminSortTable
+@implements IDisposable
+@using System.Reflection
+@using System.Text
+@using System.Text.Json
+@using System.Text.Json.Serialization
+@using AdminBlazor.Services
+@inject IFreeSql Fsql
+@inject AdminNotifyChangedService NotifyChangedService
+@inject AdminResourceLockService ResourceLockService
+@inject IAdminContext Admin
+
+<div class="admin-table2 card">
+    @* Toolbar *@
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-2">
+            <h5 class="mb-0 me-3">@Title</h5>
+            @if (IsAdd) { <button class="btn btn-primary btn-sm" @onclick="BeginAddAsync"><i class="fa fa-plus me-1"></i>@AddText</button> }
+            @if (IsEdit && _selectedItems.Count == 1) { <button class="btn btn-warning btn-sm" @onclick="() => BeginEditAsync(_selectedItems[0].Value)"><i class="fa fa-edit me-1"></i>编辑</button> }
+            @if (IsRemove && _selectedItems.Count > 0) { <button class="btn btn-danger btn-sm" @onclick="BeginRemoveAsync"><i class="fa fa-trash me-1"></i>删除</button> }
+            @if (IsRefersh) { <button class="btn btn-outline-secondary btn-sm" @onclick="() => LoadAsync()"><i class="fa fa-refresh me-1"></i>刷新</button> }
+            @if (IsExportExcel) { <a class="btn btn-outline-secondary btn-sm @(_visibleItems.Count == 0 ? "disabled" : "")" href="@ExportDownloadUrl" download="@ExportDownloadFileName" title="@ExportTitle" role="button" aria-disabled="@(_visibleItems.Count == 0)"><i class="fa fa-download me-1"></i>@ExportText</a> }
+        </div>
+        @if (IsSearchText)
+        {
+            <div class="input-group" style="max-width:300px">
+                <input @bind="_searchText" @bind:event="oninput" type="text" class="form-control" placeholder="@SearchPlaceholder" />
+                <button class="btn btn-outline-secondary" @onclick="() => LoadAsync()"><i class="fa fa-search"></i></button>
+            </div>
+        }
+    </div>
+
+    @* Filter Bar *@
+    @if (_filters != null && _filters.Length > 0)
+    {
+        <div class="card-body border-bottom py-2">
+            <div class="row">
+                @foreach (var filter in _filters)
+                {
+                    <div class="col-@filter.Col">
+                        <select class="form-select form-select-sm" @onchange="e => OnFilterChange(filter, e.Value?.ToString())">
+                            <option value="">@filter.Label</option>
+                            @if (filter.Options != null)
+                            {
+                                @foreach (var opt in filter.Options)
+                                {
+                                    <option value="@opt.Value?.ToString()" selected="@(opt.Selected)">@opt.Label</option>
+                                }
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @* Loading indicator *@
+    @if (_isLoading)
+    {
+        <div class="card-body text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">@NoDataText</span>
+            </div>
+        </div>
+    }
+    else if (_visibleItems.Count == 0)
+    {
+        <div class="card-body text-center py-5 text-muted">@NoDataText</div>
+    }
+    else
+    {
+        @* Data Table *@
+        <div class="table-responsive">
+            <CascadingValue Value="@((IAdminSortTable)this)" IsFixed="false">
+                <table class="table table-striped table-hover table-bordered mb-0">
+                    <thead>
+                        <tr>
+                            @if (IsMultiSelect || IsSingleSelect) { <th style="width:40px"><input type="checkbox" @onchange="ToggleSelectAll" @onclick:stopPropagation="true" disabled="@IsSingleSelect" /></th> }
+                            @if (IsRowNumber) { <th style="width:50px">#</th> }
+                            @if (TableTh1 != null) { <th style="width:@($"{TableTd1Width}px")">@TableTh1</th> }
+                            @TableHeader
+                            <th style="width:@($"{TableTd99Width}px")">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{
+                            var index = (_pageNumber - 1) * _pageSize;
+                        }
+                        @foreach (var wrapped in _visibleItems)
+                        {
+                            var item = wrapped.Value;
+                            var rowIndex = ++index;
+                            <tr class="@wrapped.RowClass @(wrapped.Selected ? "table-active" : "")" @onclick="() => OnRowClickInternal(wrapped)">
+                                @if (IsMultiSelect || IsSingleSelect)
+                                {
+                                    <td><input type="checkbox" checked="@wrapped.Selected" @onchange="e => ToggleSelectItem(wrapped, (bool)(e.Value ?? false))" @onclick:stopPropagation="true" /></td>
+                                }
+                                @if (IsRowNumber) { <td>@rowIndex</td> }
+                                @if (TableTd1 != null)
+                                {
+                                    <td style="@(IsTree ? $"padding-left: {(wrapped.Level - 1) * IndentWidth + 8}px" : "")">
+                                        @if (IsTree && HasChildren != null && HasChildren(item))
+                                        {
+                                            var treeKey = TreeKeySelector?.Invoke(item) ?? (object)item;
+                                            <button type="button"
+                                                    class="tree-toggle btn btn-link btn-sm p-0 me-1 text-decoration-none"
+                                                    title="@(_collapsedKeys.Contains(treeKey) ? "展开" : "折叠")"
+                                                    @onclick="() => ToggleTreeNode(wrapped)" @onclick:stopPropagation="true">
+                                                @(_collapsedKeys.Contains(treeKey) ? "▶" : "▼")
+                                            </button>
+                                        }
+                                        else if (IsTree)
+                                        {
+                                            <span class="tree-placeholder" style="width:16px;display:inline-block"></span>
+                                        }
+                                        @TableTd1(item)
+                                    </td>
+                                }
+                                @if (TableRow != null)
+                                {
+                                    @TableRow(item)
+                                }
+                                <td>
+                                    <div class="btn-group">
+                                        @if (IsView) { <button class="btn btn-outline-info btn-sm" @onclick="() => BeginViewAsync(item)" @onclick:stopPropagation="true" title="查看"><i class="fa fa-eye"></i></button> }
+                                        @if (IsEdit) { <button class="btn btn-outline-primary btn-sm" @onclick="() => BeginEditAsync(item)" @onclick:stopPropagation="true" title="编辑"><i class="fa fa-edit"></i></button> }
+                                        @if (IsRowRemove) { <button class="btn btn-outline-danger btn-sm" @onclick="() => BeginRemoveSingleAsync(item)" @onclick:stopPropagation="true" title="删除"><i class="fa fa-trash"></i></button> }
+                                    </div>
+                                    @if (TableTd99 != null) { @TableTd99(item) }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </CascadingValue>
+        </div>
+    }
+
+    @* Pagination *@
+    @if (_pageSize > 0 && _total > _pageSize)
+    {
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <div>
+                <select class="form-select form-select-sm d-inline-block w-auto" value="@_pageSize.ToString()" @onchange="OnPageSizeChange">
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="30">30</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+                <span class="ms-2 text-muted small">共 @_total 条</span>
+            </div>
+            <nav>
+                <ul class="pagination pagination-sm mb-0">
+                    <li class="page-item @(_pageNumber <= 1 ? "disabled" : "")"><button class="page-link" @onclick="() => GoToPage(1)">«</button></li>
+                    <li class="page-item @(_pageNumber <= 1 ? "disabled" : "")"><button class="page-link" @onclick="() => GoToPage(_pageNumber - 1)">‹</button></li>
+                    @for (var i = Math.Max(1, _pageNumber - 3); i <= Math.Min(_maxPage, _pageNumber + 3); i++)
+                    {
+                        var pageNum = i;
+                        <li class="page-item @(pageNum == _pageNumber ? "active" : "")"><button class="page-link" @onclick="() => GoToPage(pageNum)">@pageNum</button></li>
+                    }
+                    <li class="page-item @(_pageNumber >= _maxPage ? "disabled" : "")"><button class="page-link" @onclick="() => GoToPage(_pageNumber + 1)">›</button></li>
+                    <li class="page-item @(_pageNumber >= _maxPage ? "disabled" : "")"><button class="page-link" @onclick="() => GoToPage(_maxPage)">»</button></li>
+                </ul>
+            </nav>
+        </div>
+    }
+</div>
+
+@* Edit Dialog *@
+<AdminModal IsOpen="_showDialog" Title="@_dialogTitle" SizeClass="@DialogCssClass" Animation="@DialogAnimation" OnClose="CloseDialog">
+    <ChildContent>
+        @if (EditTemplate != null)
+        {
+            @EditTemplate(_editingItem)
+        }
+        else
+        {
+            <div class="text-muted">&#35831;&#35774;&#32622; EditTemplate &#32534;&#36753;&#20869;&#23481;</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(_validationMessage))
+        {
+            <div class="alert alert-danger mt-3 mb-0" role="alert">@_validationMessage</div>
+        }
+        @if (ShowAuditPanel)
+        {
+            <hr />
+            <h6 class="mb-2">@AuditTitle</h6>
+            <AdminAudit TableName="@CurrentAuditTableName" TableId="@CurrentAuditTableId" FieldLabels="@AuditFieldLabels" />
+        }
+        @if (!string.IsNullOrWhiteSpace(_lockMessage))
+        {
+            <div class="alert alert-warning mt-3 mb-0">@_lockMessage</div>
+        }
+    </ChildContent>
+    <FooterContent>
+        <button class="btn btn-primary" @onclick="SaveAsync" disabled="@(_isSaving || _editingMode == 3 || IsLockedByOther)">
+            @if (_isSaving) { <span class="spinner-border spinner-border-sm me-1"></span> }
+            @SaveText
+        </button>
+        <button class="btn btn-secondary" @onclick="CloseDialog">&#21462;&#28040;</button>
+    </FooterContent>
+</AdminModal>
+
+
+
+
+@code {
+    // ── Parameters ──
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public int PageSize { get; set; } = 30;
+    [Parameter] public string SearchPlaceholder { get; set; } = "Search";
+    [Parameter] public string NoDataText { get; set; } = "暂无数据";
+    [Parameter] public string AddText { get; set; } = "添加";
+    [Parameter] public string SaveText { get; set; } = "保存";
+    [Parameter] public string ExportText { get; set; } = "导出";
+    [Parameter] public string ExportTitle { get; set; } = "导出当前页数据";
+    [Parameter] public string? ExportFileName { get; set; }
+    [Parameter] public string? DialogClassName { get; set; }
+    [Parameter] public AdminModalAnimation DialogAnimation { get; set; }
+    [Parameter] public int TableTd1Width { get; set; } = 200;
+    [Parameter] public int TableTd99Width { get; set; } = 150;
+
+    // Feature toggles
+    [Parameter] public bool IsAdd { get; set; } = true;
+    [Parameter] public bool IsEdit { get; set; } = true;
+    [Parameter] public bool IsRemove { get; set; } = true;
+    [Parameter] public bool IsRowRemove { get; set; } = true;
+    [Parameter] public bool IsView { get; set; } = true;
+    [Parameter] public bool IsRefersh { get; set; } = true;
+    [Parameter] public bool IsExportExcel { get; set; } = true;
+    [Parameter] public bool IsRowNumber { get; set; } = true;
+    [Parameter] public bool IsSearchText { get; set; } = true;
+    [Parameter] public bool IsMultiSelect { get; set; } = true;
+    [Parameter] public bool IsSingleSelect { get; set; } = false;
+    [Parameter] public bool IsNotifyChanged { get; set; } = false;
+    [Parameter] public bool IsAudit { get; set; } = false;
+    [Parameter] public bool IsEntityAuditLog { get; set; } = false;
+    [Parameter] public bool IsResourceLock { get; set; } = false;
+    [Parameter] public bool IsShowLoading { get; set; } = true;
+    [Parameter] public bool IsTree { get; set; } = false;
+    [Parameter] public Func<TItem, bool>? HasChildren { get; set; }
+    [Parameter] public Func<TItem, object>? TreeKeySelector { get; set; }
+    [Parameter] public bool IsTreeDefaultCollapsed { get; set; } = true;
+    [Parameter] public int IndentWidth { get; set; } = 24;
+    [Parameter] public Action<List<AdminItem<TItem>>>? OnAfterLoad { get; set; }
+    [Parameter] public string? SortField { get; set; }
+    [Parameter] public bool SortAsc { get; set; } = true;
+    [Parameter] public EventCallback<(string Field, bool Asc)> OnSortChanged { get; set; }
+    [Parameter] public string? AuditTableName { get; set; }
+    [Parameter] public string AuditTitle { get; set; } = "审核日志";
+    [Parameter] public IReadOnlyDictionary<string, string>? AuditFieldLabels { get; set; }
+    [Parameter] public Func<TItem, Guid?>? AuditIdSelector { get; set; }
+    [Parameter] public int ResourceLockTtlSeconds { get; set; } = 300;
+
+    // Templates
+    [Parameter] public RenderFragment? TableHeader { get; set; }
+    [Parameter] public RenderFragment<TItem>? TableRow { get; set; }
+    [Parameter] public RenderFragment? TableTh1 { get; set; }
+    [Parameter] public RenderFragment<TItem>? TableTd1 { get; set; }
+    [Parameter] public RenderFragment<TItem>? TableTd99 { get; set; }
+    [Parameter] public RenderFragment<TItem>? EditTemplate { get; set; }
+    [Parameter] public RenderFragment? CardHeader { get; set; }
+    [Parameter] public RenderFragment? CardFooter { get; set; }
+    [Parameter] public Func<TItem, IReadOnlyDictionary<string, object?>>? ExportRow { get; set; }
+
+    private static readonly HashSet<string> SensitiveExportNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Password",
+        "PasswordHash",
+        "PasswordSalt",
+        "Salt",
+        "Token",
+        "AccessToken",
+        "RefreshToken",
+        "Secret",
+        "SecretKey"
+    };
+
+    // Callbacks
+    [Parameter] public Func<AdminQueryInfo, Task>? InitQuery { get; set; }
+    [Parameter] public EventCallback<AdminQueryEventArgs<TItem>> OnQuery { get; set; }
+    [Parameter] public EventCallback<TItem> OnEdit { get; set; }
+    [Parameter] public EventCallback<AdminConfirmEventArgs<TItem>> OnSaving { get; set; }
+    [Parameter] public EventCallback<TItem> OnSaved { get; set; }
+    [Parameter] public EventCallback<List<TItem>> OnRemoving { get; set; }
+    [Parameter] public EventCallback<List<TItem>> OnRemoved { get; set; }
+    [Parameter] public EventCallback<List<AdminItem<TItem>>> OnSelectChanged { get; set; }
+    [Parameter] public EventCallback<List<AdminItem<TItem>>> OnRowClick { get; set; }
+
+    // ── Internal State ──
+    private List<AdminItem<TItem>> _items = new();
+    private List<AdminItem<TItem>> _selectedItems = new();
+    private bool _isLoading = true;
+    private bool _showDialog;
+    private bool _isSaving;
+    private string _dialogTitle = "";
+    private TItem _editingItem = new();
+    private int _editingMode;
+    private string _searchText = "";
+    private int _pageNumber = 1;
+    private int _pageSize;
+    private long _total;
+    private int _maxPage;
+    private AdminFilterInfo[]? _filters;
+    private string DialogCssClass => string.IsNullOrWhiteSpace(DialogClassName) ? "modal-xl" : DialogClassName;
+    private HashSet<object> _collapsedKeys = new();
+    private List<AdminItem<TItem>> _visibleItems = new();
+    private bool _treeCollapseInitialized;
+    private string? _editingOldJson;
+    private string? _validationMessage;
+    private string? _lockedResourceKey;
+    private string? _lockOwner;
+    private string? _lockMessage;
+    private string CurrentAuditTableName => string.IsNullOrWhiteSpace(AuditTableName) ? typeof(TItem).Name : AuditTableName!;
+    private Guid? CurrentAuditTableId => GetAuditTableId(_editingItem);
+    private bool ShowAuditPanel => IsAudit && CurrentAuditTableId is Guid id && id != Guid.Empty;
+    private bool ShouldWriteEntityAuditLog => IsEntityAuditLog || IsAudit;
+    private bool IsLockedByOther => IsResourceLock && !string.IsNullOrWhiteSpace(_lockMessage);
+    private static readonly JsonSerializerOptions AuditJsonOptions = new()
+    {
+        ReferenceHandler = ReferenceHandler.IgnoreCycles,
+        WriteIndented = false
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            if (IsNotifyChanged)
+                NotifyChangedService.Changed += OnExternalChangedAsync;
+
+            _pageSize = PageSize;
+            if (InitQuery != null)
+            {
+                var qi = new AdminQueryInfo { PageSize = _pageSize };
+                await InitQuery(qi);
+                _filters = qi.Filters;
+            }
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Console.WriteLine($"[AdminTable2<{typeof(TItem).Name}>] OnInitializedAsync failed: {ex.Message}");
+        }
+    }
+
+    public void Dispose()
+    {
+        NotifyChangedService.Changed -= OnExternalChangedAsync;
+        ReleaseResourceLock();
+    }
+
+    public async Task RefreshAsync()
+    {
+        await LoadAsync();
+    }
+
+    public async Task SortByAsync(string field)
+    {
+        if (SortField == field)
+            SortAsc = !SortAsc;
+        else
+        {
+            SortField = field;
+            SortAsc = true;
+        }
+        _pageNumber = 1;
+        await OnSortChanged.InvokeAsync((SortField!, SortAsc));
+        await LoadAsync();
+    }
+
+    private string? SortString =>
+        !string.IsNullOrEmpty(SortField) ? $"{SortField} {(SortAsc ? "ASC" : "DESC")}" : null;
+
+    private async Task LoadAsync()
+    {
+        _isLoading = IsShowLoading;
+        try
+        {
+            var args = new AdminQueryEventArgs<TItem>(Fsql.Select<TItem>(), _searchText, _filters ?? Array.Empty<AdminFilterInfo>(), SortString);
+            await OnQuery.InvokeAsync(args);
+            ApplySort(args.Select);
+
+            _total = args.Select.Count();
+            _maxPage = (int)Math.Ceiling((double)_total / _pageSize);
+            if (_pageNumber > _maxPage) _pageNumber = Math.Max(1, _maxPage);
+
+            var list = args.Select.Page(_pageNumber, _pageSize).ToList();
+            _items = list.Select(x => new AdminItem<TItem> { Value = x, Selected = false }).ToList();
+            OnAfterLoad?.Invoke(_items);
+            InitializeTreeCollapse();
+            BuildVisibleItems();
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ApplySort(ISelect<TItem> select)
+    {
+        var (field, asc) = ParseSort(SortString);
+        if (string.IsNullOrWhiteSpace(field))
+            return;
+
+        ((ISelect0<ISelect<TItem>, TItem>)(object)select).OrderByPropertyNameIf(true, field, asc);
+    }
+
+    private static (string? Field, bool Asc) ParseSort(string? sort)
+    {
+        if (string.IsNullOrWhiteSpace(sort))
+            return (null, true);
+
+        var normalized = sort.Trim();
+        if (normalized.EndsWith("@desc", StringComparison.OrdinalIgnoreCase))
+            return (normalized[..^5], false);
+        if (normalized.EndsWith("@asc", StringComparison.OrdinalIgnoreCase))
+            return (normalized[..^4], true);
+
+        var parts = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length > 1)
+        {
+            var direction = parts[^1];
+            if (direction.Equals("DESC", StringComparison.OrdinalIgnoreCase))
+                return (string.Join(' ', parts[..^1]), false);
+            if (direction.Equals("ASC", StringComparison.OrdinalIgnoreCase))
+                return (string.Join(' ', parts[..^1]), true);
+        }
+
+        return (normalized, true);
+    }
+
+    private async Task BeginAddAsync()
+    {
+        _editingItem = new TItem();
+        _editingMode = 1;
+        _editingOldJson = null;
+        _validationMessage = null;
+        _lockMessage = null;
+        _dialogTitle = $"添加{Title}";
+        _showDialog = true;
+        await OnEdit.InvokeAsync(_editingItem);
+    }
+
+    private async Task BeginEditAsync(TItem item)
+    {
+        _editingItem = item;
+        _editingMode = 2;
+        _editingOldJson = SerializeAuditData(item);
+        _validationMessage = null;
+        TryAcquireResourceLock(item);
+        _dialogTitle = $"编辑{Title}";
+        _showDialog = true;
+        await OnEdit.InvokeAsync(_editingItem);
+    }
+
+    private async Task BeginViewAsync(TItem item)
+    {
+        _editingItem = CreateViewItem(item);
+        _editingMode = 3;
+        _editingOldJson = null;
+        _validationMessage = null;
+        _lockMessage = null;
+        _dialogTitle = $"查看{Title}";
+        _showDialog = true;
+        await OnEdit.InvokeAsync(_editingItem);
+    }
+
+    private async Task BeginRemoveAsync()
+    {
+        var items = _selectedItems.Select(x => x.Value).ToList();
+        await OnRemoving.InvokeAsync(items);
+        if (items.Count == 0)
+        {
+            _selectedItems.Clear();
+            return;
+        }
+
+        var auditSnapshots = items.Select(item => (Item: item, OldJson: SerializeAuditData(item))).ToList();
+        foreach (var item in items)
+            await Fsql.Delete<TItem>(item).ExecuteAffrowsAsync();
+        foreach (var snapshot in auditSnapshots)
+            await WriteEntityAuditLogAsync("remove", snapshot.Item, snapshot.OldJson, "");
+        _selectedItems.Clear();
+        await LoadAsync();
+        await OnRemoved.InvokeAsync(items);
+        await NotifyChangedAsync("remove");
+    }
+
+    private async Task BeginRemoveSingleAsync(TItem item)
+    {
+        var items = new List<TItem> { item };
+        await OnRemoving.InvokeAsync(items);
+        if (items.Count == 0)
+            return;
+
+        var itemToRemove = items[0];
+        var oldJson = SerializeAuditData(itemToRemove);
+        await Fsql.Delete<TItem>(itemToRemove).ExecuteAffrowsAsync();
+        await WriteEntityAuditLogAsync("remove", itemToRemove, oldJson, "");
+        await LoadAsync();
+        await OnRemoved.InvokeAsync(items);
+        await NotifyChangedAsync("remove");
+    }
+
+    private async Task SaveAsync()
+    {
+        _validationMessage = null;
+        var confirmArgs = new AdminConfirmEventArgs<TItem>(_editingItem);
+        await OnSaving.InvokeAsync(confirmArgs);
+        if (confirmArgs.Cancel)
+        {
+            _validationMessage = string.IsNullOrWhiteSpace(confirmArgs.Message) ? "保存校验未通过。" : confirmArgs.Message;
+            return;
+        }
+        if (IsLockedByOther) return;
+
+        _isSaving = true;
+        try
+        {
+            if (_editingMode == 1)
+                await Fsql.Insert(_editingItem).ExecuteAffrowsAsync();
+            else if (_editingMode == 2)
+                await Fsql.Update<TItem>().SetSource(_editingItem).ExecuteAffrowsAsync();
+
+            await WriteEntityAuditLogAsync(_editingMode == 1 ? "add" : "edit", _editingItem, _editingOldJson ?? "", SerializeAuditData(_editingItem));
+            ReleaseResourceLock();
+            _showDialog = false;
+            await OnSaved.InvokeAsync(_editingItem);
+            await LoadAsync();
+            await NotifyChangedAsync(_editingMode == 1 ? "add" : "edit");
+        }
+        finally { _isSaving = false; }
+    }
+
+    private Task NotifyChangedAsync(string action)
+    {
+        return IsNotifyChanged
+            ? NotifyChangedService.NotifyAsync(typeof(TItem), action, this)
+            : Task.CompletedTask;
+    }
+
+    private async Task OnExternalChangedAsync(AdminNotifyChangedEventArgs args)
+    {
+        if (!IsNotifyChanged || args.Source == this || args.EntityType != typeof(TItem))
+            return;
+
+        await InvokeAsync(LoadAsync);
+    }
+
+    private Guid? GetAuditTableId(TItem item)
+    {
+        if (AuditIdSelector != null)
+            return AuditIdSelector(item);
+
+        var idProperty = typeof(TItem).GetProperty("Id", BindingFlags.Instance | BindingFlags.Public);
+        if (idProperty?.GetValue(item) is Guid id)
+            return id;
+
+        return null;
+    }
+
+    private async Task WriteEntityAuditLogAsync(string action, TItem item, string oldJson, string newJson)
+    {
+        if (!ShouldWriteEntityAuditLog)
+            return;
+
+        if (action == "edit" && string.Equals(oldJson, newJson, StringComparison.Ordinal))
+            return;
+
+        var tableId = GetAuditTableId(item);
+        if (tableId is null || tableId == Guid.Empty)
+            return;
+
+        await Fsql.Insert(new SysAuditEntityLog
+        {
+            Id = Guid.CreateVersion7(),
+            TableName = CurrentAuditTableName,
+            TableId = tableId.Value,
+            LogType = action,
+            DataOld = oldJson,
+            Data = newJson,
+            CreatedUserId = Admin.User?.Id,
+            CreatedUserName = Admin.User?.Username,
+            CreatedTime = DateTime.Now
+        }).ExecuteAffrowsAsync();
+    }
+
+    private static string SerializeAuditData(TItem item)
+    {
+        try
+        {
+            return JsonSerializer.Serialize(item, AuditJsonOptions);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private void TryAcquireResourceLock(TItem item)
+    {
+        _lockMessage = null;
+        ReleaseResourceLock();
+
+        if (!IsResourceLock)
+            return;
+
+        var tableId = GetAuditTableId(item);
+        if (tableId is null || tableId == Guid.Empty)
+            return;
+
+        _lockedResourceKey = $"{CurrentAuditTableName}:{tableId}";
+        _lockOwner = Admin.User?.Username ?? Admin.User?.Id.ToString() ?? "anonymous";
+        var result = ResourceLockService.TryAcquire(_lockedResourceKey, _lockOwner, TimeSpan.FromSeconds(ResourceLockTtlSeconds));
+        if (!result.Success)
+            _lockMessage = $"当前记录正在被 {result.ExistingLock?.Owner} 编辑，暂时不能保存。";
+    }
+
+    private void ReleaseResourceLock()
+    {
+        if (string.IsNullOrWhiteSpace(_lockedResourceKey) || string.IsNullOrWhiteSpace(_lockOwner))
+            return;
+
+        ResourceLockService.Release(_lockedResourceKey, _lockOwner);
+        _lockedResourceKey = null;
+        _lockOwner = null;
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        var isChecked = (bool)(e.Value ?? false);
+        foreach (var item in _items) item.Selected = isChecked;
+        UpdateSelection();
+    }
+
+    private void ToggleSelectItem(AdminItem<TItem> wrapped, bool isChecked)
+    {
+        if (IsSingleSelect)
+        {
+            foreach (var item in _items) item.Selected = false;
+        }
+        wrapped.Selected = isChecked;
+        UpdateSelection();
+    }
+
+    private void UpdateSelection()
+    {
+        _selectedItems = _items.Where(x => x.Selected).ToList();
+        OnSelectChanged.InvokeAsync(_selectedItems);
+    }
+
+    private void OnRowClickInternal(AdminItem<TItem> wrapped)
+    {
+        if (IsSingleSelect)
+        {
+            foreach (var item in _items) item.Selected = false;
+            wrapped.Selected = true;
+            UpdateSelection();
+        }
+
+        OnRowClick.InvokeAsync(new List<AdminItem<TItem>> { wrapped });
+    }
+
+    private void CloseDialog()
+    {
+        ReleaseResourceLock();
+        _validationMessage = null;
+        _showDialog = false;
+    }
+
+    private void OnPageSizeChange(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var size) && size > 0)
+        {
+            _pageSize = size;
+            _pageNumber = 1;
+            _ = LoadAsync();
+        }
+    }
+
+    private void GoToPage(int page)
+    {
+        _pageNumber = Math.Max(1, Math.Min(_maxPage, page));
+        _ = LoadAsync();
+    }
+
+    private void OnFilterChange(AdminFilterInfo filter, string? value)
+    {
+        filter.SetValue(value);
+        _pageNumber = 1;
+        _ = LoadAsync();
+    }
+
+    private void BuildVisibleItems()
+    {
+        if (!IsTree)
+        {
+            _visibleItems = _items;
+            return;
+        }
+
+        var stack = new Stack<(int Level, bool Visible)>();
+        _visibleItems = new List<AdminItem<TItem>>();
+
+        foreach (var wrapped in _items)
+        {
+            var item = wrapped.Value;
+            var key = TreeKeySelector?.Invoke(item) ?? item;
+            var hasChildren = HasChildren?.Invoke(item) ?? false;
+            var isCollapsed = hasChildren && _collapsedKeys.Contains(key);
+
+            // Pop ancestors that are at or above this level
+            while (stack.Count > 0 && stack.Peek().Level >= wrapped.Level)
+                stack.Pop();
+
+            bool ancestorCollapsed = stack.Count > 0 && !stack.Peek().Visible;
+            bool visible = !ancestorCollapsed;
+
+            if (visible)
+                _visibleItems.Add(wrapped);
+
+            stack.Push((wrapped.Level, !isCollapsed));
+        }
+    }
+
+    private void InitializeTreeCollapse()
+    {
+        if (!IsTree || !IsTreeDefaultCollapsed || _treeCollapseInitialized)
+            return;
+
+        foreach (var wrapped in _items)
+        {
+            var item = wrapped.Value;
+            if (HasChildren?.Invoke(item) == true)
+            {
+                _collapsedKeys.Add(TreeKeySelector?.Invoke(item) ?? item);
+            }
+        }
+
+        _treeCollapseInitialized = true;
+    }
+
+    private void ToggleTreeNode(AdminItem<TItem> wrapped)
+    {
+        var key = TreeKeySelector?.Invoke(wrapped.Value) ?? (object)wrapped.Value;
+        if (_collapsedKeys.Contains(key))
+            _collapsedKeys.Remove(key);
+        else
+            _collapsedKeys.Add(key);
+        BuildVisibleItems();
+    }
+
+    private string ExportDownloadUrl
+    {
+        get
+        {
+            if (_visibleItems.Count == 0)
+                return "#";
+
+            var rows = _visibleItems.Select(x => BuildExportRow(x.Value)).ToList();
+            if (rows.Count == 0 || rows[0].Count == 0)
+                return "#";
+
+            var csv = BuildCsv(rows);
+            return "data:text/csv;charset=utf-8," + Uri.EscapeDataString("\ufeff" + csv);
+        }
+    }
+
+    private string ExportDownloadFileName => BuildExportFileName();
+
+    private IReadOnlyDictionary<string, object?> BuildExportRow(TItem item)
+    {
+        if (ExportRow != null)
+            return ExportRow(item);
+
+        return typeof(TItem)
+            .GetProperties(BindingFlags.Instance | BindingFlags.Public)
+            .Where(p => p.CanRead && p.GetIndexParameters().Length == 0 && IsExportableType(p.PropertyType) && !IsSensitiveExportName(p.Name))
+            .OrderBy(p => p.MetadataToken)
+            .ToDictionary(p => p.Name, p => p.GetValue(item));
+    }
+
+    private static bool IsSensitiveExportName(string name)
+    {
+        return SensitiveExportNames.Contains(name)
+            || name.Contains("Password", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Token", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Secret", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static TItem CreateViewItem(TItem item)
+    {
+        var viewItem = new TItem();
+        foreach (var property in typeof(TItem).GetProperties(BindingFlags.Instance | BindingFlags.Public))
+        {
+            if (!property.CanRead || !property.CanWrite || property.GetIndexParameters().Length != 0)
+                continue;
+
+            var value = IsSensitiveExportName(property.Name) ? GetDefaultValue(property.PropertyType) : property.GetValue(item);
+            property.SetValue(viewItem, value);
+        }
+
+        return viewItem;
+    }
+
+    private static object? GetDefaultValue(Type type)
+    {
+        if (type == typeof(string))
+            return string.Empty;
+
+        var nullableType = Nullable.GetUnderlyingType(type);
+        if (nullableType != null)
+            return null;
+
+        return type.IsValueType ? Activator.CreateInstance(type) : null;
+    }
+
+    private static bool IsExportableType(Type type)
+    {
+        var actualType = Nullable.GetUnderlyingType(type) ?? type;
+        return actualType.IsPrimitive
+            || actualType.IsEnum
+            || actualType == typeof(string)
+            || actualType == typeof(decimal)
+            || actualType == typeof(DateTime)
+            || actualType == typeof(DateOnly)
+            || actualType == typeof(TimeOnly)
+            || actualType == typeof(Guid);
+    }
+
+    private static string BuildCsv(IReadOnlyList<IReadOnlyDictionary<string, object?>> rows)
+    {
+        var sb = new StringBuilder();
+        var headers = rows[0].Keys.ToList();
+        sb.AppendLine(string.Join(",", headers.Select(EscapeCsv)));
+
+        foreach (var row in rows)
+        {
+            sb.AppendLine(string.Join(",", headers.Select(header =>
+                EscapeCsv(row.TryGetValue(header, out var value) ? FormatExportValue(value) : ""))));
+        }
+
+        return sb.ToString();
+    }
+
+    private static string FormatExportValue(object? value) => value switch
+    {
+        null => "",
+        DateTime dateTime => dateTime.ToString("yyyy-MM-dd HH:mm:ss"),
+        DateOnly dateOnly => dateOnly.ToString("yyyy-MM-dd"),
+        TimeOnly timeOnly => timeOnly.ToString("HH:mm:ss"),
+        bool boolean => boolean ? "true" : "false",
+        Enum enumValue => enumValue.ToString(),
+        _ => value.ToString() ?? ""
+    };
+
+    private static string EscapeCsv(string? value)
+    {
+        value ??= "";
+        var escaped = value.Replace("\"", "\"\"");
+        return escaped.Contains(',') || escaped.Contains('"') || escaped.Contains('\r') || escaped.Contains('\n')
+            ? $"\"{escaped}\""
+            : escaped;
+    }
+
+    private string BuildExportFileName()
+    {
+        var baseName = string.IsNullOrWhiteSpace(ExportFileName)
+            ? (string.IsNullOrWhiteSpace(Title) ? typeof(TItem).Name : Title)
+            : ExportFileName;
+
+        var safeName = string.Concat(baseName!.Select(ch =>
+            Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+
+        return $"{safeName}_{DateTime.Now:yyyyMMddHHmmss}.csv";
+    }
+}

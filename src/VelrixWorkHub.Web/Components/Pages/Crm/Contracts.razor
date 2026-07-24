@@ -1,0 +1,78 @@
+@page "/Crm/Contract"
+@inject VelrixWorkHub.Application.Contracts.SalesContractService ContractService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectService ProjectService
+@inject VelrixWorkHub.Application.Workflow.WorkflowBindingService WorkflowBindingService
+@inject VelrixWorkHub.Application.Workflow.WorkflowApprovalService WorkflowApprovalService
+@inject IAdminContext Admin
+@using VelrixWorkHub.Application.Contracts
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Domain
+
+<PageTitle>合同管理 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">客户经营 · CRM/Contract</p><h1>合同管理</h1><p class="task-page__intro">维护销售合同、金额和有效期，让成交结果可以持续追踪。</p></div><div class="task-page__summary" aria-label="生效合同统计"><strong>@ContractService.Count(ContractFilter.Active)</strong><span>份生效合同</span></div></div>
+    <section class="task-toolbar customer-toolbar" aria-label="合同操作"><div class="customer-search"><i class="fa fa-search" aria-hidden="true"></i><input aria-label="搜索合同" @bind="Keyword" @bind:event="oninput" placeholder="搜索合同编号或名称" /></div><div class="task-filters" role="tablist" aria-label="合同筛选">@foreach (var filter in Filters) { <button class="task-filter @(SelectedFilter == filter.Key ? "is-active" : "")" role="tab" aria-selected="@(SelectedFilter == filter.Key)" @onclick="() => SelectedFilter = filter.Key">@filter.Label <span>@ContractService.Count(filter.Filter)</span></button> }</div><button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus" aria-hidden="true"></i> 新建合同</button></section>
+    @if (ShowComposer || EditingContract is not null)
+    {
+        <section class="task-composer" aria-label="@(EditingContract is null ? "新建合同" : "编辑合同")"><div class="task-composer__title">@(EditingContract is null ? "录入一份新合同" : "编辑合同")</div>
+            <div class="task-composer__fields"><label>所属客户<select aria-label="合同客户" @bind="DraftCustomerId"><option value="">请选择客户</option>@foreach (var customer in Customers) { <option value="@customer.Id">@customer.Name</option> }</select></label><label>合同编号<input aria-label="合同编号" @bind="DraftNo" @bind:event="oninput" placeholder="例如：CT-2026-0002" /></label></div>
+            <label>合同名称<input aria-label="合同名称" @bind="DraftTitle" @bind:event="oninput" placeholder="例如：年度技术服务合同" /></label>
+            <div class="task-composer__fields"><label>合同金额<input aria-label="合同金额" type="number" min="0" step="0.01" @bind="DraftAmount" @bind:event="oninput" /></label><label>开始日期<input aria-label="开始日期" type="date" @bind="DraftStart" /></label><label>结束日期<input aria-label="结束日期" type="date" @bind="DraftEnd" /></label></div>
+            @if (!string.IsNullOrWhiteSpace(FormError)) { <div class="task-error" role="alert">@FormError</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseForm">取消</button><button class="task-primary-button" @onclick="SaveForm">@(EditingContract is null ? "保存合同" : "保存修改")</button></div>
+        </section>
+    }
+    @if (!ShowComposer && !string.IsNullOrWhiteSpace(FormError)) { <div class="task-error" role="alert">@FormError</div> }
+    <section class="task-list" aria-live="polite">
+        @if (!VisibleContracts.Any()) { <div class="task-empty"><i class="fa fa-file-text-o" aria-hidden="true"></i><strong>没有匹配的合同</strong><span>可以新建一份合同，记录销售成交结果。</span></div> }
+        else { @foreach (var item in VisibleContracts) { var projects = ProjectService.List().Where(x => x.CustomerId == item.CustomerId).ToArray(); var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.ContractApproval, nameof(SalesContract), item.Id); <article class="task-card customer-card"><div class="contract-status contract-status--@item.Status.ToString().ToLowerInvariant()">@StatusLabel(item.Status)</div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--active">@CustomerName(item.CustomerId)</span><span class="task-due">¥@item.Amount.ToString("N0")</span></div><h2>@item.ContractNo · @item.Title</h2><p>@item.StartDate.ToString("yyyy-MM-dd") 至 @item.EndDate.ToString("yyyy-MM-dd")</p>@if (projects.Length > 0) { <a class="customer-note" href="/Pmp/Project?customerId=@item.CustomerId">关联项目 @projects.Length 项</a> }<div class="customer-note">审批：@(workflow is null ? "未发起" : workflow.Status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已拒绝", _ => "已撤回" })</div><AttachmentPanel BusinessType="SalesContract" BusinessId="@item.Id" Actor="admin" /></div><div class="task-card__actions">@if (item.Status == ContractStatus.Draft && (workflow is null || workflow.Status is WorkflowInstanceStatus.Rejected or WorkflowInstanceStatus.Cancelled)) { <button title="发起合同审批" @onclick="() => StartApproval(item)"><i class="fa fa-send-o" aria-hidden="true"></i></button> } @if (item.Status == ContractStatus.Draft && workflow?.Status == WorkflowInstanceStatus.Completed) { <button title="合同生效" @onclick="() => Activate(item)"><i class="fa fa-check" aria-hidden="true"></i></button> } @if (item.Status == ContractStatus.Active) { <button title="终止合同" @onclick="() => Terminate(item)"><i class="fa fa-ban"></i></button> } @if (item.Status == ContractStatus.Draft && (workflow is null || workflow.Status is WorkflowInstanceStatus.Rejected or WorkflowInstanceStatus.Cancelled)) { <button title="编辑合同" @onclick="() => OpenEditor(item)"><i class="fa fa-pencil"></i></button> }<button class="danger" title="删除合同" @onclick="() => Remove(item)"><i class="fa fa-trash-o"></i></button></div></article> } }
+    </section>
+</div>
+
+@code {
+    private readonly List<(string Key, string Label, ContractFilter Filter)> Filters = [("all", "全部", ContractFilter.All), ("draft", "草稿", ContractFilter.Draft), ("active", "生效", ContractFilter.Active), ("terminated", "已终止", ContractFilter.Terminated)];
+    private IReadOnlyList<Customer> Customers { get; set; } = [];
+    private string Keyword { get; set; } = string.Empty;
+    private string SelectedFilter { get; set; } = "all";
+    private bool ShowComposer { get; set; }
+    private SalesContract? EditingContract { get; set; }
+    private string DraftCustomerId { get; set; } = string.Empty;
+    private string DraftNo { get; set; } = string.Empty;
+    private string DraftTitle { get; set; } = string.Empty;
+    private decimal DraftAmount { get; set; }
+    private DateTime DraftStart { get; set; } = DateTime.Today;
+    private DateTime DraftEnd { get; set; } = DateTime.Today.AddYears(1);
+    private string? FormError { get; set; }
+    [SupplyParameterFromQuery(Name = "customerId")] public Guid? CustomerFilterId { get; set; }
+    [SupplyParameterFromQuery(Name = "contractId")] public Guid? ContractFilterId { get; set; }
+    private IEnumerable<SalesContract> VisibleContracts => ContractService.List(Keyword, Filters.First(item => item.Key == SelectedFilter).Filter)
+        .Where(item => CustomerFilterId is null || item.CustomerId == CustomerFilterId)
+        .Where(item => ContractFilterId is null || item.Id == ContractFilterId);
+    protected override async Task OnInitializedAsync() { await Admin.InitAsync(); Customers = CustomerService.List(); }
+    private string CustomerName(Guid id) => Customers.FirstOrDefault(item => item.Id == id)?.Name ?? "未知客户";
+    private void OpenComposer() { CloseForm(); ShowComposer = true; DraftStart = DateTime.Today; DraftEnd = DateTime.Today.AddYears(1); }
+    private void OpenEditor(SalesContract item) { CloseForm(); EditingContract = item; DraftCustomerId = item.CustomerId.ToString(); DraftNo = item.ContractNo; DraftTitle = item.Title; DraftAmount = item.Amount; DraftStart = item.StartDate.ToDateTime(TimeOnly.MinValue); DraftEnd = item.EndDate.ToDateTime(TimeOnly.MinValue); }
+    private void CloseForm() { ShowComposer = false; EditingContract = null; FormError = null; DraftCustomerId = DraftNo = DraftTitle = string.Empty; DraftAmount = 0; DraftStart = DateTime.Today; DraftEnd = DateTime.Today.AddYears(1); }
+    private void SaveForm()
+    {
+        if (!Guid.TryParse(DraftCustomerId, out var customerId)) { FormError = "请选择所属客户。"; return; }
+        if (string.IsNullOrWhiteSpace(DraftNo)) { FormError = "请填写合同编号。"; return; }
+        if (string.IsNullOrWhiteSpace(DraftTitle)) { FormError = "请填写合同名称。"; return; }
+        if (DraftAmount < 0) { FormError = "合同金额不能为负数。"; return; }
+        if (DraftEnd.Date < DraftStart.Date) { FormError = "结束日期不能早于开始日期。"; return; }
+        try
+        {
+            if (EditingContract is null) ContractService.Create(customerId, null, DraftNo, DraftTitle, DraftAmount, DateOnly.FromDateTime(DraftStart), DateOnly.FromDateTime(DraftEnd));
+            else ContractService.Edit(EditingContract, customerId, EditingContract.OpportunityId, DraftNo, DraftTitle, DraftAmount, DateOnly.FromDateTime(DraftStart), DateOnly.FromDateTime(DraftEnd));
+            CloseForm();
+        }
+        catch (Exception ex) { FormError = ex.Message; }
+    }
+    private void Activate(SalesContract item) { try { ContractService.Activate(item); FormError = null; } catch (Exception ex) { FormError = ex.Message; } }
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private void StartApproval(SalesContract item) { try { WorkflowBindingService.StartOrGet(WorkflowBindingCodes.ContractApproval, nameof(SalesContract), item.Id, startedBy: CurrentActor); FormError = null; } catch (Exception ex) { FormError = ex.Message; } }
+    private void Terminate(SalesContract item) { try { ContractService.Terminate(item); FormError = null; } catch (Exception ex) { FormError = ex.Message; } }
+    private void Remove(SalesContract item) { try { ContractService.Remove(item); FormError = null; } catch (Exception ex) { FormError = ex.Message; } }
+    private static string StatusLabel(ContractStatus status) => status switch { ContractStatus.Active => "生效", ContractStatus.Terminated => "已终止", _ => "草稿" };
+}

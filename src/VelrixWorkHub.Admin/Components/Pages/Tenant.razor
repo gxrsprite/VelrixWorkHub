@@ -1,0 +1,81 @@
+@page "/Admin/Tenant"
+
+@using FreeSql
+
+<PageTitle>租户管理</PageTitle>
+
+<AdminTable2 TItem="SysTenant" PageSize="20" Title="租户管理"
+    OnQuery="OnQueryTenant" InitQuery="InitQueryTenant" OnEdit="OnEditTenant" OnSaving="OnSavingTenant" OnRemoving="OnRemovingTenant">
+    <TableHeader>
+        <AdminSortHeader Field="Id">租户ID</AdminSortHeader>
+        <AdminSortHeader Field="Title">标题</AdminSortHeader>
+        <AdminSortHeader Field="Host">域名</AdminSortHeader>
+        <AdminSortHeader Field="IsEnabled">是否启用</AdminSortHeader>
+        <AdminSortHeader Field="CreatedTime">创建时间</AdminSortHeader>
+    </TableHeader>
+    <TableRow>
+        <td>@context.Id</td>
+        <td>@context.Title</td>
+        <td>@context.Host</td>
+        <td>@(context.IsEnabled ? "是" : "否")</td>
+        <td>@context.CreatedTime?.ToString("yyyy-MM-dd HH:mm")</td>
+    </TableRow>
+    <EditTemplate>
+        <div class="row">
+            <div class="form-group col-6">
+                <label class="form-label">租户ID</label>
+                <input @bind="context.Id" type="text" class="form-control" maxlength="50" readonly="@(context.CreatedTime != null)" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">标题</label>
+                <input @bind="context.Title" type="text" class="form-control" maxlength="50" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">域名(逗号分隔)</label>
+                <input @bind="context.Host" type="text" class="form-control" maxlength="200" placeholder="localhost,example.com" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">是否启用</label>
+                <Switch @bind-Value="context.IsEnabled" />
+            </div>
+            <div class="form-group col-12">
+                <label class="form-label">描述</label>
+                <textarea @bind="context.Description" class="form-control" maxlength="500"></textarea>
+            </div>
+        </div>
+    </EditTemplate>
+</AdminTable2>
+
+@code {
+    [Inject] IFreeSql fsql { get; set; } = default!;
+
+    async Task InitQueryTenant(AdminQueryInfo e)
+    {
+        e.Filters = Array.Empty<AdminFilterInfo>();
+        await Task.CompletedTask;
+    }
+
+    void OnQueryTenant(AdminQueryEventArgs<SysTenant> e)
+    {
+        e.Select.WhereIf(!string.IsNullOrWhiteSpace(e.SearchText), a =>
+            (a.Id ?? "").Contains(e.SearchText!) || (a.Title ?? "").Contains(e.SearchText!) || (a.Host ?? "").Contains(e.SearchText!));
+    }
+
+    Task OnEditTenant(SysTenant item) => Task.CompletedTask;
+
+    async Task OnSavingTenant(AdminConfirmEventArgs<SysTenant> e)
+    {
+        if (string.IsNullOrWhiteSpace(e.Argument.Id))
+        {
+            e.Cancel = true;
+            return;
+        }
+        await Task.CompletedTask;
+    }
+
+    async Task OnRemovingTenant(List<SysTenant> items)
+    {
+        items.RemoveAll(t => t.Id == "main");
+        await Task.CompletedTask;
+    }
+}

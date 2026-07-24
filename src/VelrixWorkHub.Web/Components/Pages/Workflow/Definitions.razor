@@ -1,0 +1,101 @@
+@page "/Workflow/Definition"
+@inject IAdminContext Admin
+@inject NavigationManager Navigation
+@inject VelrixWorkHub.Application.Workflow.WorkflowDefinitionService WorkflowService
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Domain
+@using System.Text.Json
+
+<PageTitle>流程定义 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">平台能力 · Workflow/Definition</p><h1>流程定义</h1><p class="task-page__intro">管理可版本化流程草稿，发布前校验开始/结束节点、不可达节点、循环和节点配置。</p></div><div class="task-page__summary"><strong>@VisibleDefinitions.Count</strong><span>个流程版本</span></div></div>
+    <section class="task-toolbar customer-toolbar">@if (CanCreate) { <button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus"></i> 新建审批流程</button> }</section>
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="新建流程定义"><div class="task-composer__title">新建基础审批流程</div><div class="task-composer__fields"><label>流程编码<input aria-label="流程编码" @bind="Code" @bind:event="oninput" placeholder="CONTRACT_APPROVAL" /></label><label>流程名称<input aria-label="流程名称" @bind="Name" @bind:event="oninput" placeholder="合同审批" /></label></div><label>审批人（多个用逗号分隔）<input aria-label="流程审批人" @bind="Approvers" @bind:event="oninput" placeholder="admin,finance" /></label><label>复审审批人（可选，多个用逗号分隔）<input aria-label="复审审批人" @bind="ReviewApprovers" @bind:event="oninput" placeholder="finance,legal" /></label><div class="task-composer__fields"><label>审批策略<select aria-label="审批策略" @bind="ApprovalMode"><option value="All">全部通过</option><option value="Any">任一通过</option><option value="Majority">多数通过</option><option value="Quorum">达到指定票数</option></select></label>@if (ApprovalMode == nameof(WorkflowApprovalMode.Quorum)) { <label>通过票数<input aria-label="通过票数" type="number" min="1" @bind="RequiredApprovals" /></label> }</div><label>说明<textarea aria-label="流程说明" @bind="Description" @bind:event="oninput" rows="2"></textarea></label>@if (Error is not null) { <div class="task-error" role="alert">@Error</div> }<div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">创建草稿</button></div></section>
+    }
+    <section class="task-list" aria-live="polite">
+        @foreach (var item in VisibleDefinitions)
+        {
+            <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-random"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@StatusLabel(item.Status)</span><span>@item.Code · V@(item.VersionNumber)</span></div><h2>@item.Name</h2><p>@item.Description</p><div class="customer-note">节点 @item.Nodes.Count 个 · 连线 @item.Connections.Count 条 · @(item.PublishedAt?.ToString("yyyy-MM-dd HH:mm") ?? "尚未发布")</div><div class="customer-note">审批策略：@ApprovalSummary(item)</div>@if (item.Status == WorkflowDefinitionStatus.Draft) { <div class="customer-note">校验：@(item.Validate().IsValid ? "通过" : string.Join("；", item.Validate().Errors))</div> }@if (JsonDefinitionId == item.Id) { <pre class="customer-note">@WorkflowDefinitionDocument.FromDomain(item).ToJson()</pre> }</div><div class="task-card__actions"><button title="查看 Workflow JSON" @onclick="() => ToggleJson(item.Id)"><i class="fa fa-code"></i></button>@if (item.Status == WorkflowDefinitionStatus.Draft && CanPublish) { <button title="发布流程" @onclick="() => Publish(item)"><i class="fa fa-send-o"></i></button> }@if (item.Status == WorkflowDefinitionStatus.Draft && CanDelete) { <button title="删除草稿" class="danger" @onclick="() => DeleteDraft(item)"><i class="fa fa-trash-o"></i></button> } @if (item.Status == WorkflowDefinitionStatus.Published && CanArchive) { <button title="归档流程" @onclick="() => Archive(item)"><i class="fa fa-archive"></i></button> }</div></article>
+        }
+    </section>
+</div>
+
+@code {
+    private bool ShowComposer;
+    private Guid? JsonDefinitionId;
+    private string Code = string.Empty, Name = string.Empty, Approvers = "业务负责人", ReviewApprovers = string.Empty, Description = string.Empty;
+    private string ApprovalMode = nameof(WorkflowApprovalMode.All);
+    private int RequiredApprovals = 1;
+    private string? Error;
+    private IReadOnlyList<WorkflowDefinition> VisibleDefinitions
+        => Admin.User is not null && Admin.AuthPath("Workflow/Definition")
+            ? WorkflowService.List()
+            : [];
+    private bool CanCreate => Admin.AuthButton("Workflow/Definition/Create");
+    private bool CanPublish => Admin.AuthButton("Workflow/Definition/Publish");
+    private bool CanArchive => Admin.AuthButton("Workflow/Definition/Archive");
+    private bool CanDelete => Admin.AuthButton("Workflow/Definition/Delete");
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (!Admin.AuthPath("Workflow/Definition")) Navigation.NavigateTo("/", forceLoad: true);
+    }
+    private void OpenComposer() { Error = null; ShowComposer = true; }
+    private void Close() { ShowComposer = false; Error = null; Code = Name = Description = string.Empty; Approvers = "业务负责人"; ReviewApprovers = string.Empty; ApprovalMode = nameof(WorkflowApprovalMode.All); RequiredApprovals = 1; }
+    private void ToggleJson(Guid id) { JsonDefinitionId = JsonDefinitionId == id ? null : id; }
+    private void Save()
+    {
+        try
+        {
+            if (!CanCreate) throw new InvalidOperationException("没有创建流程权限。");
+            var item = WorkflowService.CreateDraft(Code, Name, Description);
+            var start = item.AddNode(Guid.CreateVersion7(), WorkflowNodeType.Start, "开始", 80, 160);
+            var approvers = Approvers.Split([',', '，', ';', '；'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (approvers.Length == 0) throw new InvalidOperationException("请至少填写一名审批人。");
+            if (!Enum.TryParse<WorkflowApprovalMode>(ApprovalMode, ignoreCase: true, out var mode)) throw new InvalidOperationException("审批策略无效。");
+            if (mode == WorkflowApprovalMode.Quorum && (RequiredApprovals < 1 || RequiredApprovals > approvers.Length)) throw new InvalidOperationException("通过票数必须在 1 到审批人数之间。");
+            var config = JsonSerializer.Serialize(new { approvers, approvalMode = mode.ToString(), requiredApprovals = mode == WorkflowApprovalMode.Quorum ? RequiredApprovals : (int?)null });
+            var approval = item.AddNode(Guid.CreateVersion7(), WorkflowNodeType.Approval, "初审", 320, 160, config);
+            var end = item.AddNode(Guid.CreateVersion7(), WorkflowNodeType.End, "结束", 560, 160);
+            item.Connect(start.Id, approval.Id);
+            var terminalApproval = approval;
+            var reviewApprovers = ReviewApprovers.Split([',', '，', ';', '；'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (reviewApprovers.Length > 0)
+            {
+                var reviewConfig = JsonSerializer.Serialize(new { approvers = reviewApprovers, returnTargets = new[] { approval.Id } });
+                terminalApproval = item.AddNode(Guid.CreateVersion7(), WorkflowNodeType.Approval, "复审", 440, 160, reviewConfig);
+                item.Connect(approval.Id, terminalApproval.Id);
+            }
+            item.Connect(terminalApproval.Id, end.Id);
+            WorkflowService.SaveDraft(item);
+            Close();
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void Publish(WorkflowDefinition item) { try { if (!CanPublish) throw new InvalidOperationException("没有发布流程权限。"); WorkflowService.Publish(item); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void Archive(WorkflowDefinition item) { try { if (!CanArchive) throw new InvalidOperationException("没有归档流程权限。"); WorkflowService.Archive(item); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void DeleteDraft(WorkflowDefinition item) { try { if (!CanDelete) throw new InvalidOperationException("没有删除草稿权限。"); WorkflowService.DeleteDraft(item); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private static string StatusLabel(WorkflowDefinitionStatus status) => status switch { WorkflowDefinitionStatus.Draft => "草稿", WorkflowDefinitionStatus.Published => "已发布", WorkflowDefinitionStatus.Archived => "已归档", _ => status.ToString() };
+    private static string ApprovalSummary(WorkflowDefinition item)
+    {
+        var approval = item.Nodes.FirstOrDefault(x => x.Type == WorkflowNodeType.Approval);
+        if (approval is null) return "未配置审批节点";
+        try
+        {
+            var mode = WorkflowApprovalConfiguration.ParseMode(approval.ConfigJson);
+            using var document = JsonDocument.Parse(approval.ConfigJson);
+            var root = document.RootElement;
+            var approverCount = root.TryGetProperty("approvers", out var many) && many.ValueKind == JsonValueKind.Array
+                ? many.EnumerateArray().Count(x => x.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(x.GetString()))
+                : root.TryGetProperty("approver", out var one) && one.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(one.GetString()) ? 1 : 0;
+            return mode == WorkflowApprovalMode.Quorum
+                ? $"{ApprovalModeLabel(mode)}（{WorkflowApprovalConfiguration.GetRequiredApprovals(approval.ConfigJson)} / {approverCount} 票）"
+                : $"{ApprovalModeLabel(mode)}（{approverCount} 人）";
+        }
+        catch (ArgumentException) { return "配置无效"; }
+        catch (JsonException) { return "配置无效"; }
+    }
+    private static string ApprovalModeLabel(WorkflowApprovalMode mode) => mode switch { WorkflowApprovalMode.All => "全部通过", WorkflowApprovalMode.Any => "任一通过", WorkflowApprovalMode.Majority => "多数通过", WorkflowApprovalMode.Quorum => "达到指定票数", _ => mode.ToString() };
+}

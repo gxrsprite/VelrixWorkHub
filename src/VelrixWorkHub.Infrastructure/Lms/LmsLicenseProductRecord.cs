@@ -1,0 +1,4 @@
+using FreeSql.DataAnnotations; using VelrixWorkHub.Domain;
+namespace VelrixWorkHub.Infrastructure.Lms;
+[Table(Name = "LmsLicenseProduct")][Index("LmsLicenseProduct_uk_Code", "Code", true)]
+public sealed class LmsLicenseProductRecord { [Column(IsPrimary = true)] public Guid Id { get; set; } [Column(StringLength = 80, IsNullable = false)] public string Code { get; set; } = string.Empty; [Column(StringLength = 200, IsNullable = false)] public string Name { get; set; } = string.Empty; [Column(StringLength = 1000)] public string? Description { get; set; } [Column(StringLength = -1, IsNullable = false)] public string OtherInfo { get; set; } = "{}"; [Column(MapType = typeof(string), StringLength = 50, IsNullable = false)] public LmsLicenseProductStatus Status { get; set; } [Column(IsNullable = false)] public DateTime CreatedAt { get; set; } }

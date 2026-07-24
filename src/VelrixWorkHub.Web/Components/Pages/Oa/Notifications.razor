@@ -1,0 +1,155 @@
+@page "/Oa/Notification"
+@inject IAdminContext Admin
+@inject NavigationManager Navigation
+@inject VelrixWorkHub.Application.Notifications.NotificationService NotificationService
+@using VelrixWorkHub.Domain
+
+<PageTitle>通知中心 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · Oa/Notification</p><h1>通知中心</h1><p class="task-page__intro">集中查看审批、提醒、指派和系统通知，通知处理状态与业务原单保持可追溯。</p></div><div class="task-page__summary"><strong>@UnreadCount</strong><span>条未读</span></div></div>
+    <section class="task-toolbar customer-toolbar">
+        <button class="task-secondary-button" @onclick="MarkAllRead" disabled="@(UnreadCount == 0)">全部标为已读</button>
+        <button class="task-secondary-button" @onclick="DeleteSelected" disabled="@(!SelectedIds.Any())">删除选中 (@SelectedIds.Count)</button>
+        <span class="task-toolbar__hint">共 @TotalCount 条 · 第 @PageIndex/@Math.Max(PageCount, 1) 页</span>
+    </section>
+    <section class="task-list" aria-live="polite">
+        @if (!Items.Any())
+        {
+            <div class="task-empty"><i class="fa fa-bell-o"></i><strong>暂无通知</strong><span>新的审批和业务提醒会显示在这里。</span></div>
+        }
+        else
+        {
+            @foreach (var item in Items)
+            {
+                <article class="task-card customer-card @(item.IsRead ? "" : "notification-card--unread")">
+                    <div class="customer-avatar"><i class="fa fa-@Icon(item.Kind)"></i></div>
+                    <div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@(item.IsRead ? "done" : "pending")">@(item.IsRead ? "已读" : "未读")</span><span>@KindLabel(item.Kind) · @item.CreatedAt.ToString("yyyy-MM-dd HH:mm")</span></div><h2>@item.Title</h2><p>@item.Content</p>@if (item.Href is string href) { <a href="@href">查看原单</a> }</div>
+                    <div class="task-card__actions">
+                        <label title="选择通知"><input type="checkbox" checked="@IsSelected(item.Id)" @onchange="args => ToggleSelection(item.Id, args.Value is true)" /></label>
+                        @if (!item.IsRead) { <button title="标为已读" @onclick="() => MarkRead(item)"><i class="fa fa-check"></i></button> }
+                        <button title="删除通知" @onclick="() => Delete(item)"><i class="fa fa-trash-o"></i></button>
+                    </div>
+                </article>
+            }
+        }
+    </section>
+    @if (PageCount > 1)
+    {
+        <nav class="task-pagination" aria-label="通知分页">
+            <button class="task-secondary-button" @onclick="PreviousPage" disabled="@(PageIndex <= 1)">上一页</button>
+            <span>第 @PageIndex / @PageCount 页</span>
+            <button class="task-secondary-button" @onclick="NextPage" disabled="@(PageIndex >= PageCount)">下一页</button>
+        </nav>
+    }
+</div>
+
+@code {
+    private const int PageSize = 20;
+    private IReadOnlyList<WorkNotification> Items { get; set; } = [];
+    private HashSet<Guid> SelectedIds { get; } = [];
+    private int PageIndex { get; set; } = 1;
+    private int PageCount { get; set; }
+    private int TotalCount { get; set; }
+    private int UnreadCount { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (!Admin.AuthPath("Oa/Notification"))
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+
+        Reload();
+    }
+
+    private void Reload()
+    {
+        if (string.IsNullOrWhiteSpace(Admin.User?.Username))
+        {
+            Items = [];
+            TotalCount = 0;
+            PageCount = 0;
+            UnreadCount = 0;
+            SelectedIds.Clear();
+            return;
+        }
+
+        var page = NotificationService.ListPage(Admin.User.Username, PageIndex, PageSize);
+        Items = page.Items;
+        PageIndex = page.PageIndex;
+        PageCount = page.PageCount;
+        TotalCount = page.TotalCount;
+        UnreadCount = NotificationService.UnreadCount(Admin.User.Username);
+        SelectedIds.RemoveWhere(id => Items.All(item => item.Id != id));
+    }
+
+    private void MarkRead(WorkNotification item)
+    {
+        if (string.IsNullOrWhiteSpace(Admin.User?.Username)) return;
+        NotificationService.MarkRead(Admin.User.Username, item.Id);
+        Reload();
+    }
+
+    private void MarkAllRead()
+    {
+        if (string.IsNullOrWhiteSpace(Admin.User?.Username)) return;
+        NotificationService.MarkAllRead(Admin.User.Username);
+        Reload();
+    }
+
+    private void Delete(WorkNotification item)
+    {
+        if (string.IsNullOrWhiteSpace(Admin.User?.Username)) return;
+        NotificationService.Delete(Admin.User.Username, item.Id);
+        SelectedIds.Remove(item.Id);
+        Reload();
+    }
+
+    private void DeleteSelected()
+    {
+        if (string.IsNullOrWhiteSpace(Admin.User?.Username) || SelectedIds.Count == 0) return;
+        NotificationService.DeleteMany(Admin.User.Username, SelectedIds);
+        SelectedIds.Clear();
+        Reload();
+    }
+
+    private void ToggleSelection(Guid id, bool selected)
+    {
+        if (selected) SelectedIds.Add(id);
+        else SelectedIds.Remove(id);
+    }
+
+    private bool IsSelected(Guid id) => SelectedIds.Contains(id);
+
+    private void PreviousPage()
+    {
+        if (PageIndex <= 1) return;
+        PageIndex--;
+        Reload();
+    }
+
+    private void NextPage()
+    {
+        if (PageIndex >= PageCount) return;
+        PageIndex++;
+        Reload();
+    }
+
+    private static string KindLabel(WorkNotificationKind kind) => kind switch
+    {
+        WorkNotificationKind.Approval => "审批",
+        WorkNotificationKind.Reminder => "提醒",
+        WorkNotificationKind.Assignment => "指派",
+        _ => "系统"
+    };
+
+    private static string Icon(WorkNotificationKind kind) => kind switch
+    {
+        WorkNotificationKind.Approval => "check-square-o",
+        WorkNotificationKind.Reminder => "clock-o",
+        WorkNotificationKind.Assignment => "user",
+        _ => "info-circle"
+    };
+}

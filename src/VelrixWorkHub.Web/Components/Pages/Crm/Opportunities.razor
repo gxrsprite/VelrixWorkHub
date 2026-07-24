@@ -1,0 +1,56 @@
+@page "/Crm/Opportunity"
+@inject VelrixWorkHub.Application.Opportunities.SalesOpportunityService OpportunityService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@using VelrixWorkHub.Application.Opportunities
+@using VelrixWorkHub.Domain
+
+<PageTitle>商机管理 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">客户经营 · CRM/Opportunity</p><h1>商机管理</h1><p class="task-page__intro">推进销售阶段，记录预计金额和成交时间。</p></div><div class="task-page__summary" aria-label="开放商机统计"><strong>@OpportunityService.Count(OpportunityFilter.Open)</strong><span>个开放商机</span></div></div>
+    <section class="task-toolbar customer-toolbar" aria-label="商机操作"><div class="customer-search"><i class="fa fa-search" aria-hidden="true"></i><input aria-label="搜索商机" @bind="Keyword" @bind:event="oninput" placeholder="搜索商机名称" /></div><div class="task-filters" role="tablist" aria-label="商机筛选">@foreach (var filter in Filters) { <button class="task-filter @(SelectedFilter == filter.Key ? "is-active" : "")" role="tab" aria-selected="@(SelectedFilter == filter.Key)" @onclick="() => SelectedFilter = filter.Key">@filter.Label <span>@OpportunityService.Count(filter.Filter)</span></button> }</div><button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus" aria-hidden="true"></i> 新建商机</button></section>
+    @if (ShowComposer || EditingOpportunity is not null)
+    {
+        <section class="task-composer" aria-label="@(EditingOpportunity is null ? "新建商机" : "编辑商机")"><div class="task-composer__title">@(EditingOpportunity is null ? "建立一个新商机" : "编辑商机")</div>
+            <div class="task-composer__fields"><label>所属客户<select aria-label="商机客户" @bind="DraftCustomerId"><option value="">请选择客户</option>@foreach (var customer in Customers) { <option value="@customer.Id">@customer.Name</option> }</select></label><label>商机名称<input aria-label="商机名称" @bind="DraftTitle" @bind:event="oninput" placeholder="例如：数字化升级项目" autofocus /></label></div>
+            <div class="task-composer__fields"><label>预计金额<input aria-label="预计金额" type="number" min="0" step="0.01" @bind="DraftAmount" @bind:event="oninput" /></label><label>预计成交日<input aria-label="预计成交日" type="date" @bind="DraftCloseDate" /></label></div>
+            @if (!string.IsNullOrWhiteSpace(FormError)) { <div class="task-error" role="alert">@FormError</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseForm">取消</button><button class="task-primary-button" @onclick="SaveForm">@(EditingOpportunity is null ? "保存商机" : "保存修改")</button></div>
+        </section>
+    }
+    <section class="task-list" aria-live="polite">
+        @if (!VisibleOpportunities.Any()) { <div class="task-empty"><i class="fa fa-line-chart" aria-hidden="true"></i><strong>没有匹配的商机</strong><span>可以新建一个商机，开始跟进销售机会。</span></div> }
+        else { @foreach (var item in VisibleOpportunities) { <article class="task-card customer-card"><div class="opportunity-stage opportunity-stage--@item.Stage.ToString().ToLowerInvariant()">@StageLabel(item.Stage)</div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--active">@CustomerName(item.CustomerId)</span>@if (item.ExpectedAmount is not null) { <span class="task-due">¥@item.ExpectedAmount.Value.ToString("N0")</span> }</div><h2>@item.Title</h2><p>@(item.ExpectedCloseDate is null ? "暂无预计成交日" : $"预计 {item.ExpectedCloseDate:yyyy年MM月dd日}")</p>@if (item.Stage == OpportunityStage.Lost) { <div class="customer-note">输单原因：@item.LostReason</div> }</div><div class="task-card__actions"><button title="推进阶段" @onclick="() => Advance(item)"><i class="fa fa-arrow-right" aria-hidden="true"></i></button><button title="编辑商机" @onclick="() => OpenEditor(item)"><i class="fa fa-pencil" aria-hidden="true"></i></button><button class="danger" title="删除商机" @onclick="() => Remove(item)"><i class="fa fa-trash-o" aria-hidden="true"></i></button></div></article> } }
+    </section>
+</div>
+
+@code {
+    private readonly List<(string Key, string Label, OpportunityFilter Filter)> Filters = [("all", "全部", OpportunityFilter.All), ("open", "开放", OpportunityFilter.Open), ("won", "赢单", OpportunityFilter.Won), ("lost", "输单", OpportunityFilter.Lost)];
+    private IReadOnlyList<Customer> Customers { get; set; } = [];
+    private string Keyword { get; set; } = string.Empty;
+    private string SelectedFilter { get; set; } = "all";
+    private bool ShowComposer { get; set; }
+    private SalesOpportunity? EditingOpportunity { get; set; }
+    private string DraftCustomerId { get; set; } = string.Empty;
+    private string DraftTitle { get; set; } = string.Empty;
+    private string DraftAmount { get; set; } = string.Empty;
+    private DateTime? DraftCloseDate { get; set; } = DateTime.Today.AddDays(30);
+    private string? FormError { get; set; }
+    private IEnumerable<SalesOpportunity> VisibleOpportunities => OpportunityService.List(Keyword, Filters.First(item => item.Key == SelectedFilter).Filter);
+    protected override void OnInitialized() => Customers = CustomerService.List();
+    private string CustomerName(Guid id) => Customers.FirstOrDefault(item => item.Id == id)?.Name ?? "未知客户";
+    private void OpenComposer() { CloseForm(); ShowComposer = true; DraftCloseDate = DateTime.Today.AddDays(30); }
+    private void OpenEditor(SalesOpportunity item) { CloseForm(); EditingOpportunity = item; DraftCustomerId = item.CustomerId.ToString(); DraftTitle = item.Title; DraftAmount = item.ExpectedAmount?.ToString("0.##") ?? string.Empty; DraftCloseDate = item.ExpectedCloseDate?.ToDateTime(TimeOnly.MinValue); }
+    private void CloseForm() { ShowComposer = false; EditingOpportunity = null; FormError = null; DraftCustomerId = DraftTitle = DraftAmount = string.Empty; DraftCloseDate = DateTime.Today.AddDays(30); }
+    private void SaveForm()
+    {
+        if (!Guid.TryParse(DraftCustomerId, out var customerId)) { FormError = "请选择所属客户。"; return; }
+        if (string.IsNullOrWhiteSpace(DraftTitle)) { FormError = "请填写商机名称。"; return; }
+        if (!string.IsNullOrWhiteSpace(DraftAmount) && (!decimal.TryParse(DraftAmount, out var amount) || amount < 0)) { FormError = "请输入有效的预计金额。"; return; }
+        decimal? parsedAmount = string.IsNullOrWhiteSpace(DraftAmount) ? null : decimal.Parse(DraftAmount);
+        if (EditingOpportunity is null) OpportunityService.Create(customerId, DraftTitle, parsedAmount, DraftCloseDate is null ? null : DateOnly.FromDateTime(DraftCloseDate.Value)); else OpportunityService.Edit(EditingOpportunity, customerId, DraftTitle, parsedAmount, DraftCloseDate is null ? null : DateOnly.FromDateTime(DraftCloseDate.Value));
+        CloseForm();
+    }
+    private void Advance(SalesOpportunity item) { var next = item.Stage switch { OpportunityStage.Prospecting => OpportunityStage.Qualified, OpportunityStage.Qualified => OpportunityStage.Proposal, OpportunityStage.Proposal => OpportunityStage.Negotiation, OpportunityStage.Negotiation => OpportunityStage.Won, _ => item.Stage }; if (next != item.Stage) OpportunityService.MoveTo(item, next); }
+    private void Remove(SalesOpportunity item) => OpportunityService.Remove(item);
+    private static string StageLabel(OpportunityStage stage) => stage switch { OpportunityStage.Qualified => "已确认", OpportunityStage.Proposal => "方案报价", OpportunityStage.Negotiation => "商务谈判", OpportunityStage.Won => "赢单", OpportunityStage.Lost => "输单", _ => "挖掘中" };
+}

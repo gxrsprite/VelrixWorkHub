@@ -1,0 +1,49 @@
+@page "/Oa/Schedule"
+@inject VelrixWorkHub.Application.Schedules.WorkScheduleService ScheduleService
+@using VelrixWorkHub.Application.Schedules
+@using VelrixWorkHub.Domain
+
+<PageTitle>我的日程 - Velrix Work Hub</PageTitle>
+<div class="schedule-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/Schedule</p><h1>我的日程</h1><p class="task-page__intro">把会议、提醒和关键节点安排在清晰的时间线上。</p></div><div class="task-page__summary" aria-label="即将到来日程统计"><strong>@ScheduleService.Count(ScheduleFilter.Upcoming)</strong><span>项即将到来</span></div></div>
+    <section class="task-toolbar" aria-label="日程操作"><div class="task-filters" role="tablist" aria-label="日程筛选">@foreach (var filter in Filters) { <button class="task-filter @(SelectedFilter == filter.Key ? "is-active" : "")" role="tab" aria-selected="@(SelectedFilter == filter.Key)" @onclick="() => SelectedFilter = filter.Key">@filter.Label <span>@ScheduleService.Count(filter.Filter)</span></button> }</div><button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus" aria-hidden="true"></i> 新建日程</button></section>
+    @if (ShowComposer || EditingSchedule is not null)
+    {
+        <section class="task-composer" aria-label="@(EditingSchedule is null ? "新建日程" : "编辑日程")"><div class="task-composer__title">@(EditingSchedule is null ? "安排一项新日程" : "编辑日程")</div>
+            <label>日程标题<input @bind="DraftTitle" @bind:event="oninput" placeholder="例如：客户方案评审会" autofocus /></label>
+            <div class="task-composer__fields"><label>开始时间<input type="datetime-local" @bind="DraftStart" /></label><label>结束时间<input type="datetime-local" @bind="DraftEnd" /></label></div>
+            <div class="task-composer__fields"><label>地点<input @bind="DraftLocation" @bind:event="oninput" placeholder="例如：会议室 A 或线上会议" /></label><label>备注<input @bind="DraftDescription" @bind:event="oninput" placeholder="补充议程和准备事项" /></label></div>
+            @if (!string.IsNullOrWhiteSpace(FormError)) { <div class="task-error" role="alert">@FormError</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseForm">取消</button><button class="task-primary-button" @onclick="SaveForm">@(EditingSchedule is null ? "保存日程" : "保存修改")</button></div>
+        </section>
+    }
+    <section class="task-list" aria-live="polite">
+        @if (!VisibleSchedules.Any()) { <div class="task-empty"><i class="fa fa-calendar" aria-hidden="true"></i><strong>这里暂时没有日程</strong><span>可以新建一项，为重要工作安排时间。</span></div> }
+        else { @foreach (var schedule in VisibleSchedules) { <article class="task-card schedule-card"><div class="schedule-time"><strong>@schedule.StartTime.ToString("MM月dd日")</strong><span>@schedule.StartTime.ToString("HH:mm")</span></div><div class="task-card__body"><h2>@schedule.Title</h2><p>@(schedule.Description ?? "暂无备注")</p><div class="task-card__meta"><span class="task-due">至 @schedule.EndTime.ToString("HH:mm")</span>@if (!string.IsNullOrWhiteSpace(schedule.Location)) { <span class="task-due"><i class="fa fa-map-marker" aria-hidden="true"></i> @schedule.Location</span> }</div></div><div class="task-card__actions"><button title="编辑日程" @onclick="() => OpenEditor(schedule)"><i class="fa fa-pencil" aria-hidden="true"></i></button><button class="danger" title="删除日程" @onclick="() => Remove(schedule)"><i class="fa fa-trash-o" aria-hidden="true"></i></button></div></article> } }
+    </section>
+</div>
+
+@code {
+    private readonly List<(string Key, string Label, ScheduleFilter Filter)> Filters = [("all", "全部", ScheduleFilter.All), ("upcoming", "即将到来", ScheduleFilter.Upcoming), ("past", "已结束", ScheduleFilter.Past)];
+    private string SelectedFilter { get; set; } = "all";
+    private bool ShowComposer { get; set; }
+    private WorkSchedule? EditingSchedule { get; set; }
+    private string DraftTitle { get; set; } = string.Empty;
+    private string DraftDescription { get; set; } = string.Empty;
+    private string DraftLocation { get; set; } = string.Empty;
+    private DateTime DraftStart { get; set; } = DateTime.Now.AddDays(1).Date.AddHours(10);
+    private DateTime DraftEnd { get; set; } = DateTime.Now.AddDays(1).Date.AddHours(11);
+    private string? FormError { get; set; }
+    private IEnumerable<WorkSchedule> VisibleSchedules => ScheduleService.List(Filters.First(item => item.Key == SelectedFilter).Filter);
+    private void OpenComposer() { CloseForm(); ShowComposer = true; DraftStart = DateTime.Now.AddDays(1).Date.AddHours(10); DraftEnd = DraftStart.AddHours(1); }
+    private void OpenEditor(WorkSchedule item) { CloseForm(); EditingSchedule = item; DraftTitle = item.Title; DraftDescription = item.Description ?? string.Empty; DraftLocation = item.Location ?? string.Empty; DraftStart = item.StartTime; DraftEnd = item.EndTime; }
+    private void CloseForm() { ShowComposer = false; EditingSchedule = null; FormError = null; DraftTitle = string.Empty; DraftDescription = string.Empty; DraftLocation = string.Empty; }
+    private void SaveForm()
+    {
+        if (string.IsNullOrWhiteSpace(DraftTitle)) { FormError = "请填写日程标题。"; return; }
+        if (DraftEnd <= DraftStart) { FormError = "结束时间必须晚于开始时间。"; return; }
+        try { if (EditingSchedule is null) ScheduleService.Create(DraftTitle, DraftStart, DraftEnd, DraftDescription, DraftLocation); else ScheduleService.Edit(EditingSchedule, DraftTitle, DraftStart, DraftEnd, DraftDescription, DraftLocation); CloseForm(); }
+        catch (InvalidOperationException ex) { FormError = ex.Message; }
+    }
+    private void Remove(WorkSchedule item) => ScheduleService.Remove(item);
+}

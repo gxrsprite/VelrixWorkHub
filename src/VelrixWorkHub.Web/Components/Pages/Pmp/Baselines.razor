@@ -1,0 +1,22 @@
+@page "/Pmp/Baseline"
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectBaselineService BaselineService
+@inject VelrixWorkHub.Application.PmpProjects.PmpProjectService ProjectService
+@using VelrixWorkHub.Domain
+<PageTitle>项目基线 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">PMP 项目管理 · Pmp/Baseline</p><h1>项目基线</h1><p class="task-page__intro">保存项目计划日期、完成度、阶段数和任务数的版本快照，作为后续变更比较的起点。</p></div></div>
+    <section class="task-toolbar customer-toolbar"><div class="customer-search"><i class="fa fa-filter"></i><select aria-label="筛选项目" @bind="ProjectIdText"><option value="">全部项目</option>@foreach (var project in ProjectService.List()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></div><button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-camera"></i> 创建基线</button></section>
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="创建项目基线"><div class="task-composer__title">创建项目基线</div><div class="task-composer__fields"><label>所属项目<select aria-label="基线所属项目" @bind="NewProjectIdText"><option value="">请选择项目</option>@foreach (var project in ProjectService.List()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label><label>基线名称<input aria-label="基线名称" @bind="Label" @bind:event="oninput" placeholder="需求确认基线" /></label></div>@if (Error is not null) { <div class="task-error" role="alert">@Error</div> }<div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存快照</button></div></section>
+    }
+    <section class="task-list" aria-live="polite">@foreach (var item in BaselineService.List(ParseProjectId(ProjectIdText))) { var project = ProjectService.List().FirstOrDefault(x => x.Id == item.ProjectId); var comparison = BaselineService.Compare(item); <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-bookmark"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--active">基线 V@(item.VersionNumber)</span><span>@(project?.Code ?? "未知项目")</span><span>@item.SnapshotTime.ToString("yyyy-MM-dd HH:mm")</span></div><h2>@item.Label</h2><p>计划 @item.PlannedStart.ToString("yyyy-MM-dd") 至 @item.PlannedEnd.ToString("yyyy-MM-dd") · 快照完成度 @item.PercentComplete%</p><div class="customer-note">阶段 @item.PhaseCount 个 · WBS 任务 @item.TaskCount 个</div>@if (comparison is not null) { <div class="customer-note">当前对比：完成度 @Delta(comparison.PercentDelta, "%") · 阶段 @Delta(comparison.PhaseDelta, " 个") · WBS 任务 @Delta(comparison.TaskDelta, " 个") · 工期 @Delta(comparison.PlannedDaysDelta, " 天")</div> }<AttachmentPanel BusinessType="PmpProjectBaseline" BusinessId="@item.Id" Actor="admin" /></div></article> }</section>
+</div>
+@code {
+    private string ProjectIdText = string.Empty, NewProjectIdText = string.Empty, Label = string.Empty; private string? Error; private bool ShowComposer;
+    private void OpenComposer() { Error = null; ShowComposer = true; NewProjectIdText = ProjectIdText; Label = string.Empty; }
+    private void Close() { ShowComposer = false; Error = null; NewProjectIdText = Label = string.Empty; }
+    private void Save() { if (!Guid.TryParse(NewProjectIdText, out var projectId)) { Error = "请选择项目。"; return; } try { BaselineService.Create(projectId, Label); Close(); } catch (Exception ex) { Error = ex.Message; } }
+    private static Guid? ParseProjectId(string value) => Guid.TryParse(value, out var id) ? id : null;
+    private static string Delta(int value, string suffix) => value > 0 ? $"+{value}{suffix}" : $"{value}{suffix}";
+}

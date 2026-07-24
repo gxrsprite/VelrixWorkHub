@@ -1,0 +1,269 @@
+@page "/Oa/Asset"
+@inject VelrixWorkHub.Application.Assets.AssetService AssetService
+@inject VelrixWorkHub.Application.Assets.ConsumableSupplyService ConsumableSupplyService
+@inject VelrixWorkHub.Application.Assets.AssetRequestService AssetRequestService
+@inject VelrixWorkHub.Application.Employees.EmployeeDirectoryService DirectoryService
+@inject VelrixWorkHub.Application.Workflow.WorkflowApprovalService WorkflowApprovalService
+@inject AdminBlazor.IAdminContext Admin
+@using VelrixWorkHub.Application.Employees
+@using VelrixWorkHub.Application.Workflow
+@using VelrixWorkHub.Application.Assets
+@using VelrixWorkHub.Domain
+
+<PageTitle>资产与办公用品 - Velrix Work Hub</PageTitle>
+
+<div class="task-page asset-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/Asset</p><h1>资产与办公用品</h1><p class="task-page__intro">维护资产台账、领用和归还记录；普通领用先提交申请，Workflow 批准后才锁定资产，在用资产会进入员工离职风险清单。</p></div><div class="task-page__summary"><strong>@AssetItems.Count</strong><span>项资产</span></div></div>
+    <section class="task-toolbar" aria-label="资产操作"><span class="customer-note">在用 @AssetItems.Count(item => item.Status == OaAssetStatus.InUse) · 可用 @AssetItems.Count(item => item.Status == OaAssetStatus.Available)</span>@if (CanManage) { <button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus" aria-hidden="true"></i> 新建资产</button> } @if (CanRequestCreate) { <button class="task-secondary-button" @onclick="OpenRequestCreate"><i class="fa fa-file-text-o" aria-hidden="true"></i> 申请领用</button> }</section>
+
+    @if (CanRequest)
+    {
+        <section class="task-list" aria-label="我的资产申请">
+            <div class="task-composer__title">我的资产申请 · @Requests.Count</div>
+            @if (ShowRequestComposer)
+            {
+                <div class="task-composer" aria-label="资产申请编辑器">
+                    <div class="task-composer__fields"><label>申请资产<select @bind="RequestAssetIdText" disabled="@(EditingRequest is not null)"><option value="">请选择可用资产</option>@foreach (var asset in AvailableAssets) { <option value="@asset.Id">@asset.AssetNo · @asset.Name</option>}</select></label><label>申请事由<input @bind="RequestReason" @bind:event="oninput" maxlength="2000" /></label></div>
+                    <label>OtherInfo JSON<textarea @bind="RequestOtherInfo" @bind:event="oninput" rows="1"></textarea></label>
+                    @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+                    <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseRequestComposer">取消</button><button class="task-primary-button" @onclick="SaveRequest">保存申请</button></div>
+                </div>
+            }
+            else if (!Requests.Any())
+            {
+                <div class="task-empty"><i class="fa fa-file-text-o" aria-hidden="true"></i><strong>还没有资产申请</strong><span>选择可用资产并提交申请，批准后自动生成领用记录。</span></div>
+            }
+            else
+            {
+                @foreach (var request in Requests)
+                {
+                    var requestAsset = AssetService.Get(request.AssetId);
+                    var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.AssetRequestApproval, nameof(OaAssetRequest), request.Id);
+                    <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-file-text-o" aria-hidden="true"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@request.Status.ToString().ToLowerInvariant()">@RequestStatusLabel(request.Status)</span><span>@(requestAsset?.AssetNo ?? "资产已删除")</span></div><h2>@(requestAsset?.Name ?? "未知资产")</h2><p>@request.Reason · 审批：@WorkflowLabel(workflow?.Status)</p>@if (!string.IsNullOrWhiteSpace(request.RejectionReason)) { <div class="customer-note">驳回原因：@request.RejectionReason</div> }</div><div class="task-card__actions">@if ((request.Status is OaAssetRequestStatus.Draft or OaAssetRequestStatus.Rejected or OaAssetRequestStatus.Withdrawn) && CanRequestEdit) { <button title="编辑资产申请" @onclick="() => OpenRequestEdit(request)"><i class="fa fa-pencil"></i></button> } @if ((request.Status is OaAssetRequestStatus.Draft or OaAssetRequestStatus.Rejected or OaAssetRequestStatus.Withdrawn) && CanRequestSubmit) { <button title="提交资产申请" @onclick="() => SubmitRequest(request)"><i class="fa fa-send-o"></i></button> } @if ((request.Status is OaAssetRequestStatus.Draft or OaAssetRequestStatus.Submitted) && CanRequestCancel) { <button class="danger" title="撤回资产申请" @onclick="() => CancelRequest(request)"><i class="fa fa-undo"></i></button> }</div></article>
+                }
+            }
+        </section>
+    }
+
+    @if (ShowComposer && CanManage)
+    {
+        <section class="task-composer" aria-label="新建资产">
+            <div class="task-composer__title">登记资产或办公用品</div>
+            <div class="task-composer__fields"><label>资产编号<input @bind="AssetNo" @bind:event="oninput" maxlength="80" /></label><label>分类<input @bind="Category" @bind:event="oninput" maxlength="100" placeholder="固定资产、办公用品、IT设备" /></label><label>名称<input @bind="Name" @bind:event="oninput" maxlength="200" /></label></div>
+            <div class="task-composer__fields"><label>序列号<input @bind="SerialNo" @bind:event="oninput" /></label><label>存放位置<input @bind="Location" @bind:event="oninput" /></label><label>OtherInfo JSON<textarea @bind="OtherInfo" @bind:event="oninput" rows="1"></textarea></label></div>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存资产</button></div>
+        </section>
+    }
+
+    @if (AssigningAsset is not null && CanAssign)
+    {
+        <section class="task-composer" aria-label="资产领用">
+            <div class="task-composer__title">领用：@AssigningAsset.AssetNo · @AssigningAsset.Name</div>
+            <label>领用员工<select @bind="AssignUserIdText"><option value="">请选择员工</option>@foreach (var employee in Employees) { <option value="@employee.UserId">@employee.DisplayName · @employee.Username</option>}</select></label>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseAssign">取消</button><button class="task-primary-button" @onclick="Assign">确认领用</button></div>
+        </section>
+    }
+
+    @if (TransferringAsset is not null && CanTransfer)
+    {
+        <section class="task-composer" aria-label="资产转移">
+            <div class="task-composer__title">转移位置：@TransferringAsset.AssetNo · @TransferringAsset.Name</div>
+            <p class="customer-note">在用资产转移只调整存放位置；责任人变更请先归还，再重新领用，完整历史会保留。</p>
+            <label>新存放位置<input @bind="TransferLocation" @bind:event="oninput" maxlength="500" /></label>
+            <label>转移原因<input @bind="TransferReason" @bind:event="oninput" maxlength="2000" /></label>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseTransfer">取消</button><button class="task-primary-button" @onclick="Transfer">确认转移</button></div>
+        </section>
+    }
+
+    @if (StocktakingAsset is not null && CanStocktake)
+    {
+        <section class="task-composer" aria-label="资产盘点">
+            <div class="task-composer__title">盘点：@StocktakingAsset.AssetNo · @StocktakingAsset.Name</div>
+            <p class="customer-note">盘点只记录账面快照与实盘结果，不直接改写资产台账；差异后续由处置流程处理。</p>
+            <div class="task-composer__fields"><label>实盘状态<select @bind="ActualStatusText"><option value="">未找到</option>@foreach (var status in Enum.GetValues<OaAssetStatus>()) { <option value="@status">@StatusLabel(status)</option>}</select></label><label>实际责任人<select @bind="ActualResponsibleUserIdText" disabled="@(ActualStatusText != nameof(OaAssetStatus.InUse))"><option value="">请选择员工</option>@foreach (var employee in Employees) { <option value="@employee.UserId">@employee.DisplayName · @employee.Username</option>}</select></label></div>
+            <label>实际存放位置<input @bind="ActualLocation" @bind:event="oninput" maxlength="500" /></label>
+            <label>差异原因（盘点一致时可留空）<input @bind="StocktakeReason" @bind:event="oninput" maxlength="2000" /></label>
+            <label>OtherInfo JSON<textarea @bind="StocktakeOtherInfo" @bind:event="oninput" rows="1"></textarea></label>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseStocktake">取消</button><button class="task-primary-button" @onclick="SaveStocktake">保存盘点</button></div>
+        </section>
+    }
+
+    @if (ResolvingStocktake is not null && CanStocktake)
+    {
+        <section class="task-composer" aria-label="盘点差异处置">
+            <div class="task-composer__title">处置盘点差异</div>
+            <p class="customer-note">处置仅记录结论和操作者，不会改写原盘点快照或资产台账；台账更正请通过归还、转移或状态变更等受控操作完成。</p>
+            <label>处置结论<input @bind="StocktakeResolution" @bind:event="oninput" maxlength="2000" /></label>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseResolution">取消</button><button class="task-primary-button" @onclick="ResolveStocktake">完成处置</button></div>
+        </section>
+    }
+
+    @if (CanConsumable)
+    {
+        <section class="task-list" aria-label="办公用品库存">
+            <div class="task-composer__title">数量型办公用品库存</div>
+            <p class="customer-note">行政消耗品独立记录入库和发放流水，不进入 ERP 商品库存、仓库或采购收货。</p>
+            @if (ShowConsumableComposer)
+            {
+                <div class="task-composer" aria-label="新建办公用品"><div class="task-composer__fields"><label>物品编码<input @bind="ConsumableCode" @bind:event="oninput" maxlength="80" /></label><label>物品名称<input @bind="ConsumableName" @bind:event="oninput" maxlength="200" /></label><label>单位<input @bind="ConsumableUnit" @bind:event="oninput" maxlength="50" placeholder="包、支、盒" /></label></div><div class="task-composer__fields"><label>存放位置<input @bind="ConsumableLocation" @bind:event="oninput" maxlength="200" /></label><label>OtherInfo JSON<textarea @bind="ConsumableOtherInfo" @bind:event="oninput" rows="1"></textarea></label></div><div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseConsumable">取消</button><button class="task-primary-button" @onclick="SaveConsumable">保存物品</button></div></div>
+            }
+            else { <button class="task-secondary-button" @onclick="OpenConsumable"><i class="fa fa-plus" aria-hidden="true"></i> 新建办公用品</button> }
+            @if (ReceivingSupply is not null || IssuingSupply is not null)
+            {
+                var supply = ReceivingSupply ?? IssuingSupply!;
+                <div class="task-composer" aria-label="办公用品出入库"><div class="task-composer__title">@(ReceivingSupply is not null ? "入库" : "发放")：@supply.Code · @supply.Name</div><div class="task-composer__fields"><label>数量<input type="number" min="0.0001" step="0.0001" @bind="ConsumableQuantity" /></label><label>来源单号<input @bind="ConsumableSourceNo" @bind:event="oninput" maxlength="100" /></label>@if (IssuingSupply is not null) { <label>接收员工<select @bind="ConsumableRecipientIdText"><option value="">请选择员工</option>@foreach (var employee in Employees) { <option value="@employee.UserId">@employee.DisplayName · @employee.Username</option>}</select></label> }</div><label>备注<input @bind="ConsumableNotes" @bind:event="oninput" maxlength="2000" /></label><div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseConsumableTransaction">取消</button><button class="task-primary-button" @onclick="SaveConsumableTransaction">保存流水</button></div></div>
+            }
+            @foreach (var supply in ConsumableSupplies)
+            {
+                var balance = ConsumableSupplyService.BalanceOf(supply.Id);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-cubes" aria-hidden="true"></i></div><div class="task-card__body"><div class="task-card__meta"><span>@supply.Code</span><span>@(supply.IsActive ? "启用" : "停用")</span></div><h2>@supply.Name</h2><p>库存 @balance.ToString("N2") @supply.Unit · 位置：@(supply.Location ?? "未登记")</p><div class="customer-note">最近流水：@(ConsumableSupplyService.ListTransactions(supply.Id).FirstOrDefault() is { } latest ? $"{(latest.Kind == OaConsumableTransactionKind.Inbound ? "入库" : "发放")} · {latest.Quantity:N2}" : "暂无")</div></div><div class="task-card__actions"><button title="办公用品入库" @onclick="() => OpenConsumableTransaction(supply, true)"><i class="fa fa-sign-in"></i></button><button title="发放办公用品" @onclick="() => OpenConsumableTransaction(supply, false)"><i class="fa fa-sign-out"></i></button></div></article>
+            }
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error) && !ShowComposer && AssigningAsset is null) { <div class="task-error" role="alert">@Error</div> }
+    @if (!AssetItems.Any())
+    {
+        <div class="task-empty"><i class="fa fa-briefcase" aria-hidden="true"></i><strong>还没有资产台账</strong><span>登记资产后再办理领用和归还。</span></div>
+    }
+    else
+    {
+        <section class="task-list" aria-live="polite">
+            @foreach (var asset in AssetItems)
+            {
+                var assignment = AssetService.ListAssignments(asset.Id).FirstOrDefault(item => item.Status == OaAssetAssignmentStatus.Active);
+                var latestOperation = AssetService.ListOperations(asset.Id).FirstOrDefault();
+                var latestStocktake = AssetService.ListStocktakes(asset.Id).FirstOrDefault();
+                <article class="task-card asset-card"><div class="customer-avatar"><i class="fa fa-briefcase" aria-hidden="true"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@asset.Status.ToString().ToLowerInvariant()">@StatusLabel(asset.Status)</span><span>@asset.Category</span></div><h2>@asset.AssetNo · @asset.Name</h2><p>序列号：@(asset.SerialNo ?? "未登记") · 位置：@(asset.Location ?? "未登记")</p><div class="customer-note">领用人：@(assignment is null ? "未领用" : EmployeeName(assignment.UserId)) · OtherInfo：@asset.OtherInfo</div>@if (latestOperation is not null) { <div class="customer-note">最近流水：@OperationLabel(latestOperation.Kind) · @latestOperation.OccurredAt.ToString("yyyy-MM-dd HH:mm")</div> }@if (AssetService.ListTransfers(asset.Id).FirstOrDefault() is { } latestTransfer) { <div class="customer-note">最近转移：@(latestTransfer.FromLocation ?? "未登记") → @(latestTransfer.ToLocation ?? "未登记") · @latestTransfer.TransferredAt.ToString("yyyy-MM-dd HH:mm")</div> }@if (latestStocktake is not null) { <div class="customer-note">最近盘点：@StocktakeLabel(latestStocktake.Result) · @latestStocktake.StocktakenAt.ToString("yyyy-MM-dd HH:mm")@(latestStocktake.ResolvedAt is null ? string.Empty : $" · 已处置 {latestStocktake.ResolvedAt:yyyy-MM-dd HH:mm}")</div> }</div><div class="task-card__actions">@if (CanStocktake) { <button title="资产盘点" @onclick="() => OpenStocktake(asset)"><i class="fa fa-check-square-o" aria-hidden="true"></i></button> } @if (latestStocktake is { Result: not OaAssetStocktakeResult.Matched, ResolvedAt: null } && CanStocktake) { <button title="处置盘点差异" @onclick="() => OpenResolution(latestStocktake)"><i class="fa fa-gavel" aria-hidden="true"></i></button> } @if (CanTransfer && asset.Status is not (OaAssetStatus.Maintenance or OaAssetStatus.Retired)) { <button title="转移资产位置" @onclick="() => OpenTransfer(asset)"><i class="fa fa-exchange" aria-hidden="true"></i></button> } @if (asset.Status == OaAssetStatus.Available && CanAssign) { <button title="领用资产" @onclick="() => OpenAssign(asset)"><i class="fa fa-hand-o-right" aria-hidden="true"></i></button> } @if (assignment is not null && CanAssign) { <button title="归还资产" @onclick="() => Return(assignment)"><i class="fa fa-undo" aria-hidden="true"></i></button> }</div></article>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowComposer;
+    private bool ShowRequestComposer;
+    private OaAsset? AssigningAsset;
+    private OaAsset? TransferringAsset;
+    private OaAsset? StocktakingAsset;
+    private OaAssetStocktake? ResolvingStocktake;
+    private OaConsumableSupply? ReceivingSupply, IssuingSupply;
+    private OaAssetRequest? EditingRequest;
+    private string AssetNo = string.Empty, Category = string.Empty, Name = string.Empty, SerialNo = string.Empty, Location = string.Empty, OtherInfo = "{}", AssignUserIdText = string.Empty, TransferLocation = string.Empty, TransferReason = string.Empty, ActualStatusText = string.Empty, ActualResponsibleUserIdText = string.Empty, ActualLocation = string.Empty, StocktakeReason = string.Empty, StocktakeOtherInfo = "{}", StocktakeResolution = string.Empty, ConsumableCode = string.Empty, ConsumableName = string.Empty, ConsumableUnit = string.Empty, ConsumableLocation = string.Empty, ConsumableOtherInfo = "{}", ConsumableSourceNo = string.Empty, ConsumableNotes = string.Empty, ConsumableRecipientIdText = string.Empty;
+    private decimal ConsumableQuantity;
+    private bool ShowConsumableComposer;
+    private string RequestAssetIdText = string.Empty, RequestReason = string.Empty, RequestOtherInfo = "{}";
+    private string? Error;
+    private bool CanManage => Admin.AuthButton("Oa/Asset/Manage");
+    private bool CanAssign => Admin.AuthButton("Oa/Asset/Assign");
+    private bool CanTransfer => Admin.AuthButton("Oa/Asset/Transfer");
+    private bool CanStocktake => Admin.AuthButton("Oa/Asset/Stocktake");
+    private bool CanConsumable => Admin.AuthButton("Oa/Asset/Consumable");
+    private bool CanRequestCreate => Admin.AuthButton("Oa/Asset/Request/Create");
+    private bool CanRequest => Admin.AuthButton("Oa/Asset/Request/Create") || Requests.Any();
+    private bool CanRequestEdit => Admin.AuthButton("Oa/Asset/Request/Edit");
+    private bool CanRequestSubmit => Admin.AuthButton("Oa/Asset/Request/Submit");
+    private bool CanRequestCancel => Admin.AuthButton("Oa/Asset/Request/Cancel");
+    private Guid CurrentUserId => Admin.User?.Id ?? Guid.Empty;
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private IReadOnlyList<OaAsset> AssetItems => AssetService.List();
+    private IReadOnlyList<OaAssetRequest> Requests => AssetRequestService.ListMine(CurrentUserId);
+    private IReadOnlyList<OaAsset> AvailableAssets => AssetItems.Where(item => item.Status == OaAssetStatus.Available).ToArray();
+    private IReadOnlyList<EmployeeDirectoryEntry> Employees => DirectoryService.List(status: EmployeeDirectoryStatus.All);
+    private IReadOnlyList<OaConsumableSupply> ConsumableSupplies => ConsumableSupplyService.List();
+
+    private void OpenCreate() { CloseAssign(); CloseTransfer(); CloseStocktake(); CloseRequestComposer(); Error = null; ShowComposer = true; }
+    private void Close() { ShowComposer = false; Error = null; AssetNo = Category = Name = SerialNo = Location = string.Empty; OtherInfo = "{}"; }
+    private void Save()
+    {
+        try { AssetService.Create(AssetNo, Category, Name, SerialNo, Location, OtherInfo, CanManage); Close(); }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void OpenAssign(OaAsset asset) { Close(); CloseTransfer(); CloseStocktake(); AssigningAsset = asset; AssignUserIdText = string.Empty; }
+    private void CloseAssign() { AssigningAsset = null; AssignUserIdText = string.Empty; }
+    private void Assign()
+    {
+        if (AssigningAsset is null || !Guid.TryParse(AssignUserIdText, out var userId)) { Error = "请选择领用员工。"; return; }
+        try { AssetService.Assign(AssigningAsset, userId, CanAssign); CloseAssign(); Error = null; }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void Return(OaAssetAssignment assignment)
+    {
+        try { AssetService.Return(assignment, CanAssign); Error = null; }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void OpenTransfer(OaAsset asset) { Close(); CloseAssign(); TransferringAsset = asset; TransferLocation = asset.Location ?? string.Empty; TransferReason = string.Empty; Error = null; }
+    private void CloseTransfer() { TransferringAsset = null; TransferLocation = TransferReason = string.Empty; }
+    private void Transfer()
+    {
+        if (TransferringAsset is null) return;
+        try { AssetService.Transfer(TransferringAsset, null, TransferLocation, TransferReason, CurrentActor, CanTransfer); CloseTransfer(); Error = null; }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void OpenStocktake(OaAsset asset) { Close(); CloseAssign(); CloseTransfer(); StocktakingAsset = asset; ActualStatusText = asset.Status.ToString(); ActualResponsibleUserIdText = asset.ResponsibleUserId?.ToString() ?? string.Empty; ActualLocation = asset.Location ?? string.Empty; StocktakeReason = string.Empty; StocktakeOtherInfo = "{}"; Error = null; }
+    private void CloseStocktake() { StocktakingAsset = null; ActualStatusText = ActualResponsibleUserIdText = ActualLocation = StocktakeReason = string.Empty; StocktakeOtherInfo = "{}"; }
+    private void SaveStocktake()
+    {
+        if (StocktakingAsset is null) return;
+        OaAssetStatus? actualStatus = Enum.TryParse<OaAssetStatus>(ActualStatusText, out var parsedStatus) ? parsedStatus : null;
+        Guid? actualResponsibleUserId = actualStatus == OaAssetStatus.InUse && Guid.TryParse(ActualResponsibleUserIdText, out var parsedUserId) ? parsedUserId : null;
+        try { AssetService.Stocktake(StocktakingAsset, actualStatus, actualResponsibleUserId, ActualLocation, StocktakeReason, CurrentActor, StocktakeOtherInfo, CanStocktake); CloseStocktake(); Error = null; }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void OpenResolution(OaAssetStocktake stocktake) { Close(); CloseAssign(); CloseTransfer(); CloseStocktake(); ResolvingStocktake = stocktake; StocktakeResolution = string.Empty; Error = null; }
+    private void CloseResolution() { ResolvingStocktake = null; StocktakeResolution = string.Empty; Error = null; }
+    private void ResolveStocktake()
+    {
+        if (ResolvingStocktake is null) return;
+        try { AssetService.ResolveStocktake(ResolvingStocktake, StocktakeResolution, CurrentActor, CanStocktake); CloseResolution(); }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void OpenConsumable() { ShowConsumableComposer = true; ConsumableCode = ConsumableName = ConsumableUnit = ConsumableLocation = string.Empty; ConsumableOtherInfo = "{}"; Error = null; }
+    private void CloseConsumable() { ShowConsumableComposer = false; Error = null; }
+    private void SaveConsumable() { try { ConsumableSupplyService.Create(ConsumableCode, ConsumableName, ConsumableUnit, ConsumableLocation, ConsumableOtherInfo, CanConsumable); CloseConsumable(); } catch (Exception ex) { Error = ex.Message; } }
+    private void OpenConsumableTransaction(OaConsumableSupply supply, bool inbound) { ReceivingSupply = inbound ? supply : null; IssuingSupply = inbound ? null : supply; ConsumableQuantity = 0; ConsumableSourceNo = ConsumableNotes = ConsumableRecipientIdText = string.Empty; Error = null; }
+    private void CloseConsumableTransaction() { ReceivingSupply = IssuingSupply = null; ConsumableQuantity = 0; ConsumableSourceNo = ConsumableNotes = ConsumableRecipientIdText = string.Empty; Error = null; }
+    private void SaveConsumableTransaction()
+    {
+        try
+        {
+            if (ReceivingSupply is not null) ConsumableSupplyService.Receive(ReceivingSupply.Id, ConsumableQuantity, ConsumableSourceNo, CurrentActor, ConsumableNotes, CanConsumable);
+            else if (IssuingSupply is not null && Guid.TryParse(ConsumableRecipientIdText, out var recipient)) ConsumableSupplyService.Issue(IssuingSupply.Id, recipient, ConsumableQuantity, ConsumableSourceNo, CurrentActor, ConsumableNotes, CanConsumable);
+            else throw new InvalidOperationException("请选择接收员工。");
+            CloseConsumableTransaction();
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void OpenRequestCreate() { Close(); CloseAssign(); EditingRequest = null; RequestAssetIdText = string.Empty; RequestReason = string.Empty; RequestOtherInfo = "{}"; Error = null; ShowRequestComposer = true; }
+    private void OpenRequestEdit(OaAssetRequest request) { Close(); CloseAssign(); EditingRequest = request; RequestAssetIdText = request.AssetId.ToString(); RequestReason = request.Reason; RequestOtherInfo = request.OtherInfo; Error = null; ShowRequestComposer = true; }
+    private void CloseRequestComposer() { ShowRequestComposer = false; EditingRequest = null; RequestAssetIdText = RequestReason = string.Empty; RequestOtherInfo = "{}"; }
+    private void SaveRequest()
+    {
+        try
+        {
+            if (EditingRequest is null)
+            {
+                if (!Guid.TryParse(RequestAssetIdText, out var assetId)) throw new InvalidOperationException("请选择申请资产。");
+                EditingRequest = AssetRequestService.Create(CurrentUserId, CurrentActor, assetId, RequestReason, RequestOtherInfo);
+            }
+            else AssetRequestService.Edit(EditingRequest, CurrentUserId, CurrentActor, RequestReason, RequestOtherInfo);
+            Error = null;
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void SubmitRequest(OaAssetRequest request) { try { AssetRequestService.SubmitAndStartWorkflow(request, CurrentUserId, CurrentActor); Error = null; CloseRequestComposer(); } catch (Exception ex) { Error = ex.Message; } }
+    private void CancelRequest(OaAssetRequest request) { try { AssetRequestService.Cancel(request, CurrentUserId, CurrentActor); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private string EmployeeName(Guid userId) => Employees.FirstOrDefault(item => item.UserId == userId)?.DisplayName ?? "未知员工";
+    private static string StatusLabel(OaAssetStatus status) => status switch { OaAssetStatus.Available => "可用", OaAssetStatus.InUse => "在用", OaAssetStatus.Maintenance => "维修中", _ => "已报废" };
+    private static string OperationLabel(OaAssetOperationKind kind) => kind switch { OaAssetOperationKind.Created => "登记", OaAssetOperationKind.Edited => "编辑", OaAssetOperationKind.Assigned => "领用", OaAssetOperationKind.Returned => "归还", OaAssetOperationKind.Transferred => "转移", OaAssetOperationKind.Stocktaken => "盘点", OaAssetOperationKind.StocktakeResolved => "盘点处置", _ => "状态变更" };
+    private static string StocktakeLabel(OaAssetStocktakeResult result) => result switch { OaAssetStocktakeResult.Matched => "一致", OaAssetStocktakeResult.Difference => "有差异", _ => "未找到" };
+    private static string RequestStatusLabel(OaAssetRequestStatus status) => status switch { OaAssetRequestStatus.Draft => "草稿", OaAssetRequestStatus.Submitted => "审批中", OaAssetRequestStatus.Approved => "已批准", OaAssetRequestStatus.Rejected => "已驳回", OaAssetRequestStatus.Withdrawn => "已撤回", _ => "已取消" };
+    private string WorkflowLabel(WorkflowInstanceStatus? status) => status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已驳回", WorkflowInstanceStatus.Cancelled => "已撤回", _ => "未启动" };
+}

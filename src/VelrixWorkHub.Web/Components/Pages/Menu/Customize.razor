@@ -1,0 +1,100 @@
+@page "/Menu/Customize"
+@inject IAdminContext Admin
+@inject VelrixWorkHub.Application.Navigation.UserMenuPreferenceService MenuPreferenceService
+@inject NavigationManager Navigation
+@using AdminBlazor
+@using BootstrapBlazor.Components
+@using VelrixWorkHub.Application.Navigation
+
+<PageTitle>菜单与收藏 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header">
+        <div>
+            <p class="eyebrow">工作台 · 个性化</p>
+            <h1>菜单与收藏</h1>
+            <p class="task-page__intro">只调整当前用户的显示偏好，不改变 AdminBlazor 的角色权限；隐藏菜单仍可通过权限允许的直接地址访问。</p>
+        </div>
+    </div>
+    @if (Options.Count == 0)
+    {
+        <section class="empty-state">暂无可配置菜单。</section>
+    }
+    else
+    {
+        <section class="task-list" aria-label="可配置菜单">
+            @foreach (var group in Options.GroupBy(x => x.Group))
+            {
+                <div class="task-section-title">@group.Key</div>
+                @foreach (var option in group)
+                {
+                    <article class="task-card customer-card menu-preference-card">
+                        <div class="customer-avatar"><i class="@(string.IsNullOrWhiteSpace(option.Menu.Icon) ? "fa fa-circle-o" : option.Menu.Icon)"></i></div>
+                        <div class="task-card__body">
+                            <div class="task-card__meta"><span>@option.Menu.Label</span><span>@option.Menu.Path</span></div>
+                            <p class="customer-note">侧边栏显示：@(IsVisible(option.Menu.Id) ? "是" : "否") · 顶栏快捷：@(IsFavorite(option.Menu.Id) ? "是" : "否")</p>
+                        </div>
+                        <div class="task-card__actions">
+                            <label class="menu-switch"><input type="checkbox" checked="@IsVisible(option.Menu.Id)" @onchange="e => SetVisible(option.Menu.Id, e.Value is true)" /> 显示</label>
+                            <button title="@(IsFavorite(option.Menu.Id) ? "取消收藏" : "加入收藏")" @onclick="() => ToggleFavorite(option.Menu.Id)">
+                                <i class="fa @(IsFavorite(option.Menu.Id) ? "fa-star" : "fa-star-o")"></i>
+                            </button>
+                        </div>
+                    </article>
+                }
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private sealed record MenuOption(SysMenu Menu, string Group);
+    private readonly List<MenuOption> Options = [];
+    private Dictionary<Guid, UserMenuPreference> Preferences = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (Admin.User == null)
+        {
+            Navigation.NavigateTo("/Login", forceLoad: true);
+            return;
+        }
+
+        Preferences = MenuPreferenceService.List(Admin.User.Id).ToDictionary(x => x.MenuId);
+        Options.AddRange(Flatten(Admin.RoleMenus, "工作台"));
+    }
+
+    private bool IsVisible(Guid menuId) => !Preferences.TryGetValue(menuId, out var value) || value.IsVisible;
+    private bool IsFavorite(Guid menuId) => Preferences.TryGetValue(menuId, out var value) && value.IsFavorite;
+
+    private void SetVisible(Guid menuId, bool visible)
+    {
+        if (Admin.User is null) return;
+        MenuPreferenceService.SetVisible(Admin.User.Id, menuId, visible);
+        Reload(menuId);
+    }
+
+    private void ToggleFavorite(Guid menuId)
+    {
+        if (Admin.User is null) return;
+        var next = !IsFavorite(menuId);
+        MenuPreferenceService.SetFavorite(Admin.User.Id, menuId, next);
+        if (next) MenuPreferenceService.SetVisible(Admin.User.Id, menuId, true);
+        Reload(menuId);
+    }
+
+    private void Reload(Guid menuId) => Preferences = MenuPreferenceService.List(Admin.User!.Id).ToDictionary(x => x.MenuId);
+
+    private static IEnumerable<MenuOption> Flatten(IEnumerable<SysMenu> menus, string group)
+    {
+        foreach (var menu in menus)
+        {
+            var currentGroup = string.IsNullOrWhiteSpace(menu.Path) ? menu.Label : group;
+            if (!string.IsNullOrWhiteSpace(menu.Path)) yield return new MenuOption(menu, group);
+            if (menu.Children is not null)
+            {
+                foreach (var child in Flatten(menu.Children, currentGroup)) yield return child;
+            }
+        }
+    }
+}

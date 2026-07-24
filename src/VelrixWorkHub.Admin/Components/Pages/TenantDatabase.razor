@@ -1,0 +1,67 @@
+@page "/Admin/TenantDatabase"
+
+@using FreeSql
+
+<PageTitle>数据库管理</PageTitle>
+
+<AdminTable2 TItem="SysTenantDatabase" PageSize="20" Title="数据库管理"
+    OnQuery="OnQueryDB" InitQuery="InitQueryDB" OnEdit="OnEditDB" OnSaving="OnSavingDB">
+    <TableHeader>
+        <AdminSortHeader Field="Label">显示名</AdminSortHeader>
+        <AdminSortHeader Field="DataType">数据库类型</AdminSortHeader>
+        <AdminSortHeader Field="CreatedTime">创建时间</AdminSortHeader>
+    </TableHeader>
+    <TableRow>
+        <td>@context.Label</td>
+        <td>@context.DataType</td>
+        <td>@context.CreatedTime?.ToString("yyyy-MM-dd HH:mm")</td>
+    </TableRow>
+    <EditTemplate>
+        <div class="row">
+            <div class="form-group col-6">
+                <label class="form-label">显示名</label>
+                <input @bind="context.Label" type="text" class="form-control" maxlength="50" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">数据库类型</label>
+                <select class="form-select" @bind="context.DataType">
+                    @foreach (DataType dt in Enum.GetValues<DataType>())
+                    {
+                        <option value="@dt">@dt</option>
+                    }
+                </select>
+            </div>
+            <div class="form-group col-12">
+                <label class="form-label">连接字符串</label>
+                <input @bind="context.ConenctionString" type="text" class="form-control" maxlength="500" />
+            </div>
+        </div>
+    </EditTemplate>
+</AdminTable2>
+
+@code {
+    [Inject] IFreeSql fsql { get; set; } = default!;
+
+    async Task InitQueryDB(AdminQueryInfo e)
+    {
+        e.Filters = Array.Empty<AdminFilterInfo>();
+        await Task.CompletedTask;
+    }
+
+    void OnQueryDB(AdminQueryEventArgs<SysTenantDatabase> e)
+    {
+        e.Select.WhereIf(!string.IsNullOrWhiteSpace(e.SearchText), a => (a.Label ?? "").Contains(e.SearchText!));
+    }
+
+    Task OnEditDB(SysTenantDatabase item) => Task.CompletedTask;
+
+    async Task OnSavingDB(AdminConfirmEventArgs<SysTenantDatabase> e)
+    {
+        if (string.IsNullOrWhiteSpace(e.Argument.Label))
+        {
+            e.Cancel = true;
+            return;
+        }
+        await Task.CompletedTask;
+    }
+}

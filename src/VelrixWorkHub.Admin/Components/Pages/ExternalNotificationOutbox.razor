@@ -1,0 +1,123 @@
+@page "/Admin/ExternalNotificationOutbox"
+@using VelrixWorkHub.Application.Notifications
+@inject IExternalNotificationOutboxRepository OutboxRepository
+@inject ExternalNotificationOutboxService OutboxService
+@inject IExternalNotificationChannelConfigurationProvider ChannelConfiguration
+@inject IAdminContext Admin
+@inject NavigationManager Navigation
+
+<PageTitle>站外通知队列</PageTitle>
+
+<div class="container-fluid p-3">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <h5 class="mb-1">站外通知队列</h5>
+                <small class="text-muted">仅展示投递状态元数据，不展示收件人、通知正文、链接或去重键。</small>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="Reload">刷新</button>
+        </div>
+        <div class="card-body border-bottom">
+            <div class="mb-3">
+                <h6 class="mb-2">渠道配置</h6>
+                <div class="row g-2">
+                    @foreach (var channel in _channels)
+                    {
+                        <div class="col-md-3">
+                            <div class="border rounded p-2 h-100">
+                                <div class="d-flex justify-content-between gap-2"><strong>@ChannelLabel(channel.Channel)</strong><span class="badge @ChannelBadgeClass(channel.State)">@ChannelStateLabel(channel.State)</span></div>
+                                <small class="text-muted d-block mt-1">@channel.Description</small>
+                                @if (_channelSummaries.TryGetValue(channel.Channel, out var summary))
+                                {
+                                    <small class="text-muted d-block mt-1">队列 @summary.PendingCount · 延迟 @summary.DeferredCount · 失败 @summary.FailedAttemptCount · 最高重试 @summary.MaxRetryCount</small>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="row g-3">
+                <div class="col-md-3"><strong class="d-block fs-4">@_summary.PendingCount</strong><span class="text-muted">待投递</span></div>
+                <div class="col-md-3"><strong class="d-block fs-4">@_summary.DeferredCount</strong><span class="text-muted">延迟重试中</span></div>
+                <div class="col-md-3"><strong class="d-block fs-4">@_summary.FailedAttemptCount</strong><span class="text-muted">有失败尝试</span></div>
+                <div class="col-md-3"><strong class="d-block fs-4">@_summary.MaxRetryCount</strong><span class="text-muted">最高重试次数</span></div>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-striped align-middle mb-0">
+                <thead><tr><th>渠道</th><th>通知类型</th><th>创建时间</th><th>重试次数</th><th>最后尝试</th><th>下次尝试</th><th>状态</th></tr></thead>
+                <tbody>
+                    @foreach (var item in _items)
+                    {
+                        <tr>
+                            <td>@ChannelLabel(item.Message.Channel)</td>
+                            <td>@KindLabel(item.Message.Kind)</td>
+                            <td>@item.Message.CreatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td><span class="badge @(item.RetryCount >= 3 ? "bg-danger" : "bg-secondary")">@item.RetryCount</span></td>
+                            <td>@(item.LastAttemptAt?.ToString("yyyy-MM-dd HH:mm") ?? "尚未尝试")</td>
+                            <td>@(item.NextAttemptAt?.ToString("yyyy-MM-dd HH:mm") ?? "满足条件后立即")</td>
+                            <td><span class="badge @(string.IsNullOrWhiteSpace(item.LastError) ? "bg-info text-dark" : "bg-warning text-dark")">@(string.IsNullOrWhiteSpace(item.LastError) ? "等待渠道投递" : "失败后待重试")</span></td>
+                        </tr>
+                    }
+                    @if (_items.Count == 0) { <tr><td colspan="7" class="text-center text-muted py-4">暂无待投递的站外通知</td></tr> }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<PersistedExternalNotificationDelivery> _items = [];
+    private IReadOnlyList<ExternalNotificationChannelConfiguration> _channels = [];
+    private IReadOnlyDictionary<VelrixWorkHub.Domain.ExternalNotificationChannel, ExternalNotificationOutboxChannelSummary> _channelSummaries = new Dictionary<VelrixWorkHub.Domain.ExternalNotificationChannel, ExternalNotificationOutboxChannelSummary>();
+    private ExternalNotificationOutboxSummary _summary = new(0, 0, 0, 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (!Admin.AuthPath("Admin/ExternalNotificationOutbox"))
+        {
+            Navigation.NavigateTo("/", forceLoad: true);
+            return;
+        }
+        Reload();
+    }
+
+    private void Reload()
+    {
+        _channels = ChannelConfiguration.List();
+        _channelSummaries = OutboxService.InspectChannels().ToDictionary(item => item.Channel);
+        _items = OutboxRepository.ListPending(200).OrderByDescending(item => item.RetryCount).ThenBy(item => item.Message.CreatedAt).ToArray();
+        _summary = OutboxService.InspectPending();
+    }
+
+    private static string ChannelLabel(VelrixWorkHub.Domain.ExternalNotificationChannel channel) => channel switch
+    {
+        VelrixWorkHub.Domain.ExternalNotificationChannel.Email => "邮件",
+        VelrixWorkHub.Domain.ExternalNotificationChannel.Sms => "短信",
+        VelrixWorkHub.Domain.ExternalNotificationChannel.WeCom => "企业微信",
+        _ => "钉钉"
+    };
+
+    private static string KindLabel(VelrixWorkHub.Domain.WorkNotificationKind kind) => kind switch
+    {
+        VelrixWorkHub.Domain.WorkNotificationKind.Approval => "审批",
+        VelrixWorkHub.Domain.WorkNotificationKind.Reminder => "提醒",
+        VelrixWorkHub.Domain.WorkNotificationKind.Assignment => "分派",
+        _ => "系统"
+    };
+
+    private static string ChannelStateLabel(ExternalNotificationChannelConfigurationState state) => state switch
+    {
+        ExternalNotificationChannelConfigurationState.Enabled => "已启用",
+        ExternalNotificationChannelConfigurationState.Disabled => "未启用",
+        _ => "待接入"
+    };
+
+    private static string ChannelBadgeClass(ExternalNotificationChannelConfigurationState state) => state switch
+    {
+        ExternalNotificationChannelConfigurationState.Enabled => "bg-success",
+        ExternalNotificationChannelConfigurationState.Disabled => "bg-secondary",
+        _ => "bg-warning text-dark"
+    };
+}

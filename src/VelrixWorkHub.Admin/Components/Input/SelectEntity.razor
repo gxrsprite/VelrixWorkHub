@@ -1,0 +1,104 @@
+@namespace BootstrapBlazor.Components
+@typeparam TItem where TItem : class
+@typeparam TKey
+@using System.Globalization
+@using FreeSql.Internal.Model
+@inject IFreeSql Fsql
+
+<select class="@CssClass" disabled="@Disabled" value="@CurrentValueAsString" @onchange="OnChangeAsync">
+    @if (ShowPlaceholder)
+    {
+        <option value="">@Placeholder</option>
+    }
+    @foreach (var item in _items)
+    {
+        var key = GetPrimaryValue(item);
+        <option value="@FormatValue(key)">@GetDisplayText(item)</option>
+    }
+</select>
+
+@code {
+    private List<TItem> _items = new();
+    private TableInfo? _table;
+    private ColumnInfo? _primaryColumn;
+    private ColumnInfo? _firstStringColumn;
+
+    [Parameter] public TKey? Value { get; set; }
+    [Parameter] public EventCallback<TKey?> ValueChanged { get; set; }
+    [Parameter] public EventCallback<TKey?> OnValueChanged { get; set; }
+    [Parameter] public Func<TItem, string>? DisplayText { get; set; }
+    [Parameter] public IReadOnlyList<TItem>? Source { get; set; }
+    [Parameter] public Action<ISelect<TItem>>? OnQuery { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool ShowPlaceholder { get; set; } = true;
+    [Parameter] public string Placeholder { get; set; } = "请选择..";
+    [Parameter] public string CssClass { get; set; } = "form-control";
+
+    private string CurrentValueAsString => FormatValue(Value);
+
+    protected override void OnInitialized()
+    {
+        _table = Fsql.CodeFirst.GetTableByEntity(typeof(TItem));
+        _primaryColumn = _table.Primarys.SingleOrDefault()
+            ?? throw new ArgumentException("SelectEntity 要求使用类型必须使用单一主键");
+
+        var primaryType = Nullable.GetUnderlyingType(_primaryColumn.CsType) ?? _primaryColumn.CsType;
+        var keyType = Nullable.GetUnderlyingType(typeof(TKey)) ?? typeof(TKey);
+        if (primaryType != keyType)
+        {
+            throw new ArgumentException("SelectEntity 要求使用类型的主键，必须与 TKey 类型相同");
+        }
+
+        _firstStringColumn = _table.ColumnsByPosition.FirstOrDefault(a => a.CsType == typeof(string));
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Source != null)
+        {
+            _items = Source.ToList();
+            return;
+        }
+
+        var query = Fsql.Select<TItem>();
+        OnQuery?.Invoke(query);
+        _items = await query.ToListAsync();
+    }
+
+    private async Task OnChangeAsync(ChangeEventArgs e)
+    {
+        var valueText = e.Value?.ToString();
+        TKey? value = default;
+        if (!string.IsNullOrWhiteSpace(valueText)
+            && BindConverter.TryConvertTo<TKey>(valueText, CultureInfo.CurrentCulture, out var converted))
+        {
+            value = converted;
+        }
+
+        Value = value;
+        await ValueChanged.InvokeAsync(value);
+        await OnValueChanged.InvokeAsync(value);
+    }
+
+    private object? GetPrimaryValue(TItem item)
+    {
+        return _primaryColumn?.GetValue(item);
+    }
+
+    private string GetDisplayText(TItem item)
+    {
+        if (DisplayText != null)
+        {
+            return DisplayText(item);
+        }
+
+        return _firstStringColumn?.GetValue(item)?.ToString()
+            ?? GetPrimaryValue(item)?.ToString()
+            ?? string.Empty;
+    }
+
+    private static string FormatValue(object? value)
+    {
+        return Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+}

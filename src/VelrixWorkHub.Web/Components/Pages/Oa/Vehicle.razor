@@ -1,0 +1,180 @@
+@page "/Oa/Vehicle"
+@inject VelrixWorkHub.Application.Vehicles.VehicleService VehicleService
+@inject VelrixWorkHub.Application.Vehicles.VehicleMaintenanceService MaintenanceService
+@inject VelrixWorkHub.Application.Employees.EmployeeDirectoryService DirectoryService
+@inject VelrixWorkHub.Application.Workflow.WorkflowApprovalService WorkflowApprovalService
+@inject AdminBlazor.IAdminContext Admin
+@using VelrixWorkHub.Domain
+@using VelrixWorkHub.Application.Employees
+@using VelrixWorkHub.Application.Workflow
+
+<PageTitle>车辆管理 - Velrix Work Hub</PageTitle>
+
+<div class="task-page vehicle-page">
+    <div class="task-page__header">
+        <div><p class="eyebrow">协同办公 · OA/Vehicle</p><h1>车辆管理</h1><p class="task-page__intro">维护车辆台账、用车申请和归还记录；审批通过才占用车辆，拒绝、撤回和未提交申请不占车。</p></div>
+        <div class="task-page__summary"><strong>@VehicleService.ListVehicles().Count</strong><span>辆车辆</span></div>
+    </div>
+
+    <section class="task-toolbar" aria-label="车辆管理操作">
+        <span class="customer-note">当前用户：@(Admin.User?.Username ?? "未登录")</span>
+        @if (Admin.AuthButton("Oa/Vehicle/Create")) { <button class="task-primary-button" @onclick="OpenVehicleEditor"><i class="fa fa-plus" aria-hidden="true"></i> 新增车辆</button> }
+        @if (Admin.AuthButton("Oa/Vehicle/Request")) { <button class="task-secondary-button" @onclick="OpenRequestEditor"><i class="fa fa-car" aria-hidden="true"></i> 新建用车申请</button> }
+        @if (Admin.AuthButton("Oa/Vehicle/Maintenance")) { <button class="task-secondary-button" @onclick="() => OpenMaintenanceEditor()"><i class="fa fa-wrench" aria-hidden="true"></i> 登记维修</button> }
+    </section>
+
+    @if (ShowVehicleEditor)
+    {
+        <section class="task-composer" aria-label="车辆台账编辑">
+            <div class="task-composer__title">新增车辆台账</div>
+            <div class="task-composer__fields"><label>车牌号<input @bind="VehiclePlateNumber" maxlength="50" /></label><label>车辆类型<input @bind="VehicleType" maxlength="100" placeholder="轿车、客车、货车" /></label></div>
+            <div class="task-composer__fields"><label>品牌型号<input @bind="VehicleBrandModel" maxlength="200" /></label><label>座位数<input type="number" min="1" @bind="VehicleSeatCount" /></label></div>
+            <div class="task-composer__fields"><label>车辆负责人<select @bind="VehicleResponsibleUserId"><option value="">暂不指定</option>@foreach (var employee in Employees) { <option value="@employee.UserId">@employee.DisplayName · @employee.Username</option> }</select></label><span class="customer-note">负责人会收到年检、保险到期提醒</span></div>
+            <div class="task-composer__fields"><label>年检到期<input type="date" @bind="VehicleInspectionDate" /></label><label>保险到期<input type="date" @bind="VehicleInsuranceDate" /></label></div>
+            <label>扩展信息 OtherInfo JSON 对象<textarea @bind="VehicleOtherInfo" @bind:event="oninput" rows="2"></textarea></label>
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseEditors">取消</button><button class="task-primary-button" @onclick="SaveVehicle">保存车辆</button></div>
+        </section>
+    }
+
+    @if (ShowRequestEditor)
+    {
+        <section class="task-composer" aria-label="用车申请编辑">
+            <div class="task-composer__title">填写用车申请</div>
+            <div class="task-composer__fields"><label>车辆<select @bind="RequestVehicleId"><option value="">请选择可用车辆</option>@foreach (var vehicle in VehicleService.ListVehicles().Where(x => x.Status == OaVehicleStatus.Available)) { <option value="@vehicle.Id">@vehicle.PlateNumber · @vehicle.BrandModel · @VehicleStatusLabel(vehicle.Status)</option> }</select></label><label>驾驶员<input @bind="RequestDriverName" maxlength="100" /></label></div>
+            <div class="task-composer__fields"><label>开始时间<input type="datetime-local" @bind="RequestStartAt" /></label><label>结束时间<input type="datetime-local" @bind="RequestEndAt" /></label></div>
+            <div class="task-composer__fields"><label>起始里程<input @bind="RequestStartMileageText" placeholder="可选" /></label><label>目的地<input @bind="RequestDestination" maxlength="300" /></label></div>
+            <label>用车事由<textarea @bind="RequestPurpose" @bind:event="oninput" rows="2" maxlength="2000"></textarea></label>
+            <label>扩展信息 OtherInfo JSON 对象<textarea @bind="RequestOtherInfo" @bind:event="oninput" rows="2"></textarea></label>
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseEditors">取消</button><button class="task-primary-button" @onclick="SaveRequest">保存草稿</button></div>
+        </section>
+    }
+
+    @if (ShowMaintenanceEditor)
+    {
+        <section class="task-composer" aria-label="车辆维修登记">
+            <div class="task-composer__title">登记车辆维修</div>
+            <div class="task-composer__fields"><label>车辆<select @bind="MaintenanceVehicleId"><option value="">请选择可用车辆</option>@foreach (var vehicle in VehicleService.ListVehicles().Where(x => x.Status == OaVehicleStatus.Available)) { <option value="@vehicle.Id">@vehicle.PlateNumber · @vehicle.BrandModel</option> }</select></label><label>开始时间<input type="datetime-local" @bind="MaintenanceStartedAt" /></label></div>
+            <div class="task-composer__fields"><label>维修里程<input type="number" min="0" step="0.01" @bind="MaintenanceMileageText" /></label><label>服务商<input @bind="MaintenanceProvider" maxlength="200" /></label></div>
+            <div class="task-composer__fields"><label>维修费用<input type="number" min="0" step="0.01" @bind="MaintenanceCostText" /></label><label>扩展信息 OtherInfo JSON 对象<textarea @bind="MaintenanceOtherInfo" @bind:event="oninput" rows="1"></textarea></label></div>
+            <label>维修内容<textarea @bind="MaintenanceDescription" @bind:event="oninput" rows="2" maxlength="2000"></textarea></label>
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseEditors">取消</button><button class="task-primary-button" @onclick="StartMaintenance">开始维修</button></div>
+        </section>
+    }
+
+    @if (ShowReturnEditor && ReturnRequestId is Guid returnRequestId)
+    {
+        var returnRequest = VehicleService.GetRequest(returnRequestId);
+        <section class="task-composer" aria-label="归还车辆">
+            <div class="task-composer__title">归还车辆</div>
+            @if (returnRequest is null)
+            {
+                <p class="customer-note">该用车申请已不存在，无法归还。</p>
+            }
+            else
+            {
+                var returnVehicle = VehicleService.GetVehicle(returnRequest.VehicleId);
+                <p class="customer-note">@(returnVehicle?.PlateNumber ?? "未知车辆") · @returnRequest.Destination · 起始里程 @(returnRequest.StartMileage?.ToString("0.##") ?? "未登记")</p>
+                <label>结束里程<input type="number" min="0" step="0.01" @bind="ReturnEndMileageText" placeholder="可选" /></label>
+                <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseEditors">取消</button><button class="task-primary-button" @onclick="ConfirmReturn">确认归还</button></div>
+            }
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+
+    <section class="task-list" aria-label="车辆台账">
+        <div class="task-section-heading"><h2>车辆台账</h2><span>可用车辆才允许提交用车申请</span></div>
+        @if (!VehicleService.ListVehicles().Any()) { <div class="task-empty"><i class="fa fa-car" aria-hidden="true"></i><strong>暂无车辆台账</strong><span>先新增一辆车辆。</span></div> }
+        else { @foreach (var vehicle in VehicleService.ListVehicles()) { var maintenance = MaintenanceService.ListByVehicle(vehicle.Id).FirstOrDefault(); <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-car"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@vehicle.Status.ToString().ToLowerInvariant()">@VehicleStatusLabel(vehicle.Status)</span><span>@vehicle.PlateNumber</span><span>@vehicle.VehicleType</span></div><h2>@vehicle.BrandModel</h2><p>@vehicle.SeatCount 座 · 年检 @(vehicle.AnnualInspectionExpiresOn?.ToString("yyyy-MM-dd") ?? "未登记") · 保险 @(vehicle.InsuranceExpiresOn?.ToString("yyyy-MM-dd") ?? "未登记")</p><div class="customer-note">负责人：@(vehicle.ResponsibleUserId?.ToString() ?? "未指定") · OtherInfo：@vehicle.OtherInfo@if (maintenance is not null) { <span> · 最近维修：@maintenance.Description · @MaintenanceStatusLabel(maintenance.Status)</span> }</div></div><div class="task-card__actions">@if (vehicle.Status == OaVehicleStatus.Available && Admin.AuthButton("Oa/Vehicle/Maintenance")) { <button title="登记维修" @onclick="() => OpenMaintenanceEditor(vehicle)"><i class="fa fa-wrench"></i></button> } @if (maintenance?.Status == OaVehicleMaintenanceStatus.Open && Admin.AuthButton("Oa/Vehicle/Maintenance")) { <button title="完成维修" @onclick="() => CompleteMaintenance(maintenance)"><i class="fa fa-check"></i></button><button class="danger" title="取消维修" @onclick="() => CancelMaintenance(maintenance)"><i class="fa fa-undo"></i></button> } @if (vehicle.Status is OaVehicleStatus.Available or OaVehicleStatus.Maintenance && Admin.AuthButton("Oa/Vehicle/Edit")) { <button class="danger" title="报废车辆" @onclick="() => ChangeVehicleStatus(vehicle, OaVehicleStatus.Retired)"><i class="fa fa-ban"></i></button> }</div></article> } }
+    </section>
+
+    <section class="task-list" aria-label="我的用车申请">
+        <div class="task-section-heading"><h2>我的用车申请</h2><span>审批完成后车辆进入使用中，归还后恢复可用</span></div>
+        @if (!Requests.Any()) { <div class="task-empty"><i class="fa fa-road" aria-hidden="true"></i><strong>暂无用车申请</strong><span>新建申请后提交审批。</span></div> }
+        else { @foreach (var request in Requests) { var vehicle = VehicleService.ListVehicles().FirstOrDefault(x => x.Id == request.VehicleId); var workflow = WorkflowApprovalService.Latest(WorkflowBindingCodes.VehicleUseApproval, nameof(OaVehicleUseRequest), request.Id); <article class="task-card customer-card"><div class="schedule-time"><strong>@request.StartAt.ToString("MM月dd日")</strong><span>@request.StartAt.ToString("HH:mm")</span></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@request.Status.ToString().ToLowerInvariant()">@RequestStatusLabel(request.Status)</span><span>@(vehicle?.PlateNumber ?? "未知车辆")</span><span>@request.Destination</span></div><h2>@request.Purpose</h2><p>驾驶员：@request.DriverName · @request.StartAt.ToString("yyyy-MM-dd HH:mm") 至 @request.EndAt.ToString("yyyy-MM-dd HH:mm")</p><div class="customer-note">审批：@WorkflowLabel(workflow?.Status)@if (!string.IsNullOrWhiteSpace(request.RejectionReason)) { <span> · 驳回原因：@request.RejectionReason</span> }@if (request.ReturnedAt is DateTime returnedAt) { <span> · 归还于 @returnedAt.ToString("yyyy-MM-dd HH:mm") · 结束里程 @(request.EndMileage?.ToString("0.##") ?? "未登记")</span> }</div></div><div class="task-card__actions">@if (request.Status is (OaVehicleUseRequestStatus.Draft or OaVehicleUseRequestStatus.Rejected) && Admin.AuthButton("Oa/Vehicle/Submit")) { <button title="提交用车申请审批" @onclick="() => SubmitRequest(request)"><i class="fa fa-send-o"></i></button> } @if (request.Status is (OaVehicleUseRequestStatus.Draft or OaVehicleUseRequestStatus.Submitted) && Admin.AuthButton("Oa/Vehicle/Cancel")) { <button class="danger" title="撤回用车申请" @onclick="() => CancelRequest(request)"><i class="fa fa-undo"></i></button> } @if (request.Status == OaVehicleUseRequestStatus.Approved && Admin.AuthButton("Oa/Vehicle/Return")) { <button title="归还车辆" @onclick="() => OpenReturnEditor(request)"><i class="fa fa-check-square-o"></i></button> }</div></article> } }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowVehicleEditor, ShowRequestEditor, ShowMaintenanceEditor, ShowReturnEditor;
+    private string? Error;
+    private Guid CurrentUserId => Admin.User?.Id ?? Guid.Empty;
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private IReadOnlyList<OaVehicleUseRequest> Requests => VehicleService.ListMine(CurrentUserId);
+
+    private string VehiclePlateNumber = string.Empty, VehicleType = string.Empty, VehicleBrandModel = string.Empty, VehicleOtherInfo = "{}";
+    private string VehicleResponsibleUserId = string.Empty;
+    private DateTime? VehicleInspectionDate, VehicleInsuranceDate;
+    private int VehicleSeatCount = 5;
+    private string RequestVehicleId = string.Empty, RequestDriverName = string.Empty, RequestStartMileageText = string.Empty, RequestDestination = string.Empty, RequestPurpose = string.Empty, RequestOtherInfo = "{}";
+    private DateTime RequestStartAt = DateTime.Now.AddDays(1).Date.AddHours(9), RequestEndAt = DateTime.Now.AddDays(1).Date.AddHours(18);
+    private string MaintenanceVehicleId = string.Empty, MaintenanceMileageText = string.Empty, MaintenanceProvider = string.Empty, MaintenanceCostText = string.Empty, MaintenanceDescription = string.Empty, MaintenanceOtherInfo = "{}";
+    private DateTime MaintenanceStartedAt = DateTime.Now;
+    private Guid? ReturnRequestId;
+    private string ReturnEndMileageText = string.Empty;
+
+    private IReadOnlyList<EmployeeDirectoryEntry> Employees => DirectoryService.List();
+
+    private void OpenVehicleEditor() { CloseEditors(); ShowVehicleEditor = true; VehicleResponsibleUserId = string.Empty; }
+    private void OpenRequestEditor() { CloseEditors(); ShowRequestEditor = true; RequestStartAt = DateTime.Now.AddDays(1).Date.AddHours(9); RequestEndAt = RequestStartAt.AddHours(9); RequestDriverName = Admin.User?.Nickname ?? Admin.User?.Username ?? string.Empty; }
+    private void OpenMaintenanceEditor(OaVehicle? vehicle = null) { CloseEditors(); ShowMaintenanceEditor = true; MaintenanceVehicleId = vehicle?.Id.ToString() ?? string.Empty; MaintenanceStartedAt = DateTime.Now; }
+    private void OpenReturnEditor(OaVehicleUseRequest request) { CloseEditors(); ShowReturnEditor = true; ReturnRequestId = request.Id; }
+    private void CloseEditors() { ShowVehicleEditor = false; ShowRequestEditor = false; ShowMaintenanceEditor = false; ShowReturnEditor = false; ReturnRequestId = null; ReturnEndMileageText = string.Empty; Error = null; }
+    private void SaveVehicle()
+    {
+        try
+        {
+            Guid? responsibleUserId = string.IsNullOrWhiteSpace(VehicleResponsibleUserId) ? null : Guid.Parse(VehicleResponsibleUserId);
+            VehicleService.CreateVehicle(VehiclePlateNumber, VehicleType, VehicleBrandModel, VehicleSeatCount, responsibleUserId, VehicleInspectionDate is DateTime inspection ? DateOnly.FromDateTime(inspection) : null, VehicleInsuranceDate is DateTime insurance ? DateOnly.FromDateTime(insurance) : null, VehicleOtherInfo);
+            CloseEditors();
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void SaveRequest()
+    {
+        try
+        {
+            if (!Guid.TryParse(RequestVehicleId, out var vehicleId)) throw new InvalidOperationException("请选择车辆。");
+            decimal? startMileage = string.IsNullOrWhiteSpace(RequestStartMileageText) ? null : decimal.Parse(RequestStartMileageText);
+            VehicleService.CreateRequest(CurrentUserId, Admin.User?.Nickname ?? Admin.User?.Username ?? string.Empty, vehicleId, RequestDriverName, RequestStartAt, RequestEndAt, startMileage, RequestDestination, RequestPurpose, RequestOtherInfo);
+            CloseEditors();
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void SubmitRequest(OaVehicleUseRequest request) { try { VehicleService.SubmitAndStartWorkflow(request, CurrentUserId, CurrentActor); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void CancelRequest(OaVehicleUseRequest request) { try { VehicleService.Cancel(request, CurrentUserId, CurrentActor); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void ConfirmReturn()
+    {
+        try
+        {
+            if (ReturnRequestId is not Guid requestId) throw new InvalidOperationException("请选择要归还的用车申请。");
+            var request = VehicleService.GetRequest(requestId) ?? throw new InvalidOperationException("用车申请不存在或已被删除。");
+            decimal? endMileage = string.IsNullOrWhiteSpace(ReturnEndMileageText) ? null : decimal.Parse(ReturnEndMileageText);
+            VehicleService.Return(request, CurrentUserId, endMileage);
+            CloseEditors();
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void ChangeVehicleStatus(OaVehicle vehicle, OaVehicleStatus status) { try { VehicleService.SetVehicleStatus(vehicle, status); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void StartMaintenance()
+    {
+        try
+        {
+            if (!Guid.TryParse(MaintenanceVehicleId, out var vehicleId)) throw new InvalidOperationException("请选择车辆。");
+            decimal? mileage = string.IsNullOrWhiteSpace(MaintenanceMileageText) ? null : decimal.Parse(MaintenanceMileageText);
+            decimal? cost = string.IsNullOrWhiteSpace(MaintenanceCostText) ? null : decimal.Parse(MaintenanceCostText);
+            MaintenanceService.Start(vehicleId, CurrentUserId, CurrentActor, MaintenanceStartedAt, mileage, MaintenanceDescription, MaintenanceProvider, cost, MaintenanceOtherInfo);
+            CloseEditors();
+        }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void CompleteMaintenance(OaVehicleMaintenance item) { try { MaintenanceService.Complete(item, CurrentUserId, "维修完成，车辆恢复可用。"); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private void CancelMaintenance(OaVehicleMaintenance item) { try { MaintenanceService.Cancel(item, CurrentUserId, "取消维修登记。"); Error = null; } catch (Exception ex) { Error = ex.Message; } }
+    private static string VehicleStatusLabel(OaVehicleStatus status) => status switch { OaVehicleStatus.Available => "可用", OaVehicleStatus.InUse => "使用中", OaVehicleStatus.Maintenance => "维修中", _ => "已报废" };
+    private static string RequestStatusLabel(OaVehicleUseRequestStatus status) => status switch { OaVehicleUseRequestStatus.Draft => "草稿", OaVehicleUseRequestStatus.Submitted => "待审批", OaVehicleUseRequestStatus.Approved => "使用中", OaVehicleUseRequestStatus.Rejected => "已驳回", OaVehicleUseRequestStatus.Cancelled => "已撤回", _ => "已归还" };
+    private static string MaintenanceStatusLabel(OaVehicleMaintenanceStatus status) => status switch { OaVehicleMaintenanceStatus.Open => "维修中", OaVehicleMaintenanceStatus.Completed => "已完成", _ => "已取消" };
+    private string ResponsibleName(Guid? userId) => userId is Guid id ? Employees.FirstOrDefault(employee => employee.UserId == id)?.DisplayName ?? "已停用或已删除" : "未指定";
+    private static string WorkflowLabel(WorkflowInstanceStatus? status) => status switch { WorkflowInstanceStatus.Running => "审批中", WorkflowInstanceStatus.Completed => "已完成", WorkflowInstanceStatus.Rejected => "已拒绝", WorkflowInstanceStatus.Cancelled => "已撤回", _ => "未发起" };
+}

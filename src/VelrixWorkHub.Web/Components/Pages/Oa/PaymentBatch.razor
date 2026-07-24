@@ -1,0 +1,112 @@
+@page "/Oa/PaymentBatch"
+@using VelrixWorkHub.Application.PaymentRequests
+@using VelrixWorkHub.Domain
+@inject PaymentBatchService PaymentBatchService
+@inject PaymentRequestService PaymentRequestService
+@inject AdminBlazor.IAdminContext Admin
+
+<PageTitle>付款批次 - Velrix Work Hub</PageTitle>
+
+<div class="task-page payment-batch-page">
+    <div class="task-page__header"><div><p class="eyebrow">协同办公 · OA/PaymentBatch</p><h1>付款批次</h1><p class="task-page__intro">将财务复核通过、尚未执行的付款申请按币种组批，保留批次金额与申请明细追溯；本页不触发银行或外部支付。</p></div><div class="task-page__summary"><strong>@Batches.Count</strong><span>个付款批次</span></div></div>
+    <section class="task-toolbar" aria-label="付款批次操作"><span class="customer-note">批次提交只是内部组批确认，实际付款仍需在付款申请中登记流水。</span>@if (Admin.AuthButton("Oa/PaymentBatch/Create")) { <button class="task-primary-button" @onclick="OpenCreate"><i class="fa fa-plus" aria-hidden="true"></i> 新建付款批次</button> }</section>
+
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="付款批次编辑器">
+            <div class="task-composer__title">新建付款批次</div>
+            <div class="task-composer__fields"><label>批次号<input @bind="DraftBatchNo" @bind:event="oninput" maxlength="100" /></label><label>付款日期<input type="date" @bind="DraftPaymentDate" /></label></div>
+            <div class="task-composer__fields"><label>币种<input @bind="DraftCurrency" @bind:event="oninput" maxlength="10" /></label><label>OtherInfo JSON<textarea @bind="DraftOtherInfo" @bind:event="oninput" rows="1"></textarea></label></div>
+            @if (!string.IsNullOrWhiteSpace(Error)) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseCreate">取消</button><button class="task-primary-button" @onclick="SaveBatch">保存批次</button></div>
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error) && !ShowComposer) { <div class="task-error" role="alert">@Error</div> }
+    @if (CanManage)
+    {
+        <section class="task-composer" aria-label="付款申请组批">
+            <div class="task-composer__title">加入待执行付款申请</div>
+            <div class="task-composer__fields"><label>当前草稿批次<select @bind="SelectedBatchId"><option value="">请选择付款批次</option>@foreach (var batch in Batches.Where(x => x.Status == OaPaymentBatchStatus.Draft)) { <option value="@batch.Id">@batch.BatchNo · @batch.Currency · @batch.ItemCount 条</option> }</select></label><span class="customer-note">只显示已批准、财务复核通过且没有实际付款记录的申请。</span></div>
+            <div class="task-list">
+                @if (SelectedBatch is null) { <div class="task-empty"><strong>请选择一个草稿批次</strong><span>选择后即可加入符合条件的付款申请。</span></div> }
+                else if (!EligibleRequests.Any()) { <div class="task-empty"><strong>暂无可组批付款申请</strong><span>请先完成 Workflow 审批和财务复核。</span></div> }
+                else
+                {
+                    @foreach (var request in EligibleRequests)
+                    {
+                        <article class="task-card"><div class="task-card__body"><div class="task-card__meta"><span>@request.DocumentNo</span><span>@request.Currency</span><span>@request.RequestedPaymentDate.ToString("yyyy-MM-dd")</span></div><h2>@request.PayeeName · @request.Amount.ToString("N2")</h2><p>@request.Purpose</p></div><div class="task-card__actions"><button class="task-primary-button" @onclick="() => AddRequest(request)">加入批次</button></div></article>
+                    }
+                }
+            </div>
+        </section>
+    }
+
+    <section class="task-list" aria-live="polite">
+        @if (!Batches.Any())
+        {
+            <div class="task-empty"><i class="fa fa-files-o" aria-hidden="true"></i><strong>还没有付款批次</strong><span>创建批次后，可以把已完成财务复核的付款申请集中追踪。</span></div>
+        }
+        else
+        {
+            @foreach (var batch in Batches)
+            {
+                var batchItems = PaymentBatchService.ListItems(batch.Id);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-files-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status @(batch.Status == OaPaymentBatchStatus.Submitted ? "customer-status--active" : batch.Status == OaPaymentBatchStatus.Cancelled ? "customer-status--inactive" : "")">@StatusLabel(batch.Status)</span><span>@batch.BatchNo</span><span>@batch.Currency</span><span>@batch.PaymentDate.ToString("yyyy-MM-dd")</span></div><h2>批次金额 @batch.TotalAmount.ToString("N2") · @batch.ItemCount 条申请</h2><p>创建人：@batch.CreatedBy · 明细记录：@batchItems.Count</p></div><div class="task-card__actions">@if (batch.Status == OaPaymentBatchStatus.Draft && Admin.AuthButton("Oa/PaymentBatch/Submit")) { <button class="task-primary-button" title="提交付款批次" @onclick="() => SubmitBatch(batch)">提交</button> } @if (batch.Status is OaPaymentBatchStatus.Draft or OaPaymentBatchStatus.Submitted && Admin.AuthButton("Oa/PaymentBatch/Cancel")) { <button class="danger" title="撤回付款批次" @onclick="() => CancelBatch(batch)"><i class="fa fa-undo"></i></button> }</div></article>
+                @if (batchItems.Count > 0)
+                {
+                    <div class="task-card__details"><strong>@batch.BatchNo 明细</strong>@foreach (var item in batchItems) { var request = PaymentRequestService.Get(item.PaymentRequestId); <div class="customer-note">@(request?.DocumentNo ?? item.PaymentRequestId.ToString()) · @item.Amount.ToString("N2") · @(request?.PayeeName ?? "申请已删除") @if (batch.Status == OaPaymentBatchStatus.Draft && Admin.AuthButton("Oa/PaymentBatch/Remove")) { <button class="danger" @onclick="() => RemoveRequest(batch, item.Id)">移除</button> }</div> }</div>
+                }
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() => await Admin.InitAsync();
+
+    private bool ShowComposer;
+    private string DraftBatchNo = string.Empty, DraftCurrency = "CNY", DraftOtherInfo = "{}", SelectedBatchId = string.Empty;
+    private DateTime DraftPaymentDate = DateTime.Today;
+    private string? Error;
+    private string CurrentActor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private bool CanManage => Admin.AuthButton("Oa/PaymentBatch/Add");
+    private IReadOnlyList<OaPaymentBatch> Batches => PaymentBatchService.List();
+    private OaPaymentBatch? SelectedBatch => Guid.TryParse(SelectedBatchId, out var id) ? Batches.FirstOrDefault(x => x.Id == id) : null;
+    private IReadOnlyList<OaPaymentRequest> EligibleRequests => CanManage ? PaymentBatchService.ListEligible(PaymentRequestService.List(), true) : [];
+
+    private void OpenCreate() { Error = null; ShowComposer = true; DraftBatchNo = $"PAYBATCH-{DateTime.Today:yyyyMMdd}-{DateTime.Now:HHmmss}"; DraftPaymentDate = DateTime.Today; DraftCurrency = "CNY"; DraftOtherInfo = "{}"; }
+    private void CloseCreate() { ShowComposer = false; Error = null; }
+    private void SaveBatch()
+    {
+        try { var created = PaymentBatchService.Create(DraftBatchNo, DateOnly.FromDateTime(DraftPaymentDate), DraftCurrency, CurrentActor, DraftOtherInfo, Admin.AuthButton("Oa/PaymentBatch/Create")); SelectedBatchId = created.Id.ToString(); CloseCreate(); }
+        catch (Exception exception) { Error = exception.Message; }
+    }
+    private void AddRequest(OaPaymentRequest request)
+    {
+        try { if (SelectedBatch is null) throw new InvalidOperationException("请先选择草稿付款批次。"); PaymentBatchService.AddRequest(SelectedBatch, request, Admin.AuthButton("Oa/PaymentBatch/Add")); Error = null; }
+        catch (Exception exception) { Error = exception.Message; }
+    }
+    private void RemoveRequest(OaPaymentBatch batch, Guid itemId)
+    {
+        try { PaymentBatchService.RemoveRequest(batch, itemId, Admin.AuthButton("Oa/PaymentBatch/Remove")); Error = null; }
+        catch (Exception exception) { Error = exception.Message; }
+    }
+    private void SubmitBatch(OaPaymentBatch batch)
+    {
+        try { PaymentBatchService.Submit(batch, Admin.AuthButton("Oa/PaymentBatch/Submit")); Error = null; }
+        catch (Exception exception) { Error = exception.Message; }
+    }
+    private void CancelBatch(OaPaymentBatch batch)
+    {
+        try { PaymentBatchService.Cancel(batch, Admin.AuthButton("Oa/PaymentBatch/Cancel")); Error = null; }
+        catch (Exception exception) { Error = exception.Message; }
+    }
+    private static string StatusLabel(OaPaymentBatchStatus status) => status switch
+    {
+        OaPaymentBatchStatus.Draft => "草稿",
+        OaPaymentBatchStatus.Submitted => "已提交",
+        OaPaymentBatchStatus.Cancelled => "已撤回",
+        _ => status.ToString()
+    };
+}

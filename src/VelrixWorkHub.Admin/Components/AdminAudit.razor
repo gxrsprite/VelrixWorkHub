@@ -1,0 +1,266 @@
+@namespace BootstrapBlazor.Components
+@using System.Text.Json
+@inject IFreeSql Fsql
+
+<div class="admin-audit">
+    @if (_loading)
+    {
+        <div class="text-muted small">@LoadingText</div>
+    }
+    else if (_logs.Count == 0 && _entityLogs.Count == 0)
+    {
+        <div class="text-muted small">@EmptyText</div>
+    }
+    else
+    {
+        @if (_logs.Count > 0)
+        {
+            <div class="table-responsive mb-3">
+                <table class="table table-sm table-bordered mb-0">
+                    <thead>
+                        <tr>
+                            <th>@StepText</th>
+                            <th>@ResultText</th>
+                            <th>@OpinionText</th>
+                            <th>@NextStepText</th>
+                            <th>@TimeText</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var log in _logs)
+                        {
+                            <tr>
+                                <td>@log.Step</td>
+                                <td>@log.Result</td>
+                                <td>@log.Opinion</td>
+                                <td>@log.NextStep</td>
+                                <td>@log.CreatedTime?.ToString("yyyy-MM-dd HH:mm")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (_entityLogs.Count > 0)
+        {
+            <h6 class="mb-2">@EntityLogTitle</h6>
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered mb-0">
+                    <thead>
+                        <tr>
+                            <th>@ActionText</th>
+                            <th>@OperatorText</th>
+                            <th>@TimeText</th>
+                            <th>@SummaryText</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var log in _entityLogs)
+                        {
+                            <tr>
+                                <td>@log.LogType</td>
+                                <td>@GetOperator(log)</td>
+                                <td>@log.CreatedTime?.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td><code class="small">@BuildSummary(log, FieldLabels)</code></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string? TableName { get; set; }
+    [Parameter] public Guid? TableId { get; set; }
+    [Parameter] public int Take { get; set; } = 20;
+    [Parameter] public IReadOnlyDictionary<string, string>? FieldLabels { get; set; }
+    [Parameter] public string LoadingText { get; set; } = "加载审核日志...";
+    [Parameter] public string EmptyText { get; set; } = "暂无审核日志";
+
+    private const string StepText = "步骤";
+    private const string ResultText = "结果";
+    private const string OpinionText = "意见";
+    private const string NextStepText = "下一步";
+    private const string TimeText = "时间";
+    private const string EntityLogTitle = "变更记录";
+    private const string ActionText = "动作";
+    private const string OperatorText = "操作人";
+    private const string SummaryText = "摘要";
+
+    private bool _loading;
+    private List<SysAuditLog> _logs = new();
+    private List<SysAuditEntityLog> _entityLogs = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    public async Task RefreshAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (string.IsNullOrWhiteSpace(TableName) || TableId is null || TableId == Guid.Empty)
+        {
+            _logs = new();
+            _entityLogs = new();
+            return;
+        }
+
+        _loading = true;
+        try
+        {
+            _logs = await Fsql.Select<SysAuditLog>()
+                .Where(a => a.TableName == TableName && a.TableId == TableId.Value)
+                .OrderByDescending(a => a.CreatedTime)
+                .Take(Math.Clamp(Take, 1, 200))
+                .ToListAsync();
+
+            _entityLogs = (await Fsql.Select<SysAuditEntityLog>()
+                .Where(a => a.TableName == TableName && a.TableId == TableId.Value)
+                .OrderByDescending(a => a.CreatedTime)
+                .Take(Math.Clamp(Take * 2, 1, 400))
+                .ToListAsync())
+                .Where(log => !(log.LogType == "edit" && string.Equals(log.DataOld, log.Data, StringComparison.Ordinal)))
+                .Take(Math.Clamp(Take, 1, 200))
+                .ToList();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static readonly HashSet<string> SensitiveNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Password",
+        "Token",
+        "Secret"
+    };
+
+    public static string BuildSummary(SysAuditEntityLog log)
+    {
+        return BuildSummary(log, null);
+    }
+
+    public static string GetOperator(SysAuditEntityLog log)
+    {
+        return !string.IsNullOrWhiteSpace(log.CreatedUserName)
+            ? log.CreatedUserName
+            : log.CreatedUserId?.ToString() ?? "-";
+    }
+
+    public static string BuildSummary(SysAuditEntityLog log, IReadOnlyDictionary<string, string>? fieldLabels)
+    {
+        var oldValues = ParseAuditJson(log.DataOld);
+        var newValues = ParseAuditJson(log.Data);
+
+        return log.LogType switch
+        {
+            "add" => $"新增 {newValues.Count} 个字段",
+            "remove" => $"删除 {oldValues.Count} 个字段",
+            "edit" => BuildEditSummary(oldValues, newValues, fieldLabels),
+            _ => $"old={log.DataOld?.Length ?? 0} chars, new={log.Data?.Length ?? 0} chars"
+        };
+    }
+
+    private static string BuildEditSummary(
+        IReadOnlyDictionary<string, string> oldValues,
+        IReadOnlyDictionary<string, string> newValues,
+        IReadOnlyDictionary<string, string>? fieldLabels)
+    {
+        var changes = new List<string>();
+        foreach (var name in oldValues.Keys.Union(newValues.Keys).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            oldValues.TryGetValue(name, out var oldValue);
+            newValues.TryGetValue(name, out var newValue);
+            if (string.Equals(oldValue, newValue, StringComparison.Ordinal))
+                continue;
+
+            changes.Add($"{GetFieldLabel(name, fieldLabels)}: {FormatValue(oldValue)} -> {FormatValue(newValue)}");
+            if (changes.Count >= 5)
+                break;
+        }
+
+        return changes.Count == 0 ? "无字段变化" : string.Join("; ", changes);
+    }
+
+    private static string GetFieldLabel(string name, IReadOnlyDictionary<string, string>? fieldLabels)
+    {
+        if (fieldLabels != null && fieldLabels.TryGetValue(name, out var label) && !string.IsNullOrWhiteSpace(label))
+            return label;
+
+        return name;
+    }
+
+    private static Dictionary<string, string> ParseAuditJson(string? json)
+    {
+        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(json))
+            return values;
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return values;
+
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (IsSensitiveName(property.Name) || !IsSimpleValue(property.Value.ValueKind))
+                    continue;
+
+                values[property.Name] = ConvertJsonValue(property.Value);
+            }
+        }
+        catch
+        {
+            return values;
+        }
+
+        return values;
+    }
+
+    private static bool IsSensitiveName(string name)
+    {
+        return SensitiveNames.Contains(name)
+            || name.Contains("Password", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Token", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("Secret", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSimpleValue(JsonValueKind kind)
+    {
+        return kind is JsonValueKind.String
+            or JsonValueKind.Number
+            or JsonValueKind.True
+            or JsonValueKind.False
+            or JsonValueKind.Null;
+    }
+
+    private static string ConvertJsonValue(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? "",
+            JsonValueKind.Number => value.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            JsonValueKind.Null => "",
+            _ => ""
+        };
+    }
+
+    private static string FormatValue(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return "空";
+
+        return value.Length <= 40 ? value : value[..40] + "...";
+    }
+}

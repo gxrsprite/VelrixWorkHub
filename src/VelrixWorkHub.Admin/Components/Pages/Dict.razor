@@ -1,0 +1,192 @@
+@page "/Admin/Dict"
+
+
+<PageTitle>字典管理</PageTitle>
+
+<div class="row">
+    @* Left: categories (ParentId=0) *@
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">字典分类</h6>
+                <button class="btn btn-primary btn-sm" @onclick="BeginAddCategory"><i class="fa fa-plus"></i></button>
+            </div>
+            <div class="list-group list-group-flush">
+                @foreach (var cat in _categories)
+                {
+                    <a href="javascript:void(0)" class="list-group-item list-group-item-action @(cat.Id == _selectedCatId ? "active" : "")"
+                       @onclick="() => SelectCategory(cat)">
+                        @cat.Name
+                        <span class="float-end">
+                            <button class="btn btn-outline-secondary btn-xs me-1" @onclick="() => BeginEditCategory(cat)" @onclick:stopPropagation="true"><i class="fa fa-edit"></i></button>
+                            <button class="btn btn-outline-danger btn-xs" @onclick="() => BeginDeleteCategory(cat)" @onclick:stopPropagation="true"><i class="fa fa-trash"></i></button>
+                        </span>
+                    </a>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* Right: items for selected category *@
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">字典数据 @(_selectedCat != null ? $"- {_selectedCat.Name}" : "")</h6>
+                @if (_selectedCat != null)
+                {
+                    <button class="btn btn-primary btn-sm" @onclick="BeginAddItem"><i class="fa fa-plus"></i> 新增</button>
+                }
+            </div>
+            <table class="table table-striped mb-0">
+                <thead><tr><th>名称</th><th>值</th><th>排序</th><th>启用</th><th>操作</th></tr></thead>
+                <tbody>
+                    @foreach (var item in _items)
+                    {
+                        <tr>
+                            <td>@item.Name</td><td>@item.Value</td><td>@item.Sort</td>
+                            <td>@(item.Enabled == true ? "是" : "否")</td>
+                            <td>
+                                <button class="btn btn-outline-primary btn-xs me-1" @onclick="() => BeginEditItem(item)"><i class="fa fa-edit"></i></button>
+                                <button class="btn btn-outline-danger btn-xs" @onclick="() => BeginDeleteItem(item)"><i class="fa fa-trash"></i></button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@* Category Edit Dialog *@
+@if (_showCatDialog)
+{
+    <EditorDialog IsOpen="_showCatDialog" Title="@(_editingCat.Id == Guid.Empty ? "新增字典分类" : "编辑字典分类")" SizeClass="modal-lg" OnClose="@CloseCatDialog">
+        <ChildContent>
+            <div class="form-group"><label class="form-label">名称</label><input @bind="_editingCat.Name" type="text" class="form-control" maxlength="50" /></div>
+            <div class="form-group"><label class="form-label">备注</label><textarea @bind="_editingCat.Description" class="form-control" maxlength="500"></textarea></div>
+        </ChildContent>
+        <FooterContent>
+            <button class="btn btn-primary" @onclick="SaveCategoryAsync">保存</button>
+            <button class="btn btn-secondary" @onclick="CloseCatDialog">取消</button>
+        </FooterContent>
+    </EditorDialog>
+}
+
+@* Item Edit Dialog *@
+@if (_showItemDialog)
+{
+    <EditorDialog IsOpen="_showItemDialog" Title="@(_editingItem.Id == Guid.Empty ? "新增字典项" : "编辑字典项")" SizeClass="modal-lg" OnClose="@CloseItemDialog">
+        <ChildContent>
+            <div class="form-group"><label class="form-label">名称</label><input @bind="_editingItem.Name" type="text" class="form-control" maxlength="50" /></div>
+            <div class="form-group"><label class="form-label">值</label><input @bind="_editingItem.Value" type="text" class="form-control" maxlength="50" /></div>
+            <div class="form-group"><label class="form-label">排序</label><input @bind="_editingItem.Sort" type="number" class="form-control" /></div>
+            <div class="form-group"><label class="form-label">启用</label><Switch @bind-Value="_editingItem.Enabled" /></div>
+        </ChildContent>
+        <FooterContent>
+            <button class="btn btn-primary" @onclick="SaveItemAsync">保存</button>
+            <button class="btn btn-secondary" @onclick="CloseItemDialog">取消</button>
+        </FooterContent>
+    </EditorDialog>
+}
+
+@code {
+    [Inject] IFreeSql fsql { get; set; } = default!;
+
+    private List<SysDict> _categories = new();
+    private List<SysDict> _items = new();
+    private SysDict? _selectedCat;
+    private Guid _selectedCatId;
+
+    private bool _showCatDialog;
+    private SysDict _editingCat = new();
+
+    private bool _showItemDialog;
+    private SysDict _editingItem = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = await fsql.Select<SysDict>().Where(d => d.ParentId == Guid.Empty).OrderBy(d => d.Sort).ToListAsync();
+    }
+
+    private async Task SelectCategory(SysDict cat)
+    {
+        _selectedCat = cat;
+        _selectedCatId = cat.Id;
+        _items = await fsql.Select<SysDict>().Where(d => d.ParentId == cat.Id).OrderBy(d => d.Sort).ToListAsync();
+    }
+
+    private void BeginAddCategory()
+    {
+        _editingCat = new SysDict { Enabled = true };
+        _showCatDialog = true;
+    }
+
+    private void CloseCatDialog() { _showCatDialog = false; }
+
+    private void BeginEditCategory(SysDict cat)
+    {
+        _editingCat = cat;
+        _showCatDialog = true;
+    }
+
+    private async void BeginDeleteCategory(SysDict cat)
+    {
+        await fsql.Delete<SysDict>().Where(d => d.ParentId == cat.Id).ExecuteAffrowsAsync();
+        await fsql.Delete<SysDict>(cat.Id).ExecuteAffrowsAsync();
+        _categories = await fsql.Select<SysDict>().Where(d => d.ParentId == Guid.Empty).OrderBy(d => d.Sort).ToListAsync();
+        if (_selectedCatId == cat.Id) { _selectedCat = null; _items.Clear(); }
+        StateHasChanged();
+    }
+
+    private async Task SaveCategoryAsync()
+    {
+        if (_editingCat.Id == Guid.Empty)
+        {
+            _editingCat.ParentId = Guid.Empty;
+            await fsql.Insert(_editingCat).ExecuteAffrowsAsync();
+        }
+        else
+        {
+            await fsql.Update<SysDict>().SetSource(_editingCat).ExecuteAffrowsAsync();
+        }
+        _showCatDialog = false;
+        _categories = await fsql.Select<SysDict>().Where(d => d.ParentId == Guid.Empty).OrderBy(d => d.Sort).ToListAsync();
+        StateHasChanged();
+    }
+
+    private void BeginAddItem()
+    {
+        if (_selectedCat == null) return;
+        _editingItem = new SysDict { ParentId = _selectedCat.Id, Enabled = true };
+        _showItemDialog = true;
+    }
+
+    private void CloseItemDialog() { _showItemDialog = false; }
+
+    private void BeginEditItem(SysDict item)
+    {
+        _editingItem = item;
+        _showItemDialog = true;
+    }
+
+    private async void BeginDeleteItem(SysDict item)
+    {
+        await fsql.Delete<SysDict>(item.Id).ExecuteAffrowsAsync();
+        if (_selectedCat != null)
+            _items = await fsql.Select<SysDict>().Where(d => d.ParentId == _selectedCat.Id).OrderBy(d => d.Sort).ToListAsync();
+        StateHasChanged();
+    }
+
+    private async Task SaveItemAsync()
+    {
+        if (_selectedCat == null) return;
+        _editingItem.ParentId = _selectedCat.Id;
+        if (_editingItem.Id == Guid.Empty)
+            await fsql.Insert(_editingItem).ExecuteAffrowsAsync();
+        else
+            await fsql.Update<SysDict>().SetSource(_editingItem).ExecuteAffrowsAsync();
+        _showItemDialog = false;
+        _items = await fsql.Select<SysDict>().Where(d => d.ParentId == _selectedCat.Id).OrderBy(d => d.Sort).ToListAsync();
+        StateHasChanged();
+    }
+}

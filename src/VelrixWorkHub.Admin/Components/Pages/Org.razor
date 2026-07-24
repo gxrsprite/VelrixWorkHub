@@ -1,0 +1,109 @@
+@page "/Admin/Org"
+
+
+<PageTitle>组织架构</PageTitle>
+
+<AdminTable2 TItem="SysOrg" PageSize="-1" Title="组织架构" IsSearchText="false" IsMultiSelect="false" IsSingleSelect="true"
+    IsTree="true" HasChildren="HasChildren" TreeKeySelector="o => o.Id" OnAfterLoad="BuildTreeLevels"
+    OnQuery="OnQueryOrg" InitQuery="InitQueryOrg" OnEdit="OnEditOrg" OnSaving="OnSavingOrg">
+    <TableTh1>组织名称</TableTh1>
+    <TableTd1>
+        <span class="@(IsParent(context) ? "fw-bold" : "")">@context.Label</span>
+    </TableTd1>
+    <TableHeader>
+        <AdminSortHeader Field="Type">类型</AdminSortHeader>
+        <AdminSortHeader Field="Sort">排序</AdminSortHeader>
+        <AdminSortHeader Field="IsEnabled">是否启用</AdminSortHeader>
+        <th>备注</th>
+    </TableHeader>
+    <TableRow>
+        <td>@context.Type</td>
+        <td>@context.Sort</td>
+        <td>@(context.IsEnabled ? "是" : "否")</td>
+        <td>@context.Description</td>
+    </TableRow>
+    <EditTemplate>
+        <div class="row">
+            <div class="form-group col-6">
+                <label class="form-label">组织名称</label>
+                <input @bind="context.Label" @bind:event="oninput" type="text" class="form-control" maxlength="50" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">组织类型</label>
+                <SelectEnum TEnum="SysOrg.OrgType" @bind-Value="context.Type" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">排序</label>
+                <input @bind="context.Sort" @bind:event="oninput" type="number" class="form-control" />
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">是否启用</label>
+                <Switch @bind-Value="context.IsEnabled" />
+            </div>
+            <div class="form-group col-12">
+                <label class="form-label">备注</label>
+                <textarea @bind="context.Description" @bind:event="oninput" class="form-control" maxlength="500"></textarea>
+            </div>
+        </div>
+    </EditTemplate>
+</AdminTable2>
+
+@code {
+    [Inject] IFreeSql fsql { get; set; } = default!;
+
+    private List<SysOrg> _allOrgs = new();
+
+    async Task InitQueryOrg(AdminQueryInfo e)
+    {
+        e.Filters = Array.Empty<AdminFilterInfo>();
+        await Task.CompletedTask;
+    }
+
+    void OnQueryOrg(AdminQueryEventArgs<SysOrg> e)
+    {
+    }
+
+    void BuildTreeLevels(List<AdminItem<SysOrg>> items)
+    {
+        _allOrgs = items.Select(i => i.Value).ToList();
+        var lookup = _allOrgs.ToDictionary(o => o.Id);
+
+        var sorted = new List<AdminItem<SysOrg>>();
+        Traverse(Guid.Empty, 1, lookup, items, sorted);
+
+        items.Clear();
+        items.AddRange(sorted);
+    }
+
+    void Traverse(Guid parentId, int level, Dictionary<Guid, SysOrg> lookup,
+        List<AdminItem<SysOrg>> source, List<AdminItem<SysOrg>> result)
+    {
+        var children = source
+            .Where(i => i.Value.ParentId == parentId)
+            .OrderBy(i => i.Value.Sort)
+            .ToList();
+
+        foreach (var child in children)
+        {
+            child.Level = level;
+            result.Add(child);
+            Traverse(child.Value.Id, level + 1, lookup, source, result);
+        }
+    }
+
+    bool IsParent(SysOrg org) => _allOrgs.Any(o => o.ParentId == org.Id);
+
+    bool HasChildren(SysOrg org) => _allOrgs.Any(o => o.ParentId == org.Id);
+
+    Task OnEditOrg(SysOrg item) => Task.CompletedTask;
+
+    async Task OnSavingOrg(AdminConfirmEventArgs<SysOrg> e)
+    {
+        if (string.IsNullOrWhiteSpace(e.Argument.Label))
+        {
+            e.Cancel = true;
+            return;
+        }
+        await Task.CompletedTask;
+    }
+}
