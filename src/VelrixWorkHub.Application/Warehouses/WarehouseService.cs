@@ -16,6 +16,13 @@ public sealed class WarehouseService(IWarehouseRepository repository, IInventory
     public void SetActive(Warehouse item, bool active) { item.SetActive(active); repository.Update(item); }
     public WarehouseLocation AddLocation(Warehouse warehouse, string code, string name) { var item = warehouse.AddLocation(code, name); EnsureLocationUnique(warehouse, item); repository.AddLocation(item); return item; }
     public void RemoveLocation(WarehouseLocation item) => repository.RemoveLocation(item.Id);
+    public void SetLocationProductCapacity(Warehouse warehouse, Guid locationId, Guid productId, decimal? maxQuantity)
+    {
+        var location = warehouse.Locations.SingleOrDefault(x => x.Id == locationId) ?? throw new InvalidOperationException("库位不属于所选仓库。");
+        if (maxQuantity is null) { location.RemoveProductCapacity(productId); repository.RemoveLocationProductCapacity(locationId, productId); return; }
+        location.SetProductCapacity(productId, maxQuantity.Value);
+        repository.UpsertLocationProductCapacity(location.ProductCapacities.Single(x => x.ProductId == productId));
+    }
     public void Remove(Warehouse item)
     {
         var impact = MasterDataImpactService.Warehouse(item.Id, inventoryRepository?.List() ?? Array.Empty<InventoryTransaction>());

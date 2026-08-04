@@ -212,10 +212,11 @@ public sealed class SimpleFormService(
         {
             if (!document.RootElement.TryGetProperty(field.Key, out var value) || value.ValueKind == JsonValueKind.Null) continue;
             if (!value.TryGetProperty("id", out var idValue) || !Guid.TryParse(idValue.GetString(), out var id)) throw new ArgumentException($"字段“{field.Label}”引用无效。", nameof(dataJson));
+            var label = value.TryGetProperty("label", out var labelValue) && labelValue.ValueKind == JsonValueKind.String ? labelValue.GetString() : null;
             var valid = field.Control == SimpleFormFieldControl.PersonPicker
-                ? directory.List(status: EmployeeDirectoryStatus.Enabled).Any(x => x.UserId == id)
-                : directory.ListOrganizations().Any(x => x.Id == id);
-            if (!valid) throw new ArgumentException($"字段“{field.Label}”引用不存在或不可用。", nameof(dataJson));
+                ? directory.List(status: EmployeeDirectoryStatus.Enabled).Any(x => x.UserId == id && x.DisplayName.Equals(label, StringComparison.Ordinal))
+                : directory.ListOrganizations().Any(x => x.Id == id && x.Name.Equals(label, StringComparison.Ordinal));
+            if (!valid) throw new ArgumentException($"字段“{field.Label}”引用不存在、不可用或标签不匹配。", nameof(dataJson));
         }
     }
 }

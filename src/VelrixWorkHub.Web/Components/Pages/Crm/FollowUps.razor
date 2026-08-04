@@ -26,6 +26,7 @@
 </div>
 
 @code {
+    [SupplyParameterFromQuery(Name = "customerId")] public Guid? CustomerFilterId { get; set; }
     private readonly List<(string Key, string Label, FollowUpFilter Filter)> Filters = [("all", "全部", FollowUpFilter.All), ("upcoming", "待跟进", FollowUpFilter.Upcoming), ("overdue", "已逾期", FollowUpFilter.Overdue)];
     private IReadOnlyList<Customer> Customers { get; set; } = [];
     private IReadOnlyList<CustomerContact> DraftContacts { get; set; } = [];
@@ -38,7 +39,8 @@
     private DateTime? DraftNextDate { get; set; } = DateTime.Today.AddDays(7);
     private string DraftContent { get; set; } = string.Empty;
     private string? FormError { get; set; }
-    private IEnumerable<CustomerFollowUp> VisibleFollowUps => FollowUpService.List(Keyword, Filters.First(item => item.Key == SelectedFilter).Filter);
+    private IEnumerable<CustomerFollowUp> VisibleFollowUps => FollowUpService.List(Keyword, Filters.First(item => item.Key == SelectedFilter).Filter)
+        .Where(item => CustomerFilterId is null || item.CustomerId == CustomerFilterId);
     protected override void OnInitialized() => Customers = CustomerService.List();
     private string CustomerName(Guid id) => Customers.FirstOrDefault(item => item.Id == id)?.Name ?? "未知客户";
     private void OpenComposer() { CloseForm(); ShowComposer = true; DraftNextDate = DateTime.Today.AddDays(7); }

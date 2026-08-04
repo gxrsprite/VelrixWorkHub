@@ -15,15 +15,18 @@ public sealed class InventoryTransaction
     public string? Notes { get; private set; }
     public string? BatchNo { get; private set; }
     public DateOnly? ExpiryDate { get; private set; }
+    public string? SerialNo { get; private set; }
     public decimal SignedQuantity => Kind switch { InventoryTransactionKind.Inbound => Quantity, InventoryTransactionKind.Outbound => -Quantity, _ => Quantity };
 
-    public InventoryTransaction(Guid productId, Guid warehouseId, InventoryTransactionKind kind, decimal quantity, string sourceNo, DateOnly occurredOn, string? notes, Guid? locationId = null, string? batchNo = null, DateOnly? expiryDate = null)
+    public InventoryTransaction(Guid productId, Guid warehouseId, InventoryTransactionKind kind, decimal quantity, string sourceNo, DateOnly occurredOn, string? notes, Guid? locationId = null, string? batchNo = null, DateOnly? expiryDate = null, string? serialNo = null)
     {
         if (productId == Guid.Empty) throw new ArgumentException("必须选择商品。", nameof(productId));
         if (warehouseId == Guid.Empty) throw new ArgumentException("必须选择仓库。", nameof(warehouseId));
         if (kind == InventoryTransactionKind.Adjustment ? quantity == 0 : quantity <= 0) throw new ArgumentOutOfRangeException(nameof(quantity), "流水数量不能为零。" );
         if (string.IsNullOrWhiteSpace(sourceNo)) throw new ArgumentException("流水单号不能为空。", nameof(sourceNo));
         if (expiryDate is DateOnly expiry && expiry < occurredOn) throw new ArgumentException("保质期不能早于流水日期。", nameof(expiryDate));
+        if (!string.IsNullOrWhiteSpace(serialNo) && Math.Abs(quantity) != 1m) throw new ArgumentOutOfRangeException(nameof(quantity), "带序列号的库存流水数量必须为 1。" );
         ProductId = productId; WarehouseId = warehouseId; LocationId = locationId; Kind = kind; Quantity = quantity; SourceNo = sourceNo.Trim(); OccurredOn = occurredOn; Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim(); BatchNo = string.IsNullOrWhiteSpace(batchNo) ? null : batchNo.Trim(); ExpiryDate = expiryDate;
+        SerialNo = string.IsNullOrWhiteSpace(serialNo) ? null : serialNo.Trim();
     }
 }

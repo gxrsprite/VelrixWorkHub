@@ -21,3 +21,10 @@ public sealed class WarehouseLocationRecord
     [Column(StringLength = 80, IsNullable = false, Position = 3)] public string Code { get; set; } = string.Empty;
     [Column(StringLength = 200, IsNullable = false, Position = 4)] public string Name { get; set; } = string.Empty;
 }
+[Table(Name = "ErpWarehouseLocationProductCapacity")]
+public sealed class WarehouseLocationProductCapacityRecord
+{
+    [Column(IsPrimary = true, Position = 1)] public Guid LocationId { get; set; }
+    [Column(IsPrimary = true, Position = 2)] public Guid ProductId { get; set; }
+    [Column(Precision = 18, Scale = 2, Position = 3)] public decimal MaxQuantity { get; set; }
+}

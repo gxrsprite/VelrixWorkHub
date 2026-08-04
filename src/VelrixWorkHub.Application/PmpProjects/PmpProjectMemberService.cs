@@ -12,6 +12,28 @@ public sealed class PmpProjectMemberService(IPmpProjectMemberRepository reposito
         return query.OrderByDescending(x => x.IsPrimary).ThenBy(x => x.MemberName).ToArray();
     }
 
+    public IReadOnlyList<PmpProject> ListProjectsForMember(Guid userId)
+    {
+        if (userId == Guid.Empty) return Array.Empty<PmpProject>();
+        var projectIds = repository.List()
+            .Where(x => x.UserId == userId)
+            .GroupBy(x => x.ProjectId)
+            .Where(x => x.Count() == 1)
+            .Select(x => x.Key)
+            .ToHashSet();
+        return projectRepository.List()
+            .Where(x => projectIds.Contains(x.Id))
+            .OrderBy(x => x.Code)
+            .ToArray();
+    }
+
+    public PmpProjectMember? FindUniqueProjectMember(Guid projectId, Guid userId)
+    {
+        if (userId == Guid.Empty) return null;
+        var matches = repository.List(projectId).Where(x => x.UserId == userId).ToArray();
+        return matches.Length == 1 ? matches[0] : null;
+    }
+
     public PmpProjectMember Create(Guid projectId, string memberName, string roleName, bool isPrimary, string? departmentName = null)
     {
         EnsureProject(projectId); var item = new PmpProjectMember(projectId, memberName, roleName, isPrimary, departmentName); EnsureUnique(item); repository.Add(item); return item;
@@ -57,9 +79,9 @@ public sealed class PmpProjectMemberService(IPmpProjectMemberRepository reposito
     private void EnsureUnique(PmpProjectMember item) => EnsureUnique(item.ProjectId, item.Id, item.UserId, item.MemberName);
     private void EnsureUnique(Guid projectId, Guid itemId, Guid? userId, string memberName)
     {
-        var duplicate = userId is Guid id
-            ? repository.List(projectId).Any(x => x.Id != itemId && x.UserId == id)
-            : repository.List(projectId).Any(x => x.Id != itemId && x.MemberName.Equals(memberName?.Trim(), StringComparison.OrdinalIgnoreCase));
+        var name = memberName?.Trim() ?? string.Empty;
+        var duplicate = repository.List(projectId).Any(x => x.Id != itemId
+            && (x.MemberName.Equals(name, StringComparison.OrdinalIgnoreCase) || (userId is Guid id && x.UserId == id)));
         if (duplicate) throw new InvalidOperationException("同一项目下成员不能重复绑定。");
     }
 }

@@ -90,6 +90,7 @@ internal static class WorkHubSeedData
         EnsureChildMenu(fsql, oaRoot, "公告中心", "Oa/Announcement", 102);
         EnsureChildMenu(fsql, oaRoot, "我的日程", "Oa/Schedule", 103);
         EnsureChildMenu(fsql, oaRoot, "通知中心", "Oa/Notification", 104);
+        EnsureChildMenu(fsql, oaRoot, "统一经营查询", "Oa/UnifiedSearch", 106);
         var employeeDirectoryMenu = EnsureChildMenu(fsql, oaRoot, "员工通讯录", "Oa/Directory", 105);
         EnsureButtonMenu(fsql, employeeDirectoryMenu, "编辑员工档案", "Oa/Directory/Edit", 106);
         var recruitmentMenu = EnsureChildMenu(fsql, oaRoot, "招聘与面试", "Oa/Recruitment", 107);
@@ -186,7 +187,7 @@ internal static class WorkHubSeedData
         EnsureButtonMenu(fsql, vehicleMenu, "撤回用车申请", "Oa/Vehicle/Cancel", 151);
         EnsureButtonMenu(fsql, vehicleMenu, "车辆归还", "Oa/Vehicle/Return", 152);
         EnsureButtonMenu(fsql, vehicleMenu, "登记车辆维修", "Oa/Vehicle/Maintenance", 153);
-        var crmRoot = EnsureRootMenu(fsql, "客户经营", "fa fa-handshake-o", 20);
+        var crmRoot = EnsureRootMenu(fsql, "客户经营", "fa fa-users", 20);
         EnsureChildMenu(fsql, crmRoot, "CRM 经营看板", "Crm/Overview", 200);
         EnsureChildMenu(fsql, crmRoot, "客户列表", "Crm/Customer", 201);
         EnsureChildMenu(fsql, crmRoot, "联系人", "Crm/Contact", 202);
@@ -237,7 +238,9 @@ internal static class WorkHubSeedData
         EnsureChildMenu(fsql, pmpRoot, "团队资源分配", "Pmp/Resource", 411);
         EnsureChildMenu(fsql, pmpRoot, "项目基线", "Pmp/Baseline", 406);
         EnsureChildMenu(fsql, pmpRoot, "项目变更", "Pmp/Change", 407);
-        EnsureChildMenu(fsql, pmpRoot, "项目工时", "Pmp/WorkLog", 408);
+        var workLogMenu = EnsureChildMenu(fsql, pmpRoot, "项目工时", "Pmp/WorkLog", 408);
+        EnsureButtonMenu(fsql, workLogMenu, "提交周工时审批", "Pmp/WorkLog/Submit", 481);
+        EnsureButtonMenu(fsql, workLogMenu, "撤回周工时审批", "Pmp/WorkLog/Withdraw", 482);
         EnsureChildMenu(fsql, pmpRoot, "项目 EVM", "Pmp/Evm", 409);
         var workflowRoot = EnsureRootMenu(fsql, "流程平台", "fa fa-random", 50);
         EnsureChildMenu(fsql, workflowRoot, "流程工作台", "Workflow/Overview", 500);
@@ -352,6 +355,7 @@ internal static class WorkHubSeedData
         fsql.CodeFirst.SyncStructure<SimpleFormWorkflowSnapshotRecord>();
         fsql.CodeFirst.SyncStructure<SimpleFormCompletionEventRecord>();
         fsql.CodeFirst.SyncStructure<PmpProjectWorkItemRecord>();
+        fsql.CodeFirst.SyncStructure<PmpWeeklyWorkLogSubmissionRecord>();
         fsql.CodeFirst.SyncStructure<PmpProjectWorkItemActivityRecord>();
         fsql.CodeFirst.SyncStructure<PmpProjectMeetingRecord>();
         fsql.CodeFirst.SyncStructure<PmpDeliveryRecordRecord>();
@@ -380,7 +384,9 @@ internal static class WorkHubSeedData
         fsql.CodeFirst.SyncStructure<LmsLicenseAuthorizationRecord>();
         fsql.CodeFirst.SyncStructure<LmsLicenseLifecycleEntryRecord>();
         fsql.CodeFirst.SyncStructure<LmsLicenseReplacementRequestRecord>();
+        SeedAsterLicenseExamples(fsql.Use("main"));
         LmsLicenseReplacementRequestSchemaMigration.EnsureSubmittedRequestUniqueness(fsql.Use("main"));
+        PmpWeeklyWorkLogSubmissionSchemaMigration.EnsureActiveWeekUniqueness(fsql.Use("main"));
         WorkflowSchemaMigration.BackfillInitialRevisions(fsql.Use("main"));
         WorkflowSchemaMigration.EnsureDefinitionVersionUniqueness(fsql.Use("main"));
         WorkflowSchemaMigration.EnsureRunningBusinessUniqueness(fsql.Use("main"));
@@ -388,10 +394,90 @@ internal static class WorkHubSeedData
         SimpleFormSeedData.Initialize(fsql.Use("main"));
     }
 
+    private static void SeedAsterLicenseExamples(IFreeSql fsql)
+    {
+        var customer = fsql.Select<CustomerRecord>().Where(item => item.Name == "Aster 科技").First();
+        if (customer == null) return;
+
+        var product = fsql.Select<LmsLicenseProductRecord>()
+            .Where(item => item.Code == "LMS-CORE")
+            .First();
+        if (product == null) return;
+
+        var contact = fsql.Select<CustomerContactRecord>()
+            .Where(item => item.CustomerId == customer.Id && item.IsPrimary)
+            .First()
+            ?? fsql.Select<CustomerContactRecord>().Where(item => item.CustomerId == customer.Id).First();
+
+        var now = DateTime.Now;
+        var examples = new[]
+        {
+            new { RequestNo = "LMS-ASTER-2026-001", LicenseNo = "LIC-ASTER-2026-001", FeaturesJson = "[\"CORE\",\"REPORT\"]", ExpiresAt = new DateTime(2027, 6, 30), OtherInfo = "{\"source\":\"seed\",\"edition\":\"Professional\",\"region\":\"华东\"}" },
+            new { RequestNo = "LMS-ASTER-2026-002", LicenseNo = "LIC-ASTER-2026-002", FeaturesJson = "[\"CORE\",\"API\"]", ExpiresAt = new DateTime(2027, 9, 30), OtherInfo = "{\"source\":\"seed\",\"edition\":\"Integration\",\"deployment\":\"私有化\"}" },
+            new { RequestNo = "LMS-ASTER-2026-003", LicenseNo = "LIC-ASTER-2026-003", FeaturesJson = "[\"CORE\",\"ANALYTICS\"]", ExpiresAt = new DateTime(2028, 3, 31), OtherInfo = "{\"source\":\"seed\",\"edition\":\"Analytics\",\"serviceLevel\":\"标准支持\"}" }
+        };
+
+        foreach (var example in examples)
+        {
+            var request = fsql.Select<LmsLicenseRequestRecord>()
+                .Where(item => item.RequestNo == example.RequestNo)
+                .First();
+            if (request == null)
+            {
+                request = new LmsLicenseRequestRecord
+                {
+                    Id = Guid.CreateVersion7(),
+                    RequestNo = example.RequestNo,
+                    Applicant = "admin",
+                    ProductName = product.Name,
+                    CustomerId = customer.Id,
+                    ContactId = contact?.Id,
+                    CustomerName = customer.Name,
+                    FeaturesJson = example.FeaturesJson,
+                    FeatureVersionIdsJson = "[]",
+                    RequestedExpiresAt = example.ExpiresAt,
+                    OtherInfo = example.OtherInfo,
+                    Status = VelrixWorkHub.Domain.LmsLicenseRequestStatus.Approved,
+                    CreatedAt = now
+                };
+                fsql.Insert(request).ExecuteAffrows();
+            }
+
+            if (fsql.Select<LmsLicenseAuthorizationRecord>().Any(item => item.LicenseNo == example.LicenseNo)) continue;
+
+            fsql.Insert(new LmsLicenseAuthorizationRecord
+            {
+                Id = Guid.CreateVersion7(),
+                RequestId = request.Id,
+                LicenseNo = example.LicenseNo,
+                ExternalLicense = $"external://{example.LicenseNo}",
+                ProductName = product.Name,
+                CustomerId = customer.Id,
+                ContactId = contact?.Id,
+                FeaturesJson = example.FeaturesJson,
+                FeatureVersionIdsJson = "[]",
+                ExpiresAt = example.ExpiresAt,
+                OtherInfo = example.OtherInfo,
+                Status = VelrixWorkHub.Domain.LmsLicenseStatus.Active,
+                CreatedAt = now,
+                GracePeriodDays = 30
+            }).ExecuteAffrows();
+        }
+    }
+
     private static SysMenu EnsureRootMenu(FreeSqlCloud<string> fsql, string label, string icon, int sort)
     {
         var existing = fsql.Select<SysMenu>().Where(item => item.Label == label && (item.Path ?? "") == "").First();
-        if (existing != null) return existing;
+        if (existing != null)
+        {
+            if (!string.Equals(existing.Icon, icon, StringComparison.Ordinal))
+            {
+                existing.Icon = icon;
+                fsql.Update<SysMenu>().SetSource(existing).ExecuteAffrows();
+            }
+
+            return existing;
+        }
 
         var root = new SysMenu
         {

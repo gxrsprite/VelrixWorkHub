@@ -24,6 +24,7 @@
 </div>
 
 @code {
+    [SupplyParameterFromQuery(Name = "customerId")] public Guid? CustomerFilterId { get; set; }
     private IReadOnlyList<Customer> Customers { get; set; } = [];
     private string Keyword { get; set; } = string.Empty;
     private string SelectedCustomerId { get; set; } = string.Empty;
@@ -35,8 +36,12 @@
     private string DraftPhone { get; set; } = string.Empty;
     private string DraftEmail { get; set; } = string.Empty;
     private string? FormError { get; set; }
-    private IEnumerable<CustomerContact> VisibleContacts => ContactService.List(Keyword, Guid.TryParse(SelectedCustomerId, out var id) ? id : null);
+    private IEnumerable<CustomerContact> VisibleContacts => ContactService.List(Keyword, CustomerFilterId ?? (Guid.TryParse(SelectedCustomerId, out var id) ? id : null));
     protected override void OnInitialized() => Customers = CustomerService.List();
+    protected override void OnParametersSet()
+    {
+        if (CustomerFilterId is Guid customerId) SelectedCustomerId = customerId.ToString();
+    }
     private string CustomerName(Guid id) => Customers.FirstOrDefault(item => item.Id == id)?.Name ?? "未知客户";
     private void OpenComposer() { CloseForm(); ShowComposer = true; }
     private void OpenEditor(CustomerContact item) { CloseForm(); EditingContact = item; DraftCustomerId = item.CustomerId.ToString(); DraftName = item.Name; DraftPosition = item.Position ?? string.Empty; DraftPhone = item.Phone ?? string.Empty; DraftEmail = item.Email ?? string.Empty; }

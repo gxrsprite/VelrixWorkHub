@@ -65,6 +65,19 @@ public sealed record SimpleFormSchema(string Title, IReadOnlyList<SimpleFormFiel
         }
     }
 
+    public IReadOnlyList<SimpleFormDisplayValue> GetDisplayValues(string dataJson)
+    {
+        ValidateData(dataJson);
+        using var document = ParseObject(dataJson, "表单数据");
+        var result = new List<SimpleFormDisplayValue>();
+        foreach (var field in Fields)
+        {
+            if (!document.RootElement.TryGetProperty(field.Key, out var value) || value.ValueKind == JsonValueKind.Null) continue;
+            result.Add(new SimpleFormDisplayValue(field.Key, field.Label, FormatDisplayValue(field, value)));
+        }
+        return result;
+    }
+
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(Title) || Title.Trim().Length > 200) throw new ArgumentException("表单标题不能为空且不能超过 200 个字符。");
@@ -78,7 +91,7 @@ public sealed record SimpleFormSchema(string Title, IReadOnlyList<SimpleFormFiel
             if (string.IsNullOrWhiteSpace(field.Label) || field.Label.Trim().Length > 100) throw new ArgumentException($"字段“{field.Key}”的名称不能为空且不能超过 100 个字符。");
             if ((field.Description?.Length ?? 0) > 1000) throw new ArgumentException($"字段“{field.Key}”的描述不能超过 1000 个字符。");
             var options = field.Options ?? [];
-            if (field.Control is SimpleFormFieldControl.Select or SimpleFormFieldControl.Radio or SimpleFormFieldControl.MultiSelect)
+            if (field.Control is SimpleFormFieldControl.Select or SimpleFormFieldControl.Radio or SimpleFormFieldControl.MultiSelect or SimpleFormFieldControl.ReferencePicker)
             {
                 if (options.Count == 0) throw new ArgumentException($"字段“{field.Label}”必须配置选项。");
                 if (options.Count > 100) throw new ArgumentException($"字段“{field.Label}”的选项不能超过 100 个。");
@@ -134,10 +147,31 @@ public sealed record SimpleFormSchema(string Title, IReadOnlyList<SimpleFormFiel
         }
         if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(id.GetString()) || !value.TryGetProperty("label", out var label) || label.ValueKind != JsonValueKind.String)
             throw new ArgumentException($"字段“{field.Label}”必须是包含 id 和 label 的引用对象。", parameterName);
+        if (field.Control == SimpleFormFieldControl.ReferencePicker)
+        {
+            var option = (field.Options ?? []).SingleOrDefault(x => x.Value == id.GetString());
+            if (option is null || !string.Equals(option.Label, label.GetString(), StringComparison.Ordinal)) throw new ArgumentException($"字段“{field.Label}”引用选项无效。", parameterName);
+        }
+    }
+
+    private static string FormatDisplayValue(SimpleFormFieldSchema field, JsonElement value)
+    {
+        if (field.Control == SimpleFormFieldControl.Checkbox) return value.GetBoolean() ? "是" : "否";
+        if (field.Control == SimpleFormFieldControl.MultiSelect)
+        {
+            var labels = (field.Options ?? []).ToDictionary(x => x.Value, x => x.Label, StringComparer.Ordinal);
+            return string.Join("、", value.EnumerateArray().Select(x => labels[x.GetString()!]));
+        }
+        if (field.Control is SimpleFormFieldControl.Select or SimpleFormFieldControl.Radio)
+            return (field.Options ?? []).Single(x => x.Value == value.GetString()).Label;
+        if (field.Control is SimpleFormFieldControl.DepartmentPicker or SimpleFormFieldControl.PersonPicker or SimpleFormFieldControl.ReferencePicker)
+            return value.GetProperty("label").GetString() ?? string.Empty;
+        return value.GetString() ?? string.Empty;
     }
 }
 
 public sealed record SimpleFormLayoutRow(IReadOnlyList<SimpleFormFieldSchema> Fields, bool IsFullWidth);
+public sealed record SimpleFormDisplayValue(string Key, string Label, string Value);
 
 public sealed class SimpleFormDefinition
 {

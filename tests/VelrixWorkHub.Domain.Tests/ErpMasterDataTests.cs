@@ -25,6 +25,15 @@ public sealed class ErpMasterDataTests
     }
 
     [Fact]
+    public void Product_AllowsMaximumInventoryAndRejectsNonPositiveValue()
+    {
+        var item = new Product("SKU-MAX-INVENTORY", "最大库存商品", "件", 10m, null, maxInventoryQuantity: 20m);
+
+        Assert.Equal(20m, item.MaxInventoryQuantity);
+        Assert.Throws<ArgumentException>(() => new Product("SKU-ZERO-INVENTORY", "错误商品", "件", 10m, null, maxInventoryQuantity: 0m));
+    }
+
+    [Fact]
     public void MasterData_PreservesOtherInfoAndRequiresJsonObject()
     {
         var product = new Product("SKU-EXT", "扩展商品", "件", 10m, null, otherInfo: "{\"brand\":\"Velrix\"}");
@@ -46,7 +55,10 @@ public sealed class ErpMasterDataTests
         var location = warehouse.AddLocation(" A-01 ", " 一层 ");
         Assert.Equal(warehouse.Id, location.WarehouseId);
         Assert.Equal("A-01", location.Code);
+        location.SetProductCapacity(Guid.CreateVersion7(), 10m);
+        Assert.Equal(10m, location.ProductCapacities.Single().MaxQuantity);
         Assert.Throws<ArgumentException>(() => warehouse.AddLocation("", "库位"));
+        Assert.Throws<ArgumentOutOfRangeException>(() => location.SetProductCapacity(Guid.CreateVersion7(), 0m));
     }
 
     [Fact]

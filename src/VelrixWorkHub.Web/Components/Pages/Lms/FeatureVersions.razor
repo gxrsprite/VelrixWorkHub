@@ -17,7 +17,6 @@
                 <label>授权等级<select @bind="Level">@foreach (var value in Enum.GetValues<LmsFeatureLevel>()) { <option value="@value">@GetLevelName(value)</option> }</select></label>
                 <label>适用范围<select @bind="Scope">@foreach (var value in Enum.GetValues<LmsFeatureScope>()) { <option value="@value">@GetScopeName(value)</option> }</select></label>
             </div>
-            <label>OtherInfo JSON 对象<textarea @bind="OtherInfo"></textarea></label>
             @if (Error is not null) { <div class="task-error">@Error</div> }
             <div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存</button></div>
         </section>

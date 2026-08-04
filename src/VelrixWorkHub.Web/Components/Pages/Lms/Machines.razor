@@ -19,13 +19,12 @@
                 <label>机台型号<input @bind="Model" /></label>
                 <label>运行环境<input @bind="Environment" placeholder="例如 Production" /></label>
             </div>
-            <label>OtherInfo JSON 对象<textarea @bind="OtherInfo"></textarea></label>
             @if (Error is not null) { <div class="task-error">@Error</div> }
             <div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存</button></div>
         </section>
     }
     <section class="task-list">
-        @foreach (var item in MachineService.List())
+        @foreach (var item in MachineService.List(CustomerFilterId))
         {
             var customer = CustomerService.List().FirstOrDefault(x => x.Id == item.CustomerId);
             <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span class="task-status">@(item.Status == LmsCustomerMachineStatus.Active ? "启用" : "停用")</span><span>@(customer?.Name ?? "CRM 客户已不可用")</span><span>@item.ProductName</span></div><h2>@item.MachineCode</h2><p>@(item.Model ?? "未填写型号") · @(item.Environment ?? "未填写环境")</p></div><div class="task-card__actions"><button title="切换状态" @onclick="() => MachineService.SetStatus(item, item.Status == LmsCustomerMachineStatus.Active ? LmsCustomerMachineStatus.Disabled : LmsCustomerMachineStatus.Active)"><i class="fa fa-toggle-on"></i></button></div></article>
@@ -34,6 +33,7 @@
 </div>
 
 @code {
+    [SupplyParameterFromQuery(Name = "customerId")] public Guid? CustomerFilterId { get; set; }
     private bool Show;
     private Guid CustomerId;
     private string MachineCode = string.Empty, ProductName = string.Empty, Model = string.Empty, Environment = string.Empty, OtherInfo = "{}";

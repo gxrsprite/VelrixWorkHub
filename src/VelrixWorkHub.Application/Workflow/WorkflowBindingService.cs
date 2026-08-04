@@ -19,6 +19,7 @@ public static class WorkflowBindingCodes
     public const string LeaveApproval = "OA_LEAVE_APPROVAL";
     public const string OvertimeApproval = "OA_OVERTIME_APPROVAL";
     public const string PmpWorkItemCompletionApproval = "PMP_WORK_ITEM_COMPLETION_APPROVAL";
+    public const string PmpWeeklyWorkLogApproval = "PMP_WEEKLY_WORKLOG_APPROVAL";
     public const string SimpleSealRequestApproval = "SIMPLE_SEAL_REQUEST_APPROVAL";
     public const string VehicleUseApproval = "OA_VEHICLE_USE_APPROVAL";
     public const string AssetRequestApproval = "OA_ASSET_REQUEST_APPROVAL";

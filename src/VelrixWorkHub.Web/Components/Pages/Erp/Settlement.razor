@@ -43,6 +43,10 @@
         PartyFilterText = SettlementPartyId is Guid partyId && SettlementPartyKind is ErpSettlementKind partyKind
             ? $"{partyKind}:{partyId}"
             : string.Empty;
+        if (SettlementPartyKind is ErpSettlementKind partyKindFilter)
+        {
+            FilterKindText = partyKindFilter.ToString();
+        }
     }
     private IEnumerable<ErpSettlement> Settlements() => SettlementService.List(FilterKind, FilterStatus, string.IsNullOrWhiteSpace(Keyword) ? SettlementKeyword ?? string.Empty : Keyword, PartyFilterId ?? SettlementPartyId)
         .Where(item => (SettlementId is null || item.Id == SettlementId) && (SettlementOrderId is null || item.OrderId == SettlementOrderId) && (PartyFilterKind is null || item.Kind == PartyFilterKind) && (SettlementPartyKind is null || item.Kind == SettlementPartyKind));

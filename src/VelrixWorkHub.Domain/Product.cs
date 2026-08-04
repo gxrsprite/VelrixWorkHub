@@ -9,14 +9,15 @@ public sealed class Product
     public decimal? SalePrice { get; private set; }
     public decimal? MaxPurchaseQuantity { get; private set; }
     public decimal? SafetyStock { get; private set; }
+    public decimal? MaxInventoryQuantity { get; private set; }
     public string OtherInfo { get; private set; } = "{}";
     public ProductStatus Status { get; private set; }
     public string? Notes { get; private set; }
 
-    public Product(string code, string name, string unit, decimal? salePrice, string? notes, decimal? maxPurchaseQuantity = null, decimal? safetyStock = null, string? otherInfo = null)
-    { Edit(code, name, unit, salePrice, notes, maxPurchaseQuantity, safetyStock, otherInfo); Status = ProductStatus.Active; }
+    public Product(string code, string name, string unit, decimal? salePrice, string? notes, decimal? maxPurchaseQuantity = null, decimal? safetyStock = null, string? otherInfo = null, decimal? maxInventoryQuantity = null)
+    { Edit(code, name, unit, salePrice, notes, maxPurchaseQuantity, safetyStock, otherInfo, maxInventoryQuantity); Status = ProductStatus.Active; }
 
-    public void Edit(string code, string name, string unit, decimal? salePrice, string? notes, decimal? maxPurchaseQuantity = null, decimal? safetyStock = null, string? otherInfo = null)
+    public void Edit(string code, string name, string unit, decimal? salePrice, string? notes, decimal? maxPurchaseQuantity = null, decimal? safetyStock = null, string? otherInfo = null, decimal? maxInventoryQuantity = null)
     {
         if (string.IsNullOrWhiteSpace(code)) throw new ArgumentException("商品编码不能为空。", nameof(code));
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("商品名称不能为空。", nameof(name));
@@ -24,7 +25,8 @@ public sealed class Product
         if (salePrice < 0) throw new ArgumentException("销售单价不能为负数。", nameof(salePrice));
         if (maxPurchaseQuantity <= 0) throw new ArgumentException("单次最大采购量必须大于 0。", nameof(maxPurchaseQuantity));
         if (safetyStock < 0) throw new ArgumentException("安全库存不能为负数。", nameof(safetyStock));
-        Code = code.Trim(); Name = name.Trim(); Unit = unit.Trim(); SalePrice = salePrice; MaxPurchaseQuantity = maxPurchaseQuantity; SafetyStock = safetyStock; Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim(); OtherInfo = JsonObjectValue.Normalize(otherInfo, nameof(otherInfo));
+        if (maxInventoryQuantity <= 0) throw new ArgumentException("最大库存必须大于 0。", nameof(maxInventoryQuantity));
+        Code = code.Trim(); Name = name.Trim(); Unit = unit.Trim(); SalePrice = salePrice; MaxPurchaseQuantity = maxPurchaseQuantity; SafetyStock = safetyStock; MaxInventoryQuantity = maxInventoryQuantity; Notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim(); OtherInfo = JsonObjectValue.Normalize(otherInfo, nameof(otherInfo));
     }
     public void SetActive(bool active) => Status = active ? ProductStatus.Active : ProductStatus.Inactive;
 }

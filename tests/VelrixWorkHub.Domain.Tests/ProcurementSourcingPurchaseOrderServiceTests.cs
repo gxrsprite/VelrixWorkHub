@@ -133,6 +133,8 @@ public sealed class ProcurementSourcingPurchaseOrderServiceTests
         public void Remove(Guid id) { }
         public void AddLocation(WarehouseLocation item) { }
         public void RemoveLocation(Guid id) { }
+        public void UpsertLocationProductCapacity(WarehouseLocationProductCapacity item) { }
+        public void RemoveLocationProductCapacity(Guid locationId, Guid productId) { }
     }
 
     private sealed class SettlementRepository : ISettlementRepository

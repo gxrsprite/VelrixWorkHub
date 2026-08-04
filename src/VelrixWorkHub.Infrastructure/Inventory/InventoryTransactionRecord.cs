@@ -15,4 +15,5 @@ public sealed class InventoryTransactionRecord
     [Column(StringLength = 500, Position = 9)] public string? Notes { get; set; }
     [Column(StringLength = 80, Position = 10)] public string? BatchNo { get; set; }
     [Column(Position = 11, DbType = "date")] public DateTime? ExpiryDate { get; set; }
+    [Column(StringLength = 80, Position = 12)] public string? SerialNo { get; set; }
 }

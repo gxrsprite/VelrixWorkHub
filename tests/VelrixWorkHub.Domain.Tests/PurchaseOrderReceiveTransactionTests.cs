@@ -1,5 +1,6 @@
 using VelrixWorkHub.Application.Inventory;
 using VelrixWorkHub.Application.PurchaseOrders;
+using VelrixWorkHub.Application.Products;
 using VelrixWorkHub.Application.Settlements;
 using VelrixWorkHub.Application.Warehouses;
 using VelrixWorkHub.Application.Workflow;
@@ -58,6 +59,67 @@ public sealed class PurchaseOrderReceiveTransactionTests
         Assert.Single(inventory.Items);
     }
 
+    [Fact]
+    public void Receive_UsesInventoryServiceAndRollsBackWhenProductWasDisabledAfterApproval()
+    {
+        var product = new Product("SKU-RECEIVE-CAP", "收货容量商品", "件", 12.5m, null);
+        var order = new PurchaseOrder("PO-RECEIVE-CAPACITY", Guid.CreateVersion7(), product.Id, new DateOnly(2026, 7, 22), 8m, 12.5m);
+        order.SetStatus(PurchaseOrderStatus.Submitted);
+        var inventory = new InventoryRepository();
+        var warehouse = new Warehouse("WH-RECEIVE-CAP", "收货容量仓", null);
+        var warehouses = new WarehouseRepository(warehouse);
+        var inventoryService = new InventoryService(inventory, new ProductRepository(product), warehouses);
+        var service = new PurchaseOrderService(new PurchaseOrderRepository(order), null!, null!, inventory, warehouses, new SettlementRepository(), transactions: new RollbackTransactionBoundary(), inventoryService: inventoryService);
+        product.SetActive(false);
+
+        var error = Assert.Throws<InvalidOperationException>(() => service.Receive(order));
+
+        Assert.Contains("商品已停用", error.Message);
+        Assert.Equal(PurchaseOrderStatus.Submitted, order.Status);
+        Assert.Empty(inventory.Items);
+    }
+
+    [Fact]
+    public void Receive_UsesInventoryServiceAndRollsBackWhenWarehouseWasDisabledAfterApproval()
+    {
+        var product = new Product("SKU-RECEIVE-WH", "收货仓库门禁商品", "件", 12.5m, null);
+        var order = new PurchaseOrder("PO-RECEIVE-WAREHOUSE", Guid.CreateVersion7(), product.Id, new DateOnly(2026, 7, 22), 8m, 12.5m);
+        order.SetStatus(PurchaseOrderStatus.Submitted);
+        var inventory = new InventoryRepository();
+        var warehouse = new Warehouse("WH-RECEIVE-DISABLED", "已停用收货仓", null);
+        warehouse.SetActive(false);
+        var warehouses = new WarehouseRepository(warehouse);
+        var inventoryService = new InventoryService(inventory, new ProductRepository(product), warehouses);
+        var service = new PurchaseOrderService(new PurchaseOrderRepository(order), null!, null!, inventory, warehouses, new SettlementRepository(), transactions: new RollbackTransactionBoundary(), inventoryService: inventoryService);
+
+        var error = Assert.Throws<InvalidOperationException>(() => service.Receive(order));
+
+        Assert.Contains("没有可用的启用仓库", error.Message);
+        Assert.Equal(PurchaseOrderStatus.Submitted, order.Status);
+        Assert.Empty(inventory.Items);
+    }
+
+    [Fact]
+    public void Receive_ToSelectedLocationRejectsProductCapacityWithoutCreatingInboundTransaction()
+    {
+        var product = new Product("SKU-RECEIVE-LOCATION-CAP", "收货库位容量商品", "件", 12.5m, null);
+        var order = new PurchaseOrder("PO-RECEIVE-LOCATION-CAP", Guid.CreateVersion7(), product.Id, new DateOnly(2026, 7, 22), 8m, 12.5m);
+        order.SetStatus(PurchaseOrderStatus.Submitted);
+        var inventory = new InventoryRepository();
+        var warehouse = new Warehouse("WH-RECEIVE-LOCATION-CAP", "收货库位容量仓", null);
+        var location = warehouse.AddLocation("A-01", "收货库位");
+        location.SetProductCapacity(product.Id, 5m);
+        var warehouses = new WarehouseRepository(warehouse);
+        var inventoryService = new InventoryService(inventory, new ProductRepository(product), warehouses);
+        var service = new PurchaseOrderService(new PurchaseOrderRepository(order), null!, null!, inventory, warehouses, new SettlementRepository(), transactions: new RollbackTransactionBoundary(), inventoryService: inventoryService);
+
+        var error = Assert.Throws<InvalidOperationException>(() => service.Receive(order, warehouse.Id, location.Id));
+
+        Assert.Contains("容量", error.Message);
+        Assert.Equal(PurchaseOrderStatus.Submitted, order.Status);
+        Assert.Empty(inventory.Items);
+    }
+
     private static PurchaseOrder CreateSubmittedOrder(string orderNo)
     {
         var item = new PurchaseOrder(orderNo, Guid.CreateVersion7(), Guid.CreateVersion7(), new DateOnly(2026, 7, 22), 8m, 12.5m);
@@ -106,6 +168,8 @@ public sealed class PurchaseOrderReceiveTransactionTests
         public void Remove(Guid id) => items.RemoveAll(x => x.Id == id);
         public void AddLocation(WarehouseLocation item) { }
         public void RemoveLocation(Guid id) { }
+        public void UpsertLocationProductCapacity(WarehouseLocationProductCapacity item) { }
+        public void RemoveLocationProductCapacity(Guid locationId, Guid productId) { }
     }
 
     private sealed class SettlementRepository : ISettlementRepository
@@ -113,6 +177,15 @@ public sealed class PurchaseOrderReceiveTransactionTests
         public IReadOnlyList<ErpSettlement> List() => [];
         public void Add(ErpSettlement item) { }
         public void Update(ErpSettlement item) { }
+    }
+
+    private sealed class ProductRepository(params Product[] seed) : IProductRepository
+    {
+        private readonly List<Product> items = [.. seed];
+        public IReadOnlyList<Product> List() => items;
+        public void Add(Product item) => items.Add(item);
+        public void Update(Product item) { }
+        public void Remove(Guid id) => items.RemoveAll(x => x.Id == id);
     }
 
     private sealed class RollbackTransactionBoundary : IWorkflowTransactionBoundary

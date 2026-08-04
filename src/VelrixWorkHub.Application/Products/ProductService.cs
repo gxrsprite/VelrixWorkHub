@@ -17,8 +17,8 @@ public sealed class ProductService(
         if (status is not null) query = query.Where(x => x.Status == status);
         return query.ToArray();
     }
-    public Product Create(string code, string name, string unit, decimal? salePrice, string? notes, decimal? maxPurchaseQuantity = null, decimal? safetyStock = null, string? otherInfo = null) { var item = new Product(code, name, unit, salePrice, notes, maxPurchaseQuantity, safetyStock, otherInfo); EnsureUnique(item); repository.Add(item); return item; }
-    public void Edit(Product item, string code, string name, string unit, decimal? salePrice, string? notes, decimal? maxPurchaseQuantity = null, decimal? safetyStock = null, string? otherInfo = null) { item.Edit(code, name, unit, salePrice, notes, maxPurchaseQuantity, safetyStock, otherInfo); EnsureUnique(item); repository.Update(item); }
+    public Product Create(string code, string name, string unit, decimal? salePrice, string? notes, decimal? maxPurchaseQuantity = null, decimal? safetyStock = null, string? otherInfo = null, decimal? maxInventoryQuantity = null) { var item = new Product(code, name, unit, salePrice, notes, maxPurchaseQuantity, safetyStock, otherInfo, maxInventoryQuantity); EnsureUnique(item); repository.Add(item); return item; }
+    public void Edit(Product item, string code, string name, string unit, decimal? salePrice, string? notes, decimal? maxPurchaseQuantity = null, decimal? safetyStock = null, string? otherInfo = null, decimal? maxInventoryQuantity = null) { item.Edit(code, name, unit, salePrice, notes, maxPurchaseQuantity, safetyStock, otherInfo, maxInventoryQuantity); EnsureUnique(item); repository.Update(item); }
     public void SetActive(Product item, bool active) { item.SetActive(active); repository.Update(item); }
     public void Remove(Product item)
     {

@@ -8,4 +8,6 @@ public interface IWarehouseRepository
     void Remove(Guid id);
     void AddLocation(WarehouseLocation item);
     void RemoveLocation(Guid id);
+    void UpsertLocationProductCapacity(WarehouseLocationProductCapacity item);
+    void RemoveLocationProductCapacity(Guid locationId, Guid productId);
 }

@@ -1,0 +1,56 @@
+@page "/Oa/UnifiedSearch"
+@inject AdminBlazor.IAdminContext Admin
+@inject NavigationManager Navigation
+@inject VelrixWorkHub.Application.Reports.CrossModuleSearchService SearchService
+@using VelrixWorkHub.Application.Reports
+
+<PageTitle>统一经营查询 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">经营分析 · Oa/UnifiedSearch</p><h1>统一经营查询</h1><p class="task-page__intro">按客户、合同、采购/销售订单、项目、核销或库存来源号查询关联业务，并保留原始单据入口。</p></div><div class="task-page__summary"><strong>@Results.Count</strong><span>条匹配结果</span></div></div>
+    <section class="task-toolbar customer-toolbar" aria-label="统一经营查询条件"><div class="customer-search"><i class="fa fa-search" aria-hidden="true"></i><input aria-label="统一经营查询关键词" @bind="Keyword" @bind:event="oninput" @bind:after="ClearObjectType" placeholder="客户、合同、订单、项目、核销或来源单号" /></div></section>
+    @if (Facets.Count > 1)
+    {
+        <section class="task-toolbar customer-toolbar" aria-label="统一经营查询结果类型"><div class="task-filters" role="tablist"><button class="task-filter @(string.IsNullOrWhiteSpace(SelectedObjectType) ? "is-active" : "")" @onclick="() => SelectedObjectType = string.Empty">全部 <span>@Results.Count</span></button>@foreach (var facet in Facets) { <button class="task-filter @(SelectedObjectType == facet.ObjectType ? "is-active" : "")" @onclick="() => SelectedObjectType = facet.ObjectType">@facet.ObjectType <span>@facet.Count</span></button> }</div></section>
+    }
+    @if (!HasAnyModuleAccess)
+    {
+        <div class="task-empty"><i class="fa fa-lock" aria-hidden="true"></i><strong>没有可查询的业务范围</strong><span>请联系管理员分配 CRM、ERP 或 PMP 相关菜单权限。</span></div>
+    }
+    else if (string.IsNullOrWhiteSpace(Keyword))
+    {
+        <div class="task-empty"><i class="fa fa-search" aria-hidden="true"></i><strong>输入查询关键词</strong><span>结果只显示当前账号有访问权限的业务对象。</span></div>
+    }
+    else if (VisibleResults.Count == 0)
+    {
+        <div class="task-empty"><i class="fa fa-search" aria-hidden="true"></i><strong>没有匹配结果</strong><span>可尝试客户名称、合同编号、订单号、项目编号、核销或库存来源单号。</span></div>
+    }
+    else
+    {
+        <section class="task-list" aria-live="polite">@foreach (var item in VisibleResults) { <article class="task-card customer-card"><div class="customer-avatar"><i class="@Icon(item.ObjectType)" aria-hidden="true"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status">@item.ObjectType</span><span>@item.Status</span><span>@item.Code</span></div><h2>@item.Title</h2><p>@item.Summary</p>@if (!string.IsNullOrWhiteSpace(item.Responsible)) { <div class="customer-note">负责人：@item.Responsible</div> }</div><div class="task-card__actions"><a href="@item.Href" title="打开 @item.ObjectType"><i class="fa fa-external-link" aria-hidden="true"></i></a></div></article> }</section>
+    }
+</div>
+
+@code {
+    private string Keyword { get; set; } = string.Empty;
+    private string SelectedObjectType { get; set; } = string.Empty;
+    private bool HasCustomerAccess => Admin.AuthPath("Crm/Customer");
+    private bool HasContractAccess => Admin.AuthPath("Crm/Contract");
+    private bool HasSalesOrderAccess => Admin.AuthPath("Erp/SalesOrder");
+    private bool HasProjectAccess => Admin.AuthPath("Pmp/Project");
+    private bool HasPurchaseOrderAccess => Admin.AuthPath("Erp/PurchaseOrder");
+    private bool HasInventoryAccess => Admin.AuthPath("Erp/Inventory");
+    private bool HasSettlementAccess => Admin.AuthPath("Erp/Settlement");
+    private bool HasAnyModuleAccess => HasCustomerAccess || HasContractAccess || HasSalesOrderAccess || HasProjectAccess || HasPurchaseOrderAccess || HasInventoryAccess || HasSettlementAccess;
+    private IReadOnlyList<CrossModuleSearchResult> Results => SearchService.Search(Keyword, new CrossModuleSearchScope(HasCustomerAccess, HasContractAccess, HasSalesOrderAccess, HasProjectAccess, HasPurchaseOrderAccess, HasInventoryAccess, HasSettlementAccess));
+    private IReadOnlyList<CrossModuleSearchFacet> Facets => CrossModuleSearchService.BuildFacets(Results);
+    private IReadOnlyList<CrossModuleSearchResult> VisibleResults => CrossModuleSearchService.FilterByObjectType(Results, SelectedObjectType);
+    private void ClearObjectType() => SelectedObjectType = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (!Admin.AuthPath("Oa/UnifiedSearch")) Navigation.NavigateTo("/", forceLoad: true);
+    }
+
+    private static string Icon(string objectType) => objectType switch { "客户" => "fa fa-users", "合同" => "fa fa-file-text-o", "销售订单" => "fa fa-shopping-cart", "采购订单" => "fa fa-truck", "收付款核销" => "fa fa-money", "库存流水" => "fa fa-cubes", "项目" => "fa fa-briefcase", _ => "fa fa-search" };
+}

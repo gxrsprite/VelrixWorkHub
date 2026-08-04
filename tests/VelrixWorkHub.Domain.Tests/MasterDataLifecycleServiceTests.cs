@@ -130,6 +130,8 @@ public sealed class MasterDataLifecycleServiceTests
         public void Remove(Guid id) => data.RemoveAll(x => x.Id == id);
         public void AddLocation(WarehouseLocation item) { }
         public void RemoveLocation(Guid id) { }
+        public void UpsertLocationProductCapacity(WarehouseLocationProductCapacity item) { }
+        public void RemoveLocationProductCapacity(Guid locationId, Guid productId) { }
     }
 
     private sealed class ContactRepository : ICustomerContactRepository

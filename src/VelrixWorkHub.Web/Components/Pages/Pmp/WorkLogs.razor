@@ -3,11 +3,17 @@
 @inject VelrixWorkHub.Application.PmpProjects.PmpProjectService ProjectService
 @inject VelrixWorkHub.Application.PmpProjects.PmpWbsTaskService TaskService
 @inject VelrixWorkHub.Application.PmpProjects.PmpProjectMemberService MemberService
+@inject VelrixWorkHub.Application.PmpProjects.PmpWeeklyWorkLogSubmissionService SubmissionService
+@inject VelrixWorkHub.Application.PmpProjects.PmpWeeklyWorkLogSubmissionWorkflowHistoryService SubmissionHistoryService
+@inject AdminBlazor.IAdminContext Admin
+@inject NavigationManager Navigation
 @using VelrixWorkHub.Domain
+@using VelrixWorkHub.Application.PmpProjects
+@using VelrixWorkHub.Application.Workflow
 <PageTitle>项目工时 - Velrix Work Hub</PageTitle>
 <div class="customer-page">
-    <div class="task-page__header"><div><p class="eyebrow">PMP 项目管理 · Pmp/WorkLog</p><h1>项目工时</h1><p class="task-page__intro">按周维护成员×任务×日期工时，保留出勤状态和说明，为后续工时审批、成本与 EVM 分析提供输入。</p></div></div>
-    <section class="task-toolbar customer-toolbar" aria-label="工时矩阵筛选"><label>项目<select aria-label="工时矩阵项目" @bind="SelectedProjectIdText" @bind:after="RefreshMatrix"><option value="">请选择项目</option>@foreach (var project in ProjectService.List()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label><label>周起始日<input aria-label="工时周起始日" type="date" @bind="WeekStartValue" @bind:after="RefreshMatrix" /></label><span class="customer-note">累计工时：@WorkLogService.TotalHours(SelectedProjectId)</span><button class="task-primary-button" @onclick="SaveWeek" disabled="@(SelectedProjectId is null)"><i class="fa fa-save"></i> 保存本周工时</button></section>
+    <div class="task-page__header"><div><p class="eyebrow">PMP 项目管理 · Pmp/WorkLog</p><h1>项目工时</h1><p class="task-page__intro">按周维护成员×任务×日期工时，保留出勤状态和说明，为后续工时审批、成本与 EVM 分析提供输入；非管理员仅维护自己的项目成员行。</p></div></div>
+    <section class="task-toolbar customer-toolbar" aria-label="工时矩阵筛选"><label>项目<select aria-label="工时矩阵项目" @bind="SelectedProjectIdText" @bind:after="RefreshMatrix"><option value="">请选择项目</option>@foreach (var project in VisibleProjects) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label><label>周起始日<input aria-label="工时周起始日" type="date" @bind="WeekStartValue" @bind:after="RefreshMatrix" /></label>@if (IsAdministrator && SelectedProjectId is Guid projectId && CanAccessProject(projectId)) { <span class="customer-note">累计工时：@WorkLogService.TotalHours(projectId)</span> }<button class="task-primary-button" @onclick="SaveWeek" disabled="@(SelectedProjectId is null || !CanAccessSelectedProject)"><i class="fa fa-save"></i> 保存本周工时</button>@if (Admin.AuthButton("Pmp/WorkLog/Submit")) { <button class="task-secondary-button" @onclick="SubmitMine" disabled="@(!CanSubmitMine)"><i class="fa fa-paper-plane-o"></i> 提交我的本周工时</button> }</section>
     @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
     @if (SelectedProjectId is null)
     {
@@ -15,8 +21,16 @@
     }
     else
     {
-        <section class="task-card customer-card" aria-label="周工时矩阵"><div class="task-card__body"><div class="task-card__meta"><span>周工时矩阵</span><span>@WeekStart.ToString("yyyy-MM-dd") 至 @WeekStart.AddDays(6).ToString("yyyy-MM-dd")</span><span>行合计 @MatrixRows.Sum(x => x.Cells.Sum(c => c.Hours)) 小时</span></div><div style="overflow-x:auto"><table class="table"><thead><tr><th>成员</th><th>WBS 任务</th>@foreach (var day in Days) { <th>@day.ToString("MM-dd")<br />@DayLabel(day.DayOfWeek)</th> }<th>行合计</th></tr></thead><tbody>@foreach (var row in MatrixRows) { <tr><td>@row.MemberName</td><td>@row.TaskTitle@if (!string.IsNullOrWhiteSpace(row.TaskAssignee)) { <small> · @row.TaskAssignee</small> }</td>@foreach (var cell in row.Cells) { <td><input aria-label="@($"{row.MemberName} {row.TaskTitle} {cell.Date:yyyy-MM-dd} 工时")" type="number" min="0" max="24" step="0.1" placeholder="0" @bind="cell.HoursText" @bind:event="oninput" disabled="@cell.Disabled" /><select aria-label="出勤状态" @bind="cell.AttendanceStatusText" disabled="@cell.Disabled"><option value="Normal">正常</option><option value="NoAttendance">无考勤</option></select></td> }<td>@row.Cells.Sum(x => x.Hours).ToString("0.##")</td></tr><tr class="worklog-note-row"><td></td><td>说明</td><td colspan="8"><input aria-label="工时说明" @bind="row.Note" placeholder="本行工时说明" /></td></tr> }</tbody></table></div><p class="customer-note">无考勤仅作为工时提示，不改变工时数值；输入 0 并保存会清除该日期单元格。</p></div></section>
+        <section class="task-card customer-card" aria-label="周工时矩阵"><div class="task-card__body"><div class="task-card__meta"><span>周工时矩阵</span><span>@WeekStart.ToString("yyyy-MM-dd") 至 @WeekStart.AddDays(6).ToString("yyyy-MM-dd")</span><span>行合计 @MatrixRows.Sum(x => x.Cells.Sum(c => c.Hours)) 小时</span></div><div style="overflow-x:auto"><table class="table"><thead><tr><th>成员</th><th>WBS 任务</th>@foreach (var day in Days) { <th>@day.ToString("MM-dd")<br />@DayLabel(day.DayOfWeek)</th> }<th>行合计</th></tr></thead><tbody>@foreach (var row in MatrixRows) { <tr><td>@row.MemberName</td><td>@row.TaskTitle@if (!string.IsNullOrWhiteSpace(row.TaskAssignee)) { <small> · @row.TaskAssignee</small> }</td>@foreach (var cell in row.Cells) { <td><input aria-label="@($"{row.MemberName} {row.TaskTitle} {cell.Date:yyyy-MM-dd} 工时")" type="number" min="0" max="24" step="0.1" placeholder="0" @bind="cell.HoursText" @bind:event="oninput" disabled="@cell.Disabled" /><small class="customer-note" aria-label="@($"{row.MemberName} {cell.Date:yyyy-MM-dd} 日累计")">日计 @DailyHours(row.MemberName, cell.Date).ToString("0.##") / 24</small><select aria-label="出勤状态" @bind="cell.AttendanceStatusText" disabled="@cell.Disabled"><option value="Normal">正常</option><option value="NoAttendance">无考勤</option></select></td> }<td>@row.Cells.Sum(x => x.Hours).ToString("0.##")</td></tr><tr class="worklog-note-row"><td></td><td>说明</td><td colspan="8"><input aria-label="工时说明" @bind="row.Note" placeholder="本行工时说明" /></td></tr> }</tbody></table></div><p class="customer-note">单元格下方显示该成员当天跨 WBS 的累计工时；无考勤仅作为工时提示，不改变工时数值；输入 0 并保存会清除该日期单元格。</p></div></section>
         <section class="task-list" aria-label="本周历史工时"><h2>本周已登记明细</h2>@foreach (var item in WeekLogs) { var task = TaskService.List(item.ProjectId).FirstOrDefault(x => x.Id == item.WbsTaskId); <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-clock-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--active">@item.Hours 小时</span><span>@item.WorkDate.ToString("yyyy-MM-dd")</span><span>@(item.AttendanceStatus == PmpWorkLogAttendanceStatus.NoAttendance ? "无考勤" : "正常")</span></div><h2>@item.MemberName · @(task?.Title ?? "未关联 WBS")</h2><p>@(item.Note ?? "无说明")</p></div></article> }</section>
+        <section class="task-list" aria-label="本周工时审批"><h2>本周工时审批</h2>@foreach (var item in WeekSubmissions) { var snapshot = SubmissionService.GetSnapshot(item); var decision = SubmissionHistoryService.GetLatestDecision(item); <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-paper-plane-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@SubmissionStatusCss(item.Status)">@SubmissionStatusLabel(item.Status)</span><span>@item.TotalHours.ToString("0.##") 小时</span><span>@(item.SubmittedAt?.ToString("yyyy-MM-dd HH:mm") ?? "未提交")</span></div><h2>@item.MemberName · @item.WeekStart.ToString("yyyy-MM-dd") 当周</h2><p>@(string.IsNullOrWhiteSpace(item.RejectionReason) ? $"已冻结 {snapshot.Count} 条工时明细快照：{SnapshotSummary(item)}" : $"驳回原因：{item.RejectionReason}")</p>@if (decision is not null) { <div class="customer-note" aria-label="最近审批意见">最近审批：@DecisionLabel(decision.Kind) · @decision.Actor · @(decision.Comment ?? "未填写意见") · @decision.OccurredAt.ToString("yyyy-MM-dd HH:mm")</div> }</div></article> }</section>
+        @if (Admin.AuthButton("Pmp/WorkLog/Withdraw"))
+        {
+            foreach (var submission in WeekSubmissions.Where(x => x.Status == PmpWeeklyWorkLogSubmissionStatus.Submitted && string.Equals(x.SubmittedBy, Admin.User?.Username, StringComparison.OrdinalIgnoreCase)))
+            {
+                <button class="task-secondary-button danger" @onclick="() => Withdraw(submission)"><i class="fa fa-undo"></i> 撤回 @submission.MemberName 的周工时审批</button>
+            }
+        }
     }
 </div>
 @code {
@@ -25,23 +39,44 @@
     private string? Error;
     private List<WorkLogRow> MatrixRows = [];
     private Guid? SelectedProjectId => Guid.TryParse(SelectedProjectIdText, out var id) ? id : null;
+    private bool IsAdministrator => Admin.Roles.Any(x => x.IsAdministrator);
+    private IReadOnlyList<PmpProject> VisibleProjects => IsAdministrator ? ProjectService.List() : MemberService.ListProjectsForMember(Admin.User?.Id ?? Guid.Empty);
+    private bool CanAccessSelectedProject => SelectedProjectId is Guid projectId && CanAccessProject(projectId);
+    private bool CanAccessProject(Guid projectId) => IsAdministrator || VisibleProjects.Any(x => x.Id == projectId);
+    private PmpProjectMember? CurrentProjectMember => SelectedProjectId is Guid projectId ? MemberService.FindUniqueProjectMember(projectId, Admin.User?.Id ?? Guid.Empty) : null;
     private DateOnly WeekStart => DateOnly.FromDateTime(WeekStartValue);
     private IReadOnlyList<DateOnly> Days => Enumerable.Range(0, 7).Select(WeekStart.AddDays).ToArray();
-    private IReadOnlyList<PmpWorkLog> WeekLogs => SelectedProjectId is not Guid projectId ? Array.Empty<PmpWorkLog>() : WorkLogService.List(projectId).Where(x => x.WorkDate >= WeekStart && x.WorkDate <= WeekStart.AddDays(6)).ToArray();
+    private IReadOnlyList<PmpWorkLog> WeekLogs => SelectedProjectId is not Guid projectId || !CanAccessProject(projectId) ? [] : (IsAdministrator ? WorkLogService.List(projectId) : WorkLogService.ListForProjectMember(projectId, Admin.User?.Id ?? Guid.Empty)).Where(x => x.WorkDate >= WeekStart && x.WorkDate <= WeekStart.AddDays(6)).ToArray();
+    private bool CanSubmitMine => SelectedProjectId is not null && CurrentProjectMember is not null && WeekLogs.Any(x => x.MemberName.Equals(CurrentProjectMember.MemberName, StringComparison.OrdinalIgnoreCase));
+    private IReadOnlyList<PmpWeeklyWorkLogSubmission> WeekSubmissions => SelectedProjectId is not Guid projectId ? [] : (IsAdministrator ? SubmissionService.List(projectId) : SubmissionService.ListForProjectMember(projectId, Admin.User?.Id ?? Guid.Empty)).Where(x => x.WeekStart == WeekStart).ToArray();
+    private decimal DailyHours(string memberName, DateOnly date) => MatrixRows.Where(x => x.MemberName.Equals(memberName, StringComparison.OrdinalIgnoreCase)).Sum(x => x.Cells.Where(cell => cell.Date == date).Sum(cell => cell.Hours));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Admin.InitAsync();
+        if (!Admin.AuthPath("Pmp/WorkLog")) Navigation.NavigateTo("/", true);
+    }
 
     private void RefreshMatrix()
     {
         var day = DateOnly.FromDateTime(WeekStartValue);
         WeekStartValue = day.AddDays(-(int)day.DayOfWeek + (day.DayOfWeek == DayOfWeek.Sunday ? -6 : 1)).ToDateTime(TimeOnly.MinValue);
         Error = null;
-        MatrixRows = SelectedProjectId is Guid projectId ? BuildRows(projectId) : [];
+        if (SelectedProjectId is Guid projectId && !CanAccessProject(projectId))
+        {
+            SelectedProjectIdText = string.Empty;
+            Error = "无权访问该项目工时。";
+        }
+        MatrixRows = SelectedProjectId is Guid selectedProjectId ? BuildRows(selectedProjectId) : [];
     }
 
     private List<WorkLogRow> BuildRows(Guid projectId)
     {
+        if (!CanAccessProject(projectId)) return [];
         var members = MemberService.List(projectId);
+        if (!IsAdministrator) members = members.Where(x => x.UserId == Admin.User?.Id).ToArray();
         var tasks = TaskService.List(projectId);
-        var logs = WorkLogService.List(projectId);
+        var logs = IsAdministrator ? WorkLogService.List(projectId) : WorkLogService.ListForProjectMember(projectId, Admin.User?.Id ?? Guid.Empty);
         var project = ProjectService.List().FirstOrDefault(x => x.Id == projectId);
         var rows = new List<WorkLogRow>();
         foreach (var member in members)
@@ -63,21 +98,43 @@
 
     private void SaveWeek()
     {
-        if (SelectedProjectId is not Guid projectId) return;
+        if (SelectedProjectId is not Guid projectId || !CanAccessProject(projectId)) return;
         try
         {
+            var cells = new List<PmpWorkLogCellSave>();
             foreach (var row in MatrixRows)
             {
                 foreach (var cell in row.Cells.Where(x => !x.Disabled && (x.HasExisting || !string.IsNullOrWhiteSpace(x.HoursText))))
                 {
                     if (!decimal.TryParse(cell.HoursText, out var hours)) throw new ArgumentException($"{row.MemberName} {row.TaskTitle} 的 {cell.Date:MM-dd} 工时格式不正确。");
                     if (hours is < 0 or > 24) throw new ArgumentOutOfRangeException(nameof(hours), $"{row.MemberName} {row.TaskTitle} 的工时必须在 0 到 24 小时之间。");
-                    WorkLogService.SaveCell(projectId, row.TaskId, cell.Date, row.MemberName, hours, Enum.Parse<PmpWorkLogAttendanceStatus>(cell.AttendanceStatusText), row.Note);
+                    cells.Add(new PmpWorkLogCellSave(row.TaskId, cell.Date, row.MemberName, hours, Enum.Parse<PmpWorkLogAttendanceStatus>(cell.AttendanceStatusText), row.Note));
                 }
             }
+            if (IsAdministrator) WorkLogService.SaveCells(projectId, cells);
+            else WorkLogService.SaveCellsForProjectMember(projectId, Admin.User?.Id ?? Guid.Empty, cells);
             RefreshMatrix();
         }
         catch (Exception ex) { Error = ex.Message; }
+    }
+    private void SubmitMine()
+    {
+        if (SelectedProjectId is not Guid projectId || !CanAccessProject(projectId)) return;
+        try { SubmissionService.SubmitForProjectMember(projectId, Admin.User?.Id ?? Guid.Empty, WeekStart, Admin.User?.Username ?? "system"); RefreshMatrix(); }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private void Withdraw(PmpWeeklyWorkLogSubmission item)
+    {
+        try { SubmissionService.Withdraw(item, Admin.User?.Username ?? string.Empty); RefreshMatrix(); }
+        catch (Exception ex) { Error = ex.Message; }
+    }
+    private static string SubmissionStatusLabel(PmpWeeklyWorkLogSubmissionStatus status) => status switch { PmpWeeklyWorkLogSubmissionStatus.Draft => "草稿", PmpWeeklyWorkLogSubmissionStatus.Submitted => "审批中", PmpWeeklyWorkLogSubmissionStatus.Approved => "已批准", PmpWeeklyWorkLogSubmissionStatus.Rejected => "已驳回", _ => "已撤回" };
+    private static string SubmissionStatusCss(PmpWeeklyWorkLogSubmissionStatus status) => status switch { PmpWeeklyWorkLogSubmissionStatus.Submitted => "pending", PmpWeeklyWorkLogSubmissionStatus.Approved => "approved", PmpWeeklyWorkLogSubmissionStatus.Rejected => "rejected", PmpWeeklyWorkLogSubmissionStatus.Withdrawn => "cancelled", _ => "inactive" };
+    private static string DecisionLabel(WorkflowOperationKind kind) => kind switch { WorkflowOperationKind.Approved => "同意", WorkflowOperationKind.Rejected => "拒绝", WorkflowOperationKind.Returned => "退回", WorkflowOperationKind.Transferred => "转交", WorkflowOperationKind.Withdrawn => "撤回", _ => kind.ToString() };
+    private string SnapshotSummary(PmpWeeklyWorkLogSubmission item)
+    {
+        var taskTitles = TaskService.List(item.ProjectId).ToDictionary(x => x.Id, x => x.Title);
+        return string.Join("；", SubmissionService.GetSnapshot(item).OrderBy(x => x.WorkDate).Select(x => $"{x.WorkDate:MM-dd} · {(x.WbsTaskTitle ?? (x.WbsTaskId is Guid taskId && taskTitles.TryGetValue(taskId, out var title) ? title : "未关联 WBS"))} · {x.Hours:0.##} 小时"));
     }
 
     private static string DayLabel(DayOfWeek day) => day switch { DayOfWeek.Monday => "一", DayOfWeek.Tuesday => "二", DayOfWeek.Wednesday => "三", DayOfWeek.Thursday => "四", DayOfWeek.Friday => "五", DayOfWeek.Saturday => "六", _ => "日" };

@@ -16,4 +16,5 @@ public sealed class ProductRecord
     [Column(Position = 10)] public decimal? MaxPurchaseQuantity { get; set; }
     [Column(Position = 11)] public decimal? SafetyStock { get; set; }
     [Column(StringLength = -1, IsNullable = false, Position = 12)] public string OtherInfo { get; set; } = "{}";
+    [Column(Position = 13)] public decimal? MaxInventoryQuantity { get; set; }
 }

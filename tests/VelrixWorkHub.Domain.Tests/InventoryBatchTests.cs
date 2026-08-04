@@ -19,4 +19,10 @@ public sealed class InventoryBatchTests
     {
         Assert.Throws<ArgumentException>(() => new InventoryTransaction(Guid.CreateVersion7(), Guid.CreateVersion7(), InventoryTransactionKind.Inbound, 1m, "INV-BATCH-02", new DateOnly(2026, 7, 15), null, expiryDate: new DateOnly(2026, 7, 14)));
     }
+
+    [Fact]
+    public void SerialNumberRequiresSingleUnitTransaction()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new InventoryTransaction(Guid.CreateVersion7(), Guid.CreateVersion7(), InventoryTransactionKind.Inbound, 2m, "INV-SERIAL-01", new DateOnly(2026, 7, 15), null, serialNo: "SN-001"));
+    }
 }
