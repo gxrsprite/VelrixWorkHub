@@ -17,7 +17,7 @@ public sealed class FreeSqlWorkflowDefinitionRepositoryTests
                 .UseAutoSyncStructure(true)
                 .Build();
             var repository = new FreeSqlWorkflowDefinitionRepository(fsql);
-            var definition = new WorkflowDefinition("PMP_CHANGE", "项目变更审批", description: "项目变更发布前审批");
+            var definition = new WorkflowDefinition("PMS_CHANGE", "项目变更审批", description: "项目变更发布前审批");
             var start = definition.AddNode(Guid.CreateVersion7(), WorkflowNodeType.Start, "开始", 10, 20);
             var approval = definition.AddNode(Guid.CreateVersion7(), WorkflowNodeType.Approval, "项目经理审批", 120, 20, "{\"approver\":\"project-manager\"}");
             var end = definition.AddNode(Guid.CreateVersion7(), WorkflowNodeType.End, "结束", 240, 20);
@@ -25,7 +25,7 @@ public sealed class FreeSqlWorkflowDefinitionRepositoryTests
             definition.Connect(approval.Id, end.Id);
 
             repository.Add(definition);
-            var loaded = Assert.Single(repository.List("PMP_CHANGE"));
+            var loaded = Assert.Single(repository.List("PMS_CHANGE"));
             Assert.Equal(definition.Id, loaded.Id);
             Assert.Equal(3, loaded.Nodes.Count);
             Assert.Equal(2, loaded.Connections.Count);

@@ -5,7 +5,7 @@
 @inject VelrixWorkHub.Application.Settlements.SettlementService SettlementService
 @inject VelrixWorkHub.Application.Products.ProductService ProductService
 @inject VelrixWorkHub.Application.Contracts.SalesContractService ContractService
-@inject VelrixWorkHub.Application.PmpProjects.PmpProjectService ProjectService
+@inject VelrixWorkHub.Application.PmsProjects.PmsProjectService ProjectService
 @using VelrixWorkHub.Application.Reports
 @using VelrixWorkHub.Application.Contracts
 @using VelrixWorkHub.Domain
@@ -15,19 +15,19 @@
     <section class="task-toolbar customer-toolbar"><label>客户<select aria-label="选择交易客户" @bind="CustomerIdText"><option value="">请选择客户</option>@foreach(var customer in CustomerService.List()){<option value="@customer.Id">@customer.Name</option>}</select></label>@if(SelectedCustomer is not null){<a class="task-primary-button" href="/Erp/SalesOrder"><i class="fa fa-plus"></i> 新建销售订单</a>}</section>
     @if(SelectedCustomer is null)
     {
-        <div class="task-empty"><i class="fa fa-line-chart"></i><strong>请选择一个客户</strong><span>查看该客户的 CRM 合同、ERP 销售订单、收款、应收余额和 PMP 项目履约情况。</span></div>
+        <div class="task-empty"><i class="fa fa-line-chart"></i><strong>请选择一个客户</strong><span>查看该客户的 CRM 合同、ERP 销售订单、收款、应收余额和 PMS 项目履约情况。</span></div>
     }
     else
     {
         var insight = Insight();
         var contractInsight = ContractInsight();
-        var pmpInsight = PmpInsight();
+        var pmsInsight = PmsInsight();
         <section class="task-list" aria-label="客户交易指标">
             <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>有效销售订单</span><span>ERP 销售</span></div><h2>@insight.OrderCount</h2><p>已发货 @insight.ShippedOrderCount 笔 · 销售 ¥@insight.SalesAmount.ToString("N2")</p></div></article>
             <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>有效合同金额</span><span>CRM 合同</span></div><h2>¥@contractInsight.ActiveContractAmount.ToString("N2")</h2><p>@contractInsight.ActiveContractCount 份 · 已关联订单 ¥@contractInsight.ContractedOrderAmount.ToString("N2") · 待承接 ¥@contractInsight.UnorderedContractAmount.ToString("N2")</p></div></article>
             <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>已收款</span><span>核销流水</span></div><h2>¥@insight.ReceivedAmount.ToString("N2")</h2><p>已登记销售收款</p></div></article>
             <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>客户应收</span><span>销售减收款</span></div><h2>¥@insight.ReceivableAmount.ToString("N2")</h2><p>需继续跟进的收款余额</p></div></article>
-            <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>PMP 项目</span><span>项目履约</span></div><h2>@pmpInsight.ProjectCount</h2><p><a href="/Pmp/Project?customerId=@CustomerId">进行中 @pmpInsight.ActiveProjectCount 个 · 查看客户项目</a></p></div></article>
+            <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>PMS 项目</span><span>项目履约</span></div><h2>@pmsInsight.ProjectCount</h2><p><a href="/Pms/Project?customerId=@CustomerId">进行中 @pmsInsight.ActiveProjectCount 个 · 查看客户项目</a></p></div></article>
         </section>
         <section class="task-list" aria-label="客户销售订单">
             @foreach(var item in CustomerOrders())
@@ -50,7 +50,7 @@
     private Customer? SelectedCustomer => CustomerId is Guid id ? CustomerService.List().FirstOrDefault(x => x.Id == id) : null;
     private CustomerErpInsight Insight() => CustomerErpInsightService.Build(CustomerId!.Value, SalesOrderService.List(), SettlementService.List());
     private CustomerContractInsight ContractInsight() => CustomerContractInsightService.Build(CustomerId!.Value, ContractService.List(), SalesOrderService.List());
-    private CustomerPmpInsight PmpInsight() => CustomerPmpInsightService.Build(CustomerId!.Value, ProjectService.List());
+    private CustomerPmsInsight PmsInsight() => CustomerPmsInsightService.Build(CustomerId!.Value, ProjectService.List());
     private IEnumerable<SalesOrder> CustomerOrders() => SalesOrderService.List().Where(x => x.CustomerId == CustomerId && x.Status != SalesOrderStatus.Cancelled).OrderByDescending(x => x.OrderDate);
     private SalesContract? ContractFor(SalesOrder order) => order.ContractId is Guid id ? ContractService.List().FirstOrDefault(x => x.Id == id) : null;
     private IEnumerable<ErpSettlement> CustomerReceipts() => SettlementService.List(ErpSettlementKind.Receivable).Where(x => x.PartyId == CustomerId);

@@ -11,7 +11,7 @@ public sealed class SalesOrderContractTests
         var order = SalesOrder.Restore(Guid.NewGuid(), "SO-CONTRACT-01", customer, Guid.NewGuid(), DateOnly.FromDateTime(DateTime.Today), 1, 100m, SalesOrderStatus.Draft, contract, project);
 
         Assert.Equal(contract, order.ContractId);
-        Assert.Equal(project, order.PmpProjectId);
+        Assert.Equal(project, order.PmsProjectId);
         Assert.Equal(customer, order.CustomerId);
     }
 }

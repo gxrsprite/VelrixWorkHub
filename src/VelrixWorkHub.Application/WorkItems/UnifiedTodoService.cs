@@ -4,7 +4,7 @@ using VelrixWorkHub.Application.Settlements;
 namespace VelrixWorkHub.Application.WorkItems;
 
 public enum UnifiedTodoSource { Task, CustomerFollowUp, Contract, ProjectIssue, ProjectPhase, InventoryRisk, Settlement, WorkflowApproval }
-public enum UnifiedTodoModule { Oa, Crm, Erp, Pmp, Lms }
+public enum UnifiedTodoModule { Oa, Crm, Erp, Pms, Lms }
 public enum UnifiedTodoPriority { Normal, High, Critical }
 
 public sealed record InventoryRiskTodo(Guid ProductId, string ProductName, decimal SafetyStock, decimal Quantity);
@@ -18,7 +18,7 @@ public sealed record UnifiedTodoItem(UnifiedTodoSource Source, Guid SourceId, st
         UnifiedTodoSource.Task => UnifiedTodoModule.Oa,
         UnifiedTodoSource.CustomerFollowUp or UnifiedTodoSource.Contract => UnifiedTodoModule.Crm,
         UnifiedTodoSource.InventoryRisk or UnifiedTodoSource.Settlement => UnifiedTodoModule.Erp,
-        _ => UnifiedTodoModule.Pmp
+        _ => UnifiedTodoModule.Pms
     };
 
     public UnifiedTodoPriority Priority { get; init; } = UnifiedTodoPriority.Normal;
@@ -27,7 +27,7 @@ public sealed record UnifiedTodoItem(UnifiedTodoSource Source, Guid SourceId, st
 
 public static class UnifiedTodoService
 {
-    public static IReadOnlyList<UnifiedTodoItem> Build(DateOnly today, IEnumerable<WorkTask> tasks, IEnumerable<CustomerFollowUp> followUps, IEnumerable<SalesContract> contracts, IEnumerable<PmpProjectIssue>? issues = null, int contractReminderDays = 30, IEnumerable<SettlementOrderBalance>? settlementBalances = null, IEnumerable<WorkflowTask>? workflowTasks = null, IEnumerable<PmpProjectPhase>? phases = null, IEnumerable<InventoryRiskTodo>? inventoryRisks = null)
+    public static IReadOnlyList<UnifiedTodoItem> Build(DateOnly today, IEnumerable<WorkTask> tasks, IEnumerable<CustomerFollowUp> followUps, IEnumerable<SalesContract> contracts, IEnumerable<PmsProjectIssue>? issues = null, int contractReminderDays = 30, IEnumerable<SettlementOrderBalance>? settlementBalances = null, IEnumerable<WorkflowTask>? workflowTasks = null, IEnumerable<PmsProjectPhase>? phases = null, IEnumerable<InventoryRiskTodo>? inventoryRisks = null)
     {
         if (contractReminderDays < 0) throw new ArgumentOutOfRangeException(nameof(contractReminderDays));
         var reminderEnd = today.AddDays(contractReminderDays);
@@ -35,8 +35,8 @@ public static class UnifiedTodoService
         items.AddRange(tasks.Where(x => x.Status != WorkTaskStatus.Done && x.DueDate is not null).Select(x => new UnifiedTodoItem(UnifiedTodoSource.Task, x.Id, x.Title, "OA 任务", x.DueDate!.Value, "Oa/Task") { Priority = DuePriority(x.DueDate.Value, today) }));
         items.AddRange(followUps.Where(x => x.NextFollowUpDate is not null).Select(x => new UnifiedTodoItem(UnifiedTodoSource.CustomerFollowUp, x.Id, x.Content, "CRM 客户跟进", x.NextFollowUpDate!.Value, "Crm/FollowUp") { Priority = DuePriority(x.NextFollowUpDate.Value, today) }));
         items.AddRange(contracts.Where(x => x.Status == ContractStatus.Active && x.EndDate <= reminderEnd).Select(x => new UnifiedTodoItem(UnifiedTodoSource.Contract, x.Id, $"{x.ContractNo} · {x.Title}", "CRM 合同到期", x.EndDate, $"Crm/ContractLedger/{x.Id}") { Priority = DuePriority(x.EndDate, today) }));
-        items.AddRange((issues ?? []).Where(x => x.Status is PmpProjectIssueStatus.Open or PmpProjectIssueStatus.InProgress && x.DueDate is not null).Select(x => new UnifiedTodoItem(UnifiedTodoSource.ProjectIssue, x.Id, x.Title, $"PMP {(x.Kind == PmpProjectIssueKind.Risk ? "风险" : "问题")} · {IssuePriorityLabel(x.Priority)}", x.DueDate!.Value, $"Pmp/Issue?projectId={x.ProjectId}") { Priority = IssuePriority(x.Priority, x.DueDate.Value, today) }));
-        items.AddRange((phases ?? []).Where(x => x.Status is PmpProjectPhaseStatus.Planned or PmpProjectPhaseStatus.Active && x.PlannedEnd < today).Select(x => new UnifiedTodoItem(UnifiedTodoSource.ProjectPhase, x.Id, $"{x.Name} · 项目节点逾期", $"PMP {(x.Kind == PmpProjectPhaseKind.Milestone ? "里程碑" : "阶段")} · 完成度 {x.PercentComplete}%", x.PlannedEnd, $"Pmp/Phase?projectId={x.ProjectId}") { Priority = UnifiedTodoPriority.High }));
+        items.AddRange((issues ?? []).Where(x => x.Status is PmsProjectIssueStatus.Open or PmsProjectIssueStatus.InProgress && x.DueDate is not null).Select(x => new UnifiedTodoItem(UnifiedTodoSource.ProjectIssue, x.Id, x.Title, $"PMS {(x.Kind == PmsProjectIssueKind.Risk ? "风险" : "问题")} · {IssuePriorityLabel(x.Priority)}", x.DueDate!.Value, $"Pms/Issue?projectId={x.ProjectId}") { Priority = IssuePriority(x.Priority, x.DueDate.Value, today) }));
+        items.AddRange((phases ?? []).Where(x => x.Status is PmsProjectPhaseStatus.Planned or PmsProjectPhaseStatus.Active && x.PlannedEnd < today).Select(x => new UnifiedTodoItem(UnifiedTodoSource.ProjectPhase, x.Id, $"{x.Name} · 项目节点逾期", $"PMS {(x.Kind == PmsProjectPhaseKind.Milestone ? "里程碑" : "阶段")} · 完成度 {x.PercentComplete}%", x.PlannedEnd, $"Pms/Phase?projectId={x.ProjectId}") { Priority = UnifiedTodoPriority.High }));
         items.AddRange((inventoryRisks ?? []).Where(x => x.SafetyStock > 0 && x.Quantity < x.SafetyStock).Select(x => new UnifiedTodoItem(UnifiedTodoSource.InventoryRisk, x.ProductId, $"{x.ProductName} · 库存低于安全线", $"ERP 库存 · 当前 {x.Quantity:N2} / 安全线 {x.SafetyStock:N2}", today, "Erp/Product") { Priority = UnifiedTodoPriority.High }));
         items.AddRange((settlementBalances ?? []).Where(x => x.RemainingAmount > 0).Select(x => { var dueDate = x.DueDate ?? today; return new UnifiedTodoItem(UnifiedTodoSource.Settlement, x.OrderId, $"{x.OrderNo} · 待{(x.Kind == ErpSettlementKind.Receivable ? "收" : "付")} ¥{x.RemainingAmount:N2}", $"ERP {(x.Kind == ErpSettlementKind.Receivable ? "客户应收" : "供应商应付")}", dueDate, $"Erp/Settlement?orderId={x.OrderId}&kind={x.Kind}") { Priority = x.DueDate is null ? UnifiedTodoPriority.High : DuePriority(dueDate, today) }; }));
         items.AddRange((workflowTasks ?? []).Where(x => x.Status == WorkflowTaskStatus.Pending).Select(x => new UnifiedTodoItem(UnifiedTodoSource.WorkflowApproval, x.Id, $"审批 · {x.NodeName}", $"{WorkflowModuleLabel(x.BusinessType)} · {x.Assignee}", today, $"Workflow/Inbox?assignee={Uri.EscapeDataString(x.Assignee)}&businessType={Uri.EscapeDataString(x.BusinessType)}&businessId={Uri.EscapeDataString(x.BusinessId.ToString())}") { Priority = UnifiedTodoPriority.Critical, ModuleOverride = WorkflowModule(x.BusinessType) }));
@@ -66,7 +66,7 @@ public static class UnifiedTodoService
     private static UnifiedTodoModule WorkflowModule(string businessType) => businessType switch
     {
         nameof(SalesContract) => UnifiedTodoModule.Crm,
-        nameof(PmpProjectChange) => UnifiedTodoModule.Pmp,
+        nameof(PmsProjectChange) => UnifiedTodoModule.Pms,
         nameof(LmsLicenseRequest) or nameof(LmsLicenseReplacementRequest) => UnifiedTodoModule.Lms,
         nameof(OaLeaveRequest) or nameof(OaOvertimeRequest) or nameof(OaVehicleUseRequest) or nameof(OaAssetRequest) or nameof(OaProcurementRequest) or nameof(OaPaymentRequest) or nameof(OaCashAdvance) or nameof(OaCashAdvanceRepayment) or nameof(OaExpenseReimbursement) => UnifiedTodoModule.Oa,
         _ => UnifiedTodoModule.Erp
@@ -75,7 +75,7 @@ public static class UnifiedTodoService
     private static string WorkflowModuleLabel(string businessType) => WorkflowModule(businessType) switch
     {
         UnifiedTodoModule.Crm => "CRM 合同审批",
-        UnifiedTodoModule.Pmp => "PMP 变更审批",
+        UnifiedTodoModule.Pms => "PMS 变更审批",
         UnifiedTodoModule.Lms => businessType == nameof(LmsLicenseReplacementRequest) ? "LMS 授权替代审批" : "LMS 许可证申请审批",
         _ when businessType == nameof(OaProcurementRequest) => "OA 采购申请审批",
         _ when businessType == nameof(OaLeaveRequest) => "OA 请假审批",
@@ -93,19 +93,19 @@ public static class UnifiedTodoService
 
     private static UnifiedTodoPriority DuePriority(DateOnly dueDate, DateOnly today) => dueDate < today ? UnifiedTodoPriority.High : UnifiedTodoPriority.Normal;
 
-    private static UnifiedTodoPriority IssuePriority(PmpProjectIssuePriority priority, DateOnly dueDate, DateOnly today)
+    private static UnifiedTodoPriority IssuePriority(PmsProjectIssuePriority priority, DateOnly dueDate, DateOnly today)
     {
-        if (priority == PmpProjectIssuePriority.Critical) return UnifiedTodoPriority.Critical;
-        if (priority == PmpProjectIssuePriority.High || dueDate < today) return UnifiedTodoPriority.High;
+        if (priority == PmsProjectIssuePriority.Critical) return UnifiedTodoPriority.Critical;
+        if (priority == PmsProjectIssuePriority.High || dueDate < today) return UnifiedTodoPriority.High;
         return UnifiedTodoPriority.Normal;
     }
 
-    private static string IssuePriorityLabel(PmpProjectIssuePriority priority) => priority switch
+    private static string IssuePriorityLabel(PmsProjectIssuePriority priority) => priority switch
     {
-        PmpProjectIssuePriority.Low => "低",
-        PmpProjectIssuePriority.Medium => "中",
-        PmpProjectIssuePriority.High => "高",
-        PmpProjectIssuePriority.Critical => "紧急",
+        PmsProjectIssuePriority.Low => "低",
+        PmsProjectIssuePriority.Medium => "中",
+        PmsProjectIssuePriority.High => "高",
+        PmsProjectIssuePriority.Critical => "紧急",
         _ => priority.ToString()
     };
 }

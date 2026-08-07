@@ -49,7 +49,7 @@ public sealed class MasterDataImpactServiceTests
     }
 
     [Fact]
-    public void Customer_ReportsCrmErpAndPmpReferences()
+    public void Customer_ReportsCrmErpAndPmsReferences()
     {
         var customer = new Customer("客户影响");
         var product = new Product("SKU-CUSTOMER-IMPACT", "客户影响商品", "件", 10m, null);
@@ -57,7 +57,7 @@ public sealed class MasterDataImpactServiceTests
         var contact = new CustomerContact(customer.Id, "影响联系人");
         var followUp = new CustomerFollowUp(customer.Id, contact.Id, FollowUpType.Phone, "记录一次客户跟进", null);
         var contract = new SalesContract(customer.Id, null, "CTR-CUSTOMER-IMPACT", "客户影响合同", 100m, DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddDays(30)));
-        var project = new PmpProject("PMP-CUSTOMER-IMPACT", "客户影响项目", customer.Id, null, DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddDays(30)));
+        var project = new PmsProject("PMS-CUSTOMER-IMPACT", "客户影响项目", customer.Id, null, DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddDays(30)));
         var order = new SalesOrder("SO-CUSTOMER-IMPACT", customer.Id, product.Id, DateOnly.FromDateTime(DateTime.Today), 1m, 100m, contract.Id, project.Id);
         var settlement = new ErpSettlement("REC-CUSTOMER-IMPACT", order.Id, customer.Id, ErpSettlementKind.Receivable, 50m, DateOnly.FromDateTime(DateTime.Today));
         var unrelatedOrder = new PurchaseOrder("PO-CUSTOMER-IMPACT", supplier.Id, product.Id, DateOnly.FromDateTime(DateTime.Today), 1m, 10m);

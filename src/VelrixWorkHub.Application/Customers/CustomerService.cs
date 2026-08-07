@@ -2,7 +2,7 @@ using VelrixWorkHub.Application.Contacts;
 using VelrixWorkHub.Application.Contracts;
 using VelrixWorkHub.Application.FollowUps;
 using VelrixWorkHub.Application.MasterData;
-using VelrixWorkHub.Application.PmpProjects;
+using VelrixWorkHub.Application.PmsProjects;
 using VelrixWorkHub.Application.SalesOrders;
 using VelrixWorkHub.Application.Settlements;
 using VelrixWorkHub.Application.Lms;
@@ -14,7 +14,7 @@ public sealed class CustomerService(
     ICustomerFollowUpRepository? followUpRepository = null,
     ISalesContractRepository? contractRepository = null,
     ISalesOrderRepository? salesOrderRepository = null,
-    IPmpProjectRepository? projectRepository = null,
+    IPmsProjectRepository? projectRepository = null,
     ISettlementRepository? settlementRepository = null,
     LmsCustomerReferenceService? lmsReferences = null)
 {
@@ -37,7 +37,7 @@ public sealed class CustomerService(
             followUpRepository?.List() ?? Array.Empty<CustomerFollowUp>(),
             contractRepository?.List() ?? Array.Empty<SalesContract>(),
             salesOrderRepository?.List() ?? Array.Empty<SalesOrder>(),
-            projectRepository?.List() ?? Array.Empty<PmpProject>(),
+            projectRepository?.List() ?? Array.Empty<PmsProject>(),
             settlementRepository?.List() ?? Array.Empty<ErpSettlement>());
         var lmsImpact = lmsReferences?.GetImpact(item.Id);
         var decision = MasterDataImpactService.Decide(

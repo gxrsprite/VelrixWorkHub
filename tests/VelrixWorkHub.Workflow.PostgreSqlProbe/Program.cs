@@ -5,7 +5,7 @@ using BootstrapBlazor.Components;
 using VelrixWorkHub.Application.Notifications;
 using VelrixWorkHub.Application.Contracts;
 using VelrixWorkHub.Application.Lms;
-using VelrixWorkHub.Application.PmpProjects;
+using VelrixWorkHub.Application.PmsProjects;
 using VelrixWorkHub.Application.PurchaseOrders;
 using VelrixWorkHub.Application.SalesOrders;
 using VelrixWorkHub.Application.Workflow;
@@ -14,7 +14,7 @@ using VelrixWorkHub.Infrastructure.SalesOrders;
 using VelrixWorkHub.Infrastructure.Customers;
 using VelrixWorkHub.Infrastructure.Notifications;
 using VelrixWorkHub.Infrastructure.Lms;
-using VelrixWorkHub.Infrastructure.PmpProjects;
+using VelrixWorkHub.Infrastructure.PmsProjects;
 using VelrixWorkHub.Infrastructure.PurchaseOrders;
 using VelrixWorkHub.Infrastructure.Workflow;
 
@@ -1845,18 +1845,18 @@ static void RunCrossModuleActionRollbackProbes(IFreeSql fsql)
         () => contracts.List().Single(x => x.Id == contract.Id).Status == ContractStatus.Draft,
         () => fsql.Delete<SalesContractRecord>().Where(x => x.Id == contract.Id).ExecuteAffrows());
 
-    var projectChange = new PmpProjectChange(Guid.CreateVersion7(), "项目变更事务回滚", "验证跨模块动作失败回滚", null, "workflow-postgres-probe", DateTime.Now);
-    var changes = new FreeSqlPmpProjectChangeRepository(fsql);
+    var projectChange = new PmsProjectChange(Guid.CreateVersion7(), "项目变更事务回滚", "验证跨模块动作失败回滚", null, "workflow-postgres-probe", DateTime.Now);
+    var changes = new FreeSqlPmsProjectChangeRepository(fsql);
     RunCrossModuleActionRollbackProbe(
         fsql,
         "PG_PROJECT_CHANGE_ACTION_ROLLBACK",
-        nameof(PmpProjectChange),
+        nameof(PmsProjectChange),
         projectChange.Id,
-        nameof(PmpProjectChangeStatus.Approved),
-        new PmpProjectChangeWorkflowActionHandler(changes),
+        nameof(PmsProjectChangeStatus.Approved),
+        new PmsProjectChangeWorkflowActionHandler(changes),
         () => changes.Add(projectChange),
-        () => changes.List().Single(x => x.Id == projectChange.Id).Status == PmpProjectChangeStatus.Proposed,
-        () => fsql.Delete<PmpProjectChangeRecord>().Where(x => x.Id == projectChange.Id).ExecuteAffrows());
+        () => changes.List().Single(x => x.Id == projectChange.Id).Status == PmsProjectChangeStatus.Proposed,
+        () => fsql.Delete<PmsProjectChangeRecord>().Where(x => x.Id == projectChange.Id).ExecuteAffrows());
 
     var purchaseOrder = new PurchaseOrder($"PO-PG-ROLLBACK-{Guid.CreateVersion7():N}", Guid.CreateVersion7(), Guid.CreateVersion7(), DateOnly.FromDateTime(DateTime.Today), 2m, 10m);
     var purchaseOrders = new FreeSqlPurchaseOrderRepository(fsql);
@@ -2265,17 +2265,17 @@ static void RunApproverLookupCaseInsensitiveProbe(IFreeSql fsql)
 
 static void RunBusinessApproverFieldProbe(IFreeSql fsql)
 {
-    fsql.CodeFirst.SyncStructure<PmpProjectChangeRecord>();
+    fsql.CodeFirst.SyncStructure<PmsProjectChangeRecord>();
     var projectId = Guid.CreateVersion7();
-    var change = new PmpProjectChange(projectId, "Workflow 审批人字段探针", "验证项目变更申请人", null, "pgwf-requester", DateTime.Now);
-    var emptyChange = new PmpProjectChange(projectId, "Workflow 空审批人字段探针", "验证空申请人回滚", null, null, DateTime.Now);
+    var change = new PmsProjectChange(projectId, "Workflow 审批人字段探针", "验证项目变更申请人", null, "pgwf-requester", DateTime.Now);
+    var emptyChange = new PmsProjectChange(projectId, "Workflow 空审批人字段探针", "验证空申请人回滚", null, null, DateTime.Now);
     var emptyBusinessId = emptyChange.Id;
     try
     {
-        var repository = new FreeSqlPmpProjectChangeRepository(fsql);
+        var repository = new FreeSqlPmsProjectChangeRepository(fsql);
         repository.Add(change);
-        var instance = WorkflowInstance.Start(CreateDefinition(), nameof(PmpProjectChange), change.Id, startedBy: "workflow-postgres-probe");
-        var lookup = new DefaultWorkflowBusinessApproverLookup([new PmpProjectChangeWorkflowApproverSource(repository)]);
+        var instance = WorkflowInstance.Start(CreateDefinition(), nameof(PmsProjectChange), change.Id, startedBy: "workflow-postgres-probe");
+        var lookup = new DefaultWorkflowBusinessApproverLookup([new PmsProjectChangeWorkflowApproverSource(repository)]);
         var resolver = new DefaultWorkflowApproverResolver(businessLookup: lookup);
 
         var users = resolver.Resolve(instance, "{\"approverBusinessFields\":[\"requestername\"]}");
@@ -2299,14 +2299,14 @@ static void RunBusinessApproverFieldProbe(IFreeSql fsql)
         var taskRepository = new FreeSqlWorkflowTaskRepository(fsql);
         var tasks = new WorkflowTaskService(taskRepository, instanceService, operations: operations, approverResolver: resolver);
         var binding = new WorkflowBindingService(definitions, instanceService, tasks, transactions: transactions);
-        var positiveInstance = binding.StartOrGet(code, nameof(PmpProjectChange), change.Id, startedBy: "workflow-postgres-probe");
+        var positiveInstance = binding.StartOrGet(code, nameof(PmsProjectChange), change.Id, startedBy: "workflow-postgres-probe");
         var positiveTasks = taskRepository.List(positiveInstance.Id, status: WorkflowTaskStatus.Pending);
         if (positiveTasks.Count != 1 || !positiveTasks[0].Assignee.Equals("pgwf-requester", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("PostgreSQL 业务字段审批人分派失败：未为项目变更申请人创建待办。");
 
         try
         {
-            binding.StartOrGet(code, nameof(PmpProjectChange), emptyBusinessId, startedBy: "workflow-postgres-probe");
+            binding.StartOrGet(code, nameof(PmsProjectChange), emptyBusinessId, startedBy: "workflow-postgres-probe");
             throw new InvalidOperationException("空项目变更申请人不应允许启动流程。");
         }
         catch (InvalidOperationException exception) when (exception.Message.Contains("未解析到可用审批人", StringComparison.Ordinal))
@@ -2314,7 +2314,7 @@ static void RunBusinessApproverFieldProbe(IFreeSql fsql)
             // 预期：真实业务字段返回空值时，流程事务必须完整回滚。
         }
 
-        if (instances.List(nameof(PmpProjectChange), emptyBusinessId).Count != 0 ||
+        if (instances.List(nameof(PmsProjectChange), emptyBusinessId).Count != 0 ||
             fsql.Select<WorkflowTaskRecord>().Where(x => x.BusinessId == emptyBusinessId).Count() != 0 ||
             fsql.Select<WorkflowOperationRecord>().Where(x => x.BusinessId == emptyBusinessId).Count() != 0)
             throw new InvalidOperationException("PostgreSQL 业务字段空审批人回滚失败：留下了实例、待办或操作历史。");
@@ -2327,8 +2327,8 @@ static void RunBusinessApproverFieldProbe(IFreeSql fsql)
         fsql.Delete<WorkflowOperationRecord>().Where(x => x.BusinessId == emptyBusinessId).ExecuteAffrows();
         fsql.Delete<WorkflowTaskRecord>().Where(x => x.BusinessId == emptyBusinessId).ExecuteAffrows();
         fsql.Delete<WorkflowInstanceRecord>().Where(x => x.BusinessId == emptyBusinessId).ExecuteAffrows();
-        fsql.Delete<PmpProjectChangeRecord>().Where(x => x.Id == emptyChange.Id).ExecuteAffrows();
-        fsql.Delete<PmpProjectChangeRecord>().Where(x => x.Id == change.Id).ExecuteAffrows();
+        fsql.Delete<PmsProjectChangeRecord>().Where(x => x.Id == emptyChange.Id).ExecuteAffrows();
+        fsql.Delete<PmsProjectChangeRecord>().Where(x => x.Id == change.Id).ExecuteAffrows();
     }
 }
 

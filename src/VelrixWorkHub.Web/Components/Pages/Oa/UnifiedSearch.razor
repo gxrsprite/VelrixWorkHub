@@ -14,7 +14,7 @@
     }
     @if (!HasAnyModuleAccess)
     {
-        <div class="task-empty"><i class="fa fa-lock" aria-hidden="true"></i><strong>没有可查询的业务范围</strong><span>请联系管理员分配 CRM、ERP 或 PMP 相关菜单权限。</span></div>
+        <div class="task-empty"><i class="fa fa-lock" aria-hidden="true"></i><strong>没有可查询的业务范围</strong><span>请联系管理员分配 CRM、ERP 或 PMS 相关菜单权限。</span></div>
     }
     else if (string.IsNullOrWhiteSpace(Keyword))
     {
@@ -36,7 +36,7 @@
     private bool HasCustomerAccess => Admin.AuthPath("Crm/Customer");
     private bool HasContractAccess => Admin.AuthPath("Crm/Contract");
     private bool HasSalesOrderAccess => Admin.AuthPath("Erp/SalesOrder");
-    private bool HasProjectAccess => Admin.AuthPath("Pmp/Project");
+    private bool HasProjectAccess => Admin.AuthPath("Pms/Project");
     private bool HasPurchaseOrderAccess => Admin.AuthPath("Erp/PurchaseOrder");
     private bool HasInventoryAccess => Admin.AuthPath("Erp/Inventory");
     private bool HasSettlementAccess => Admin.AuthPath("Erp/Settlement");

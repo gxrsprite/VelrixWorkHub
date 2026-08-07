@@ -20,7 +20,7 @@ public sealed class ExternalNotificationOutboxServiceTests
                 new ExternalNotificationRecipient(ExternalNotificationChannel.WeCom, "wecom-admin")
             ]),
             [email, new ThrowingProvider(ExternalNotificationChannel.Sms)]);
-        var notification = new WorkNotification("admin", WorkNotificationKind.Reminder, "逾期工作项", "请处理。", "/Pmp/WorkItem", "work-item:overdue", new DateTime(2026, 7, 22, 10, 0, 0));
+        var notification = new WorkNotification("admin", WorkNotificationKind.Reminder, "逾期工作项", "请处理。", "/Pms/WorkItem", "work-item:overdue", new DateTime(2026, 7, 22, 10, 0, 0));
 
         Assert.Equal(3, service.Enqueue(notification));
         Assert.Equal(0, service.Enqueue(notification));

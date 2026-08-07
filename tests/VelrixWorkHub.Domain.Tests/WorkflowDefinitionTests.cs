@@ -671,7 +671,7 @@ public sealed class WorkflowDefinitionTests
     {
         var definition = CreateLinearDefinition("INSTANCE_STATUS");
         definition.Publish();
-        var instance = WorkflowInstance.Start(definition, "pmp.change", Guid.CreateVersion7());
+        var instance = WorkflowInstance.Start(definition, "pms.change", Guid.CreateVersion7());
 
         instance.Complete(new DateTime(2026, 7, 14, 10, 0, 0));
 

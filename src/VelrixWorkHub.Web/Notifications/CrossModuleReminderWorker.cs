@@ -1,7 +1,7 @@
 using VelrixWorkHub.Application.Contracts;
 using VelrixWorkHub.Application.Inventory;
 using VelrixWorkHub.Application.Notifications;
-using VelrixWorkHub.Application.PmpProjects;
+using VelrixWorkHub.Application.PmsProjects;
 using VelrixWorkHub.Application.Products;
 using VelrixWorkHub.Application.Settlements;
 using VelrixWorkHub.Application.WorkItems;
@@ -46,8 +46,8 @@ public sealed class CrossModuleReminderWorker(
                 contracts,
                 balances,
                 inventoryRisks,
-                scope.ServiceProvider.GetRequiredService<PmpProjectIssueService>().List(),
-                scope.ServiceProvider.GetRequiredService<PmpProjectPhaseService>().List());
+                scope.ServiceProvider.GetRequiredService<PmsProjectIssueService>().List(),
+                scope.ServiceProvider.GetRequiredService<PmsProjectPhaseService>().List());
             logger.LogInformation("跨模块提醒扫描完成：事件 {Events}，接收人 {Recipients}，通知投递尝试 {Attempts}。", result.CandidateEventCount, result.RecipientCount, result.NotificationAttemptCount);
         }
         catch (Exception ex) when (!stoppingToken.IsCancellationRequested)

@@ -64,7 +64,7 @@ Form 和 Workflow 分开建模：
 表单支持两种模式，但使用同一运行时渲染协议：
 
 1. `DynamicForm`：全部业务数据保存在表单实例 JSON 中，适合完全自定义流程。
-2. `BusinessBoundForm`：标准字段通过业务 Adapter 绑定 CRM/ERP/PMP 等领域对象，自定义扩展字段仍保存在扩展数据中。表单不能直接映射任意数据库列。
+2. `BusinessBoundForm`：标准字段通过业务 Adapter 绑定 CRM/ERP/PMS 等领域对象，自定义扩展字段仍保存在扩展数据中。表单不能直接映射任意数据库列。
 
 第一批全自定义流程优先使用 `DynamicForm`。现有业务模块迁移时使用 `BusinessBoundForm`，继续由业务 Adapter 校验和持久化领域字段。
 
@@ -324,7 +324,7 @@ JS Interop 使用隔离模块，边界保持粗粒度：
 3. 实现 Blazor 表单设计器，包括基础控件、组织选择器和自定义表格。
 4. 通过 JS Adapter 接入 Canvas，先支持无环的开始、审批、条件、动作和结束。
 5. 扩展回退、撤回、取消、受控循环、并行和子流程。
-6. 接入现有 OA/CRM/ERP/PMP 业务 Adapter，并逐步替换手工状态流转。
+6. 接入现有 OA/CRM/ERP/PMS 业务 Adapter，并逐步替换手工状态流转。
 
 每阶段都先完成稳定 JSON 合同、发布校验和自动化测试，再开放设计器 UI。
 

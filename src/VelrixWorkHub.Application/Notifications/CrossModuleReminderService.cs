@@ -11,7 +11,7 @@ public sealed record CrossModuleReminderScanResult(
 
 /// <summary>
 /// 将统一待办中的跨模块风险投影为 OA 站内提醒。
-/// 扫描只负责投递幂等通知，不改变合同、订单、库存或 PMP 主数据状态。
+/// 扫描只负责投递幂等通知，不改变合同、订单、库存或 PMS 主数据状态。
 /// </summary>
 public sealed class CrossModuleReminderService(
     IWorkNotificationRecipientProvider recipients,
@@ -22,8 +22,8 @@ public sealed class CrossModuleReminderService(
         IEnumerable<SalesContract> contracts,
         IEnumerable<SettlementOrderBalance> settlementBalances,
         IEnumerable<InventoryRiskTodo> inventoryRisks,
-        IEnumerable<PmpProjectIssue> issues,
-        IEnumerable<PmpProjectPhase> phases,
+        IEnumerable<PmsProjectIssue> issues,
+        IEnumerable<PmsProjectPhase> phases,
         int contractReminderDays = 30)
     {
         var today = DateOnly.FromDateTime(now);
@@ -82,8 +82,8 @@ public sealed class CrossModuleReminderService(
         UnifiedTodoSource.Contract => item.IsOverdue(today) ? "CRM 合同已到期" : "CRM 合同即将到期",
         UnifiedTodoSource.Settlement => item.Detail.Contains("客户应收", StringComparison.Ordinal) ? "ERP 客户应收逾期" : "ERP 供应商应付逾期",
         UnifiedTodoSource.InventoryRisk => "ERP 库存低于安全线",
-        UnifiedTodoSource.ProjectPhase => "PMP 项目节点逾期",
-        UnifiedTodoSource.ProjectIssue => "PMP 风险问题升级",
+        UnifiedTodoSource.ProjectPhase => "PMS 项目节点逾期",
+        UnifiedTodoSource.ProjectIssue => "PMS 风险问题升级",
         _ => "跨模块业务提醒"
     };
 

@@ -5,7 +5,7 @@ namespace VelrixWorkHub.Application.Workflow;
 public static class WorkflowBindingCodes
 {
     public const string ContractApproval = "CONTRACT_APPROVAL";
-    public const string ProjectChangeApproval = "PMP_CHANGE_APPROVAL";
+    public const string ProjectChangeApproval = "PMS_CHANGE_APPROVAL";
     public const string SettlementApproval = "ERP_SETTLEMENT_APPROVAL";
     public const string PurchaseOrderApproval = "ERP_PURCHASE_ORDER_APPROVAL";
     public const string SalesOrderApproval = "ERP_SALES_ORDER_APPROVAL";
@@ -18,8 +18,8 @@ public static class WorkflowBindingCodes
     public const string ProcurementRequestApproval = "OA_PROCUREMENT_REQUEST_APPROVAL";
     public const string LeaveApproval = "OA_LEAVE_APPROVAL";
     public const string OvertimeApproval = "OA_OVERTIME_APPROVAL";
-    public const string PmpWorkItemCompletionApproval = "PMP_WORK_ITEM_COMPLETION_APPROVAL";
-    public const string PmpWeeklyWorkLogApproval = "PMP_WEEKLY_WORKLOG_APPROVAL";
+    public const string PmsWorkItemCompletionApproval = "PMS_WORK_ITEM_COMPLETION_APPROVAL";
+    public const string PmsWeeklyWorkLogApproval = "PMS_WEEKLY_WORKLOG_APPROVAL";
     public const string SimpleSealRequestApproval = "SIMPLE_SEAL_REQUEST_APPROVAL";
     public const string VehicleUseApproval = "OA_VEHICLE_USE_APPROVAL";
     public const string AssetRequestApproval = "OA_ASSET_REQUEST_APPROVAL";

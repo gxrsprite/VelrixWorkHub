@@ -76,7 +76,7 @@ public static class MasterDataImpactService
         IEnumerable<CustomerFollowUp> followUps,
         IEnumerable<SalesContract> contracts,
         IEnumerable<SalesOrder> salesOrders,
-        IEnumerable<PmpProject> projects,
+        IEnumerable<PmsProject> projects,
         IEnumerable<ErpSettlement> settlements)
     {
         return new CustomerMasterDataImpact(

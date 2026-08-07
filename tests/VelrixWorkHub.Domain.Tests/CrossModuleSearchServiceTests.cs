@@ -10,7 +10,7 @@ public sealed class CrossModuleSearchServiceTests
     {
         var customer = new Customer("Aster 科技", "林经理");
         var contract = new SalesContract(customer.Id, null, "CT-ASTER-01", "Aster 年度服务", 1000m, Today, Today.AddDays(30)); contract.Activate();
-        var project = new PmpProject("PRJ-ASTER-01", "Aster 实施", customer.Id, "张经理", Today, Today.AddDays(60)); project.SetStatus(PmpProjectStatus.Active);
+        var project = new PmsProject("PRJ-ASTER-01", "Aster 实施", customer.Id, "张经理", Today, Today.AddDays(60)); project.SetStatus(PmsProjectStatus.Active);
         var order = SalesOrder.Restore(Guid.CreateVersion7(), "SO-ASTER-01", customer.Id, Guid.CreateVersion7(), Today, 2m, 200m, SalesOrderStatus.Submitted, contract.Id, project.Id);
 
         var results = CrossModuleSearchService.Build("Aster", CrossModuleSearchScope.All, [customer], [contract], [order], [project]);
@@ -26,7 +26,7 @@ public sealed class CrossModuleSearchServiceTests
         var customer = new Customer("范围客户");
         var contract = new SalesContract(customer.Id, null, "CT-SCOPE-01", "范围合同", 100m, Today, Today.AddDays(1));
         var order = new SalesOrder("SO-SCOPE-01", customer.Id, Guid.CreateVersion7(), Today, 1m, 100m, contract.Id);
-        var project = new PmpProject("PRJ-SCOPE-01", "范围项目", customer.Id, null, Today, Today.AddDays(1));
+        var project = new PmsProject("PRJ-SCOPE-01", "范围项目", customer.Id, null, Today, Today.AddDays(1));
 
         var results = CrossModuleSearchService.Build("范围客户", new CrossModuleSearchScope(true, false, false, false), [customer], [contract], [order], [project]);
 
@@ -39,7 +39,7 @@ public sealed class CrossModuleSearchServiceTests
     public void Build_SearchingProjectIncludesLinkedOrderAndPreservesProjectDeepLink()
     {
         var customer = new Customer("项目客户");
-        var project = new PmpProject("PRJ-SEARCH-01", "交付搜索项目", customer.Id, "王经理", Today, Today.AddDays(10));
+        var project = new PmsProject("PRJ-SEARCH-01", "交付搜索项目", customer.Id, "王经理", Today, Today.AddDays(10));
         var linkedOrder = new SalesOrder("SO-PROJECT-01", customer.Id, Guid.CreateVersion7(), Today, 3m, 100m, null, project.Id);
         var otherOrder = new SalesOrder("SO-PROJECT-02", customer.Id, Guid.CreateVersion7(), Today, 1m, 100m);
 
@@ -48,7 +48,7 @@ public sealed class CrossModuleSearchServiceTests
         Assert.Equal(2, results.Count);
         Assert.Contains(results, item => item.Id == linkedOrder.Id);
         Assert.DoesNotContain(results, item => item.Id == otherOrder.Id);
-        Assert.Equal("/Pmp/Project?projectId=" + project.Id, results.Single(item => item.Id == project.Id).Href);
+        Assert.Equal("/Pms/Project?projectId=" + project.Id, results.Single(item => item.Id == project.Id).Href);
     }
 
     [Fact]

@@ -1,0 +1,57 @@
+@page "/Pms/Overview"
+@inject VelrixWorkHub.Application.PmsProjects.PmsProjectService ProjectService
+@inject VelrixWorkHub.Application.PmsProjects.PmsProjectPhaseService PhaseService
+@inject VelrixWorkHub.Application.PmsProjects.PmsWbsTaskService WbsService
+@inject VelrixWorkHub.Application.PmsProjects.PmsProjectIssueService IssueService
+@inject VelrixWorkHub.Application.PmsProjects.PmsEvmService EvmService
+@inject VelrixWorkHub.Application.SalesOrders.SalesOrderService SalesOrderService
+@inject VelrixWorkHub.Application.Settlements.SettlementService SettlementService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.Contracts.SalesContractService ContractService
+@using VelrixWorkHub.Application.Contracts
+@using VelrixWorkHub.Application.PmsProjects
+@using VelrixWorkHub.Domain
+<PageTitle>项目组合概览 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">PMS 项目管理 · Pms/Overview</p><h1>项目组合概览</h1><p class="task-page__intro">集中查看项目进度、WBS 完成情况、风险问题、EVM 进度绩效和客户合同履约、应收余额。</p></div></div>
+    <section class="task-toolbar customer-toolbar" aria-label="项目组合筛选"><div class="customer-search"><i class="fa fa-search" aria-hidden="true"></i><input aria-label="搜索项目组合" @bind="Keyword" @bind:event="oninput" placeholder="搜索项目编号、名称或经理" /></div><select aria-label="筛选项目客户" @bind="CustomerFilterText"><option value="">全部客户</option>@foreach (var customer in CustomerService.List()) { <option value="@customer.Id">@customer.Name</option> }</select><select aria-label="筛选项目状态" @bind="StatusFilterText"><option value="">全部状态</option><option value="Draft">草稿</option><option value="Active">进行中</option><option value="OnHold">暂停</option><option value="Completed">已完成</option><option value="Cancelled">已取消</option></select></section>
+    @{ var summary = Summary(); }
+    <section class="task-list" aria-label="项目组合指标">
+        <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>项目总数</span><span>PMS 项目</span></div><h2>@summary.ProjectCount</h2></div></article>
+        <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>进行中项目</span><span>项目状态</span></div><h2>@summary.ActiveProjectCount</h2></div></article>
+        <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>阶段/里程碑</span><span>交付计划</span></div><h2>@summary.PhaseCount</h2><p>逾期里程碑 @summary.OverdueMilestoneCount 项</p></div></article>
+        <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>未关闭风险问题</span><span>需要跟进</span></div><h2>@summary.OpenIssueCount</h2><p>其中逾期 @summary.OverdueIssueCount 项</p></div></article>
+        <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>未完成 WBS</span><span>交付工作量</span></div><h2>@summary.IncompleteWbsTaskCount</h2></div></article>
+        <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>平均 SPI</span><span>EVM</span></div><h2>@summary.AverageSchedulePerformanceIndex.ToString("N2")</h2><p>客户应收 ¥@summary.ReceivableAmount.ToString("N2")</p></div></article>
+        <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>有效合同金额</span><span>CRM 合同</span></div><h2>¥@summary.ActiveContractAmount.ToString("N2")</h2><p>仅统计生效合同</p></div></article>
+        <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>待承接合同金额</span><span>CRM × ERP</span></div><h2>¥@summary.UnorderedContractAmount.ToString("N2")</h2><p>生效合同减有效关联合同订单</p></div></article>
+        <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>高风险项目</span><span>PMS 交付健康</span></div><h2>@summary.AtRiskProjectCount</h2><p>逾期节点或进度显著落后</p></div></article>
+        <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>需关注项目</span><span>PMS 交付健康</span></div><h2>@summary.AttentionProjectCount</h2><p>存在待跟进执行信号</p></div></article>
+        <article class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><span>待发货订单</span><span>PMS × ERP 履约</span></div><h2>@summary.PendingShipmentOrderCount</h2><p>待发货数量 @summary.PendingShipmentQuantity.ToString("N2") · 金额 ¥@summary.PendingShipmentAmount.ToString("N2")</p></div></article>
+    </section>
+    <section class="task-list" aria-label="项目交付健康">
+        @foreach (var item in VisibleProjects(summary))
+        {
+            <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-heartbeat"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@HealthClass(item.DeliveryHealth.Status)">@item.DeliveryHealth.Label</span><span>@item.Project.Code · @item.Project.Name</span></div><p aria-label="交付健康原因">@(item.DeliveryHealth.Reasons.Count == 0 ? "暂无待跟进信号" : string.Join("、", item.DeliveryHealth.Reasons))</p></div></article>
+        }
+    </section>
+    <section class="task-list" aria-label="项目组合明细">
+        @foreach (var item in VisibleProjects(summary))
+        {
+            var customer = item.Project.CustomerId is Guid customerId ? CustomerService.List().FirstOrDefault(x => x.Id == customerId) : null;
+            <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-briefcase"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Project.Status.ToString().ToLowerInvariant()">@StatusLabel(item.Project.Status)</span><span>@item.Project.Code</span></div><h2>@item.Project.Name</h2><p>@if (customer is not null) { <a href="/Crm/CustomerLedger/@customer.Id">@customer.Name</a> } else { <span>未关联客户</span> } · @(item.Project.ManagerName ?? "未指定经理") · @item.Project.PlannedStart.ToString("yyyy-MM-dd") 至 @item.Project.PlannedEnd.ToString("yyyy-MM-dd")</p><div class="customer-note">阶段 @item.PhaseCount · 逾期里程碑 @item.OverdueMilestoneCount · WBS @item.WbsTaskCount · 未完成 @item.IncompleteWbsTaskCount · 未关闭问题 @item.OpenIssueCount@if (item.OverdueIssueCount > 0) { <span> · 逾期问题 @item.OverdueIssueCount</span> } · SPI @item.SchedulePerformanceIndex.ToString("N2")</div><div class="customer-note">合同 ¥@item.ActiveContractAmount.ToString("N2") · 已承接 ¥@item.ContractedOrderAmount.ToString("N2") · 待承接 ¥@item.UnorderedContractAmount.ToString("N2") · @if (item.Project.CustomerId is Guid portfolioCustomerId) { <a href="@SalesOrderHref(item)">销售订单 @item.SalesOrderCount 笔</a><span> · 已发货 @item.ShippedOrderCount 笔 · </span><a href="@PendingSalesOrderHref(item)">待发货 @item.PendingShipmentOrderCount 笔</a><span> · 应收 ¥@item.ReceivableAmount.ToString("N2")</span> } else { <span>未关联销售订单</span> }</div><div class="customer-note">订单金额 ¥@item.SalesOrderAmount.ToString("N2") · 数量已发货 @item.ShippedOrderQuantity.ToString("N2") / 待发货 @item.PendingShipmentQuantity.ToString("N2") · 已发货金额 ¥@item.ShippedOrderAmount.ToString("N2") · 待发货金额 ¥@item.PendingShipmentAmount.ToString("N2") · 履约 @item.FulfillmentRate.ToString("0.0")%</div><div class="customer-note"><a href="/Pms/Project?customerId=@item.Project.CustomerId">项目主数据</a> · <a href="/Pms/Phase?projectId=@item.Project.Id">阶段与里程碑</a> · <a href="/Pms/Wbs?projectId=@item.Project.Id">WBS</a> · <a href="/Pms/Issue?projectId=@item.Project.Id">风险问题</a> · <a href="/Pms/Evm?projectId=@item.Project.Id">EVM</a></div></div></article>
+        }
+    </section>
+</div>
+@code {
+    private string Keyword { get; set; } = string.Empty;
+    [SupplyParameterFromQuery(Name = "customerId")] public Guid? CustomerFilterId { get; set; }
+    private string CustomerFilterText { get => CustomerFilterId?.ToString() ?? string.Empty; set => CustomerFilterId = Guid.TryParse(value, out var id) ? id : null; }
+    private string StatusFilterText { get; set; } = string.Empty;
+    private PmsPortfolioSummary Summary() => PmsPortfolioService.Build(DateOnly.FromDateTime(DateTime.Today), ProjectService.List(), PhaseService.List(), WbsService.List(), IssueService.List(), EvmService.List(), SalesOrderService.List(), SettlementService.List(), ContractService.List());
+    private IEnumerable<PmsPortfolioProject> VisibleProjects(PmsPortfolioSummary summary) => summary.Projects.Where(x => CustomerFilterId is null || x.Project.CustomerId == CustomerFilterId).Where(x => string.IsNullOrWhiteSpace(Keyword) || x.Project.Code.Contains(Keyword, StringComparison.OrdinalIgnoreCase) || x.Project.Name.Contains(Keyword, StringComparison.OrdinalIgnoreCase) || (x.Project.ManagerName?.Contains(Keyword, StringComparison.OrdinalIgnoreCase) ?? false)).Where(x => !Enum.TryParse<PmsProjectStatus>(StatusFilterText, out var status) || x.Project.Status == status);
+    private static string SalesOrderHref(PmsPortfolioProject item) => item.Project.CustomerId is not Guid customerId ? "/Erp/SalesOrder" : item.HasProjectScopedOrders ? $"/Erp/SalesOrder?projectId={item.Project.Id}&activeOnly=true" : $"/Erp/SalesOrder?customerId={customerId}&activeOnly=true";
+    private static string PendingSalesOrderHref(PmsPortfolioProject item) => item.Project.CustomerId is not Guid customerId ? "/Erp/SalesOrder?status=Submitted" : item.HasProjectScopedOrders ? $"/Erp/SalesOrder?projectId={item.Project.Id}&activeOnly=true&status=Submitted" : $"/Erp/SalesOrder?customerId={customerId}&activeOnly=true&status=Submitted";
+    private static string HealthClass(PmsDeliveryHealthStatus status) => status switch { PmsDeliveryHealthStatus.Healthy => "healthy", PmsDeliveryHealthStatus.Attention => "attention", PmsDeliveryHealthStatus.AtRisk => "atrisk", _ => "attention" };
+    private static string StatusLabel(PmsProjectStatus status) => status switch { PmsProjectStatus.Draft => "草稿", PmsProjectStatus.Active => "进行中", PmsProjectStatus.OnHold => "暂停", PmsProjectStatus.Completed => "已完成", PmsProjectStatus.Cancelled => "已取消", _ => status.ToString() };
+}

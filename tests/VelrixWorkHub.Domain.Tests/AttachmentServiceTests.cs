@@ -39,8 +39,8 @@ public sealed class AttachmentServiceTests
         var service = new AttachmentService(attachmentRepository, auditRepository);
         var businessId = Guid.CreateVersion7();
 
-        Assert.Throws<ArgumentException>(() => service.Register("PmpProject", businessId, "plan.txt", "text/plain", 1, "bad", "alice"));
-        var item = service.Register("PmpProject", businessId, "plan.txt", "text/plain", "content"u8, "alice");
+        Assert.Throws<ArgumentException>(() => service.Register("PmsProject", businessId, "plan.txt", "text/plain", 1, "bad", "alice"));
+        var item = service.Register("PmsProject", businessId, "plan.txt", "text/plain", "content"u8, "alice");
         service.Delete(item, "alice", "清理测试文件");
 
         Assert.Throws<InvalidOperationException>(() => service.RecordDownload(item, "bob"));
@@ -54,7 +54,7 @@ public sealed class AttachmentServiceTests
         var contentStore = new MemoryContentStore();
         var service = new AttachmentService(attachmentRepository, auditRepository);
 
-        var item = await service.UploadAsync("PmpProject", Guid.CreateVersion7(), "plan.txt", "text/plain", new MemoryStream("project plan"u8.ToArray()), "alice", contentStore, otherInfo: "{\"source\":\"项目组\",\"category\":\"计划\"}");
+        var item = await service.UploadAsync("PmsProject", Guid.CreateVersion7(), "plan.txt", "text/plain", new MemoryStream("project plan"u8.ToArray()), "alice", contentStore, otherInfo: "{\"source\":\"项目组\",\"category\":\"计划\"}");
 
         Assert.Equal(12, contentStore.ContentByKey[item.StorageKey].Length);
         Assert.Equal(12, item.SizeBytes);
@@ -99,7 +99,7 @@ public sealed class AttachmentServiceTests
     {
         var service = new AttachmentService(new AttachmentRepository(), new AuditRepository());
 
-        Assert.Throws<UnauthorizedAccessException>(() => service.Register("PmpProject", Guid.CreateVersion7(), "plan.txt", "text/plain", "content"u8, " "));
+        Assert.Throws<UnauthorizedAccessException>(() => service.Register("PmsProject", Guid.CreateVersion7(), "plan.txt", "text/plain", "content"u8, " "));
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public sealed class AttachmentServiceTests
         var auditRepository = new AuditRepository();
         var contentStore = new MemoryContentStore();
         var service = new AttachmentService(repository, auditRepository);
-        var item = await service.UploadAsync("PmpProject", Guid.CreateVersion7(), "plan.txt", "text/plain", new MemoryStream("original"u8.ToArray()), "alice", contentStore);
+        var item = await service.UploadAsync("PmsProject", Guid.CreateVersion7(), "plan.txt", "text/plain", new MemoryStream("original"u8.ToArray()), "alice", contentStore);
         contentStore.ContentByKey[item.StorageKey] = "tampered"u8.ToArray();
 
         await Assert.ThrowsAsync<InvalidDataException>(() => service.DownloadAsync(item.Id, "bob", contentStore));

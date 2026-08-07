@@ -1,5 +1,5 @@
 using VelrixWorkHub.Application.Workflow;
-using VelrixWorkHub.Application.PmpProjects;
+using VelrixWorkHub.Application.PmsProjects;
 using VelrixWorkHub.Domain;
 
 namespace VelrixWorkHub.Domain.Tests;
@@ -42,7 +42,7 @@ public sealed class WorkflowApproverResolverTests
     [Fact]
     public void Resolve_CombinesBusinessFieldMembersWithExistingApprovers()
     {
-        var instance = WorkflowInstance.Start(CreateDefinition(), nameof(PmpProjectChange), Guid.CreateVersion7(), startedBy: "starter");
+        var instance = WorkflowInstance.Start(CreateDefinition(), nameof(PmsProjectChange), Guid.CreateVersion7(), startedBy: "starter");
         var resolver = new DefaultWorkflowApproverResolver(businessLookup: new BusinessLookup());
 
         var result = resolver.Resolve(instance, "{\"approver\":\"admin\",\"approverBusinessFields\":[\"RequesterName\",\"requestername\"]}");
@@ -51,25 +51,25 @@ public sealed class WorkflowApproverResolverTests
     }
 
     [Fact]
-    public void PmpProjectChangeSource_ResolvesRequesterName()
+    public void PmsProjectChangeSource_ResolvesRequesterName()
     {
-        var change = new PmpProjectChange(Guid.CreateVersion7(), "测试变更", "测试原因", null, " requester ", DateTime.Now);
-        var source = new PmpProjectChangeWorkflowApproverSource(new ChangeRepository([change]));
-        var instance = WorkflowInstance.Start(CreateDefinition(), nameof(PmpProjectChange), change.Id, startedBy: "starter");
+        var change = new PmsProjectChange(Guid.CreateVersion7(), "测试变更", "测试原因", null, " requester ", DateTime.Now);
+        var source = new PmsProjectChangeWorkflowApproverSource(new ChangeRepository([change]));
+        var instance = WorkflowInstance.Start(CreateDefinition(), nameof(PmsProjectChange), change.Id, startedBy: "starter");
 
-        var result = source.FindUsernames(instance, [nameof(PmpProjectChange.RequesterName)]);
+        var result = source.FindUsernames(instance, [nameof(PmsProjectChange.RequesterName)]);
 
         Assert.Equal(["requester"], result);
     }
 
     [Fact]
-    public void PmpProjectChangeSource_ReturnsEmptyWhenRequesterNameIsMissing()
+    public void PmsProjectChangeSource_ReturnsEmptyWhenRequesterNameIsMissing()
     {
-        var change = new PmpProjectChange(Guid.CreateVersion7(), "测试变更", "测试原因", null, null, DateTime.Now);
-        var source = new PmpProjectChangeWorkflowApproverSource(new ChangeRepository([change]));
-        var instance = WorkflowInstance.Start(CreateDefinition(), nameof(PmpProjectChange), change.Id, startedBy: "starter");
+        var change = new PmsProjectChange(Guid.CreateVersion7(), "测试变更", "测试原因", null, null, DateTime.Now);
+        var source = new PmsProjectChangeWorkflowApproverSource(new ChangeRepository([change]));
+        var instance = WorkflowInstance.Start(CreateDefinition(), nameof(PmsProjectChange), change.Id, startedBy: "starter");
 
-        var result = source.FindUsernames(instance, [nameof(PmpProjectChange.RequesterName)]);
+        var result = source.FindUsernames(instance, [nameof(PmsProjectChange.RequesterName)]);
 
         Assert.Empty(result);
     }
@@ -143,19 +143,19 @@ public sealed class WorkflowApproverResolverTests
     {
         public IReadOnlyList<string> FindUsernames(WorkflowInstance instance, IReadOnlyCollection<string> fieldNames)
         {
-            Assert.Equal(nameof(PmpProjectChange), instance.BusinessType);
+            Assert.Equal(nameof(PmsProjectChange), instance.BusinessType);
             Assert.Single(fieldNames);
-            Assert.Contains(nameof(PmpProjectChange.RequesterName), fieldNames, StringComparer.OrdinalIgnoreCase);
+            Assert.Contains(nameof(PmsProjectChange.RequesterName), fieldNames, StringComparer.OrdinalIgnoreCase);
             return ["requester-a", "requester-b", "REQUESTER-A"];
         }
     }
 
-    private sealed class ChangeRepository(IEnumerable<PmpProjectChange> items) : IPmpProjectChangeRepository
+    private sealed class ChangeRepository(IEnumerable<PmsProjectChange> items) : IPmsProjectChangeRepository
     {
-        private readonly List<PmpProjectChange> _items = items.ToList();
-        public IReadOnlyList<PmpProjectChange> List(Guid? projectId = null) => _items.Where(x => projectId is null || x.ProjectId == projectId).ToArray();
-        public void Add(PmpProjectChange item) => _items.Add(item);
-        public void Update(PmpProjectChange item) { }
+        private readonly List<PmsProjectChange> _items = items.ToList();
+        public IReadOnlyList<PmsProjectChange> List(Guid? projectId = null) => _items.Where(x => projectId is null || x.ProjectId == projectId).ToArray();
+        public void Add(PmsProjectChange item) => _items.Add(item);
+        public void Update(PmsProjectChange item) { }
     }
 
     private sealed class EmptyResolver : IWorkflowApproverResolver

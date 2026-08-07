@@ -2,7 +2,7 @@ using VelrixWorkHub.Application.Contacts;
 using VelrixWorkHub.Application.Contracts;
 using VelrixWorkHub.Application.Customers;
 using VelrixWorkHub.Application.FollowUps;
-using VelrixWorkHub.Application.PmpProjects;
+using VelrixWorkHub.Application.PmsProjects;
 using VelrixWorkHub.Application.Inventory;
 using VelrixWorkHub.Application.Products;
 using VelrixWorkHub.Application.PurchaseOrders;
@@ -166,11 +166,11 @@ public sealed class MasterDataLifecycleServiceTests
         public void Update(SalesOrder item) { }
     }
 
-    private sealed class ProjectRepository : IPmpProjectRepository
+    private sealed class ProjectRepository : IPmsProjectRepository
     {
-        public IReadOnlyList<PmpProject> List() => [];
-        public void Add(PmpProject item) { }
-        public void Update(PmpProject item) { }
+        public IReadOnlyList<PmsProject> List() => [];
+        public void Add(PmsProject item) { }
+        public void Update(PmsProject item) { }
         public void Remove(Guid id) { }
     }
 

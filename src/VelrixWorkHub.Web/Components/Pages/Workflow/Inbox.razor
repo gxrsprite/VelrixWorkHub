@@ -12,8 +12,8 @@
 
 <PageTitle>审批收件箱 - Velrix Work Hub</PageTitle>
 <div class="customer-page">
-    <div class="task-page__header"><div><p class="eyebrow">平台能力 · Workflow/Inbox</p><h1>审批收件箱</h1><p class="task-page__intro">集中查看 CRM、PMP、ERP 和许可证申请审批待办，保留审批人、意见和处理时间。</p></div><div class="task-page__summary"><strong>@PendingTasks.Count</strong><span>条待处理</span></div></div>
-    <section class="task-toolbar customer-toolbar"><label class="customer-search"><i class="fa fa-user"></i><input aria-label="当前审批人" value="@CurrentActor" readonly /></label><label class="customer-search"><i class="fa fa-comment-o"></i><input aria-label="审批意见" @bind="Comment" @bind:event="oninput" placeholder="填写审批意见（可选）" /></label><label class="customer-search"><i class="fa fa-share"></i><input aria-label="转交审批人" @bind="TransferAssignee" @bind:event="oninput" placeholder="转交给谁，例如 finance" /></label><select aria-label="筛选业务类型" @bind="BusinessTypeFilter"><option value="">全部业务</option><option value="@nameof(SalesContract)">CRM 合同</option><option value="@nameof(PmpProjectChange)">PMP 项目变更</option><option value="@nameof(PmpWeeklyWorkLogSubmission)">PMP 周工时审批</option><option value="@nameof(ErpSettlement)">ERP 核销</option><option value="@nameof(PurchaseOrder)">ERP 采购订单</option><option value="@nameof(SalesOrder)">ERP 销售订单</option><option value="@nameof(LmsLicenseRequest)">许可证申请</option><option value="@nameof(LmsLicenseReplacementRequest)">许可证授权替代</option><option value="@nameof(SimpleFormSubmission)">简单表单申请</option></select><div class="task-filters" role="tablist" aria-label="审批状态筛选"><button class="task-filter @(ShowHistory ? "" : "is-active")" role="tab" aria-selected="@(!ShowHistory)" @onclick="() => ShowHistory = false">待处理</button><button class="task-filter @(ShowHistory ? "is-active" : "")" role="tab" aria-selected="@ShowHistory" @onclick="() => ShowHistory = true">处理历史</button></div>@if (!string.IsNullOrWhiteSpace(BusinessTypeFilter) || BusinessIdQuery is not null) { <a class="task-secondary-button" href="/Workflow/Inbox">清除筛选</a> }</section>
+    <div class="task-page__header"><div><p class="eyebrow">平台能力 · Workflow/Inbox</p><h1>审批收件箱</h1><p class="task-page__intro">集中查看 CRM、PMS、ERP 和许可证申请审批待办，保留审批人、意见和处理时间。</p></div><div class="task-page__summary"><strong>@PendingTasks.Count</strong><span>条待处理</span></div></div>
+    <section class="task-toolbar customer-toolbar"><label class="customer-search"><i class="fa fa-user"></i><input aria-label="当前审批人" value="@CurrentActor" readonly /></label><label class="customer-search"><i class="fa fa-comment-o"></i><input aria-label="审批意见" @bind="Comment" @bind:event="oninput" placeholder="填写审批意见（可选）" /></label><label class="customer-search"><i class="fa fa-share"></i><input aria-label="转交审批人" @bind="TransferAssignee" @bind:event="oninput" placeholder="转交给谁，例如 finance" /></label><select aria-label="筛选业务类型" @bind="BusinessTypeFilter"><option value="">全部业务</option><option value="@nameof(SalesContract)">CRM 合同</option><option value="@nameof(PmsProjectChange)">PMS 项目变更</option><option value="@nameof(PmsWeeklyWorkLogSubmission)">PMS 周工时审批</option><option value="@nameof(ErpSettlement)">ERP 核销</option><option value="@nameof(PurchaseOrder)">ERP 采购订单</option><option value="@nameof(SalesOrder)">ERP 销售订单</option><option value="@nameof(LmsLicenseRequest)">许可证申请</option><option value="@nameof(LmsLicenseReplacementRequest)">许可证授权替代</option><option value="@nameof(SimpleFormSubmission)">简单表单申请</option></select><div class="task-filters" role="tablist" aria-label="审批状态筛选"><button class="task-filter @(ShowHistory ? "" : "is-active")" role="tab" aria-selected="@(!ShowHistory)" @onclick="() => ShowHistory = false">待处理</button><button class="task-filter @(ShowHistory ? "is-active" : "")" role="tab" aria-selected="@ShowHistory" @onclick="() => ShowHistory = true">处理历史</button></div>@if (!string.IsNullOrWhiteSpace(BusinessTypeFilter) || BusinessIdQuery is not null) { <a class="task-secondary-button" href="/Workflow/Inbox">清除筛选</a> }</section>
     @if (RunningInstances.Any()) { <section class="task-list" aria-label="我发起的审批"><div class="task-page__section-title"><h2>我发起的审批</h2><span>仅显示当前登录用户仍在运行的流程</span></div>@foreach (var instance in RunningInstances) { <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-send-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--pending">审批中</span><span>@BusinessLabel(instance.BusinessType) · V@(instance.DefinitionVersion)</span></div><h2>@BusinessLabel(instance.BusinessType)</h2><p>@instance.StartedBy · @instance.StartedAt.ToString("yyyy-MM-dd HH:mm")</p><div class="customer-note">业务对象 @instance.BusinessId @if (BusinessHref(instance) is string href) { <a href="@href">查看业务</a> }</div></div><div class="task-card__actions">@if (CanRetryAction) { @foreach (var failedNode in FailedAutomaticNodes(instance)) { <button title="重试失败节点：@failedNode.Name" @onclick="() => Retry(instance, failedNode.Id)"><i class="fa fa-refresh"></i></button> } }@if (CanWithdrawAction) { <button class="danger" title="撤回审批" @onclick="() => Withdraw(instance)"><i class="fa fa-undo"></i></button> }</div></article> }</section> }
     @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
     <section class="task-list" aria-live="polite">
@@ -86,8 +86,8 @@
     private static string? BusinessHref(WorkflowTask task) => task.BusinessType switch
     {
         nameof(SalesContract) => $"/Crm/Contract?contractId={task.BusinessId}",
-        nameof(PmpProjectChange) => $"/Pmp/Change?changeId={task.BusinessId}",
-        nameof(PmpWeeklyWorkLogSubmission) => "/Pmp/WorkLog",
+        nameof(PmsProjectChange) => $"/Pms/Change?changeId={task.BusinessId}",
+        nameof(PmsWeeklyWorkLogSubmission) => "/Pms/WorkLog",
         nameof(ErpSettlement) => $"/Erp/Settlement?settlementId={task.BusinessId}",
         nameof(PurchaseOrder) => "/Erp/PurchaseOrder",
         nameof(SalesOrder) => "/Erp/SalesOrder",
@@ -98,8 +98,8 @@
     private static string? BusinessHref(WorkflowInstance instance) => instance.BusinessType switch
     {
         nameof(SalesContract) => $"/Crm/Contract?contractId={instance.BusinessId}",
-        nameof(PmpProjectChange) => $"/Pmp/Change?changeId={instance.BusinessId}",
-        nameof(PmpWeeklyWorkLogSubmission) => "/Pmp/WorkLog",
+        nameof(PmsProjectChange) => $"/Pms/Change?changeId={instance.BusinessId}",
+        nameof(PmsWeeklyWorkLogSubmission) => "/Pms/WorkLog",
         nameof(ErpSettlement) => $"/Erp/Settlement?settlementId={instance.BusinessId}",
         nameof(PurchaseOrder) => $"/Erp/PurchaseOrder?orderId={instance.BusinessId}",
         nameof(SalesOrder) => $"/Erp/SalesOrder?orderId={instance.BusinessId}",
@@ -110,8 +110,8 @@
     private static string BusinessLabel(string businessType) => businessType switch
     {
         nameof(SalesContract) => "CRM 合同",
-        nameof(PmpProjectChange) => "PMP 项目变更",
-        nameof(PmpWeeklyWorkLogSubmission) => "PMP 周工时审批",
+        nameof(PmsProjectChange) => "PMS 项目变更",
+        nameof(PmsWeeklyWorkLogSubmission) => "PMS 周工时审批",
         nameof(ErpSettlement) => "ERP 核销",
         nameof(PurchaseOrder) => "ERP 采购订单",
         nameof(SalesOrder) => "ERP 销售订单",

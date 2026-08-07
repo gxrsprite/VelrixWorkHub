@@ -1,7 +1,7 @@
 using VelrixWorkHub.Application.Contracts;
 using VelrixWorkHub.Application.Customers;
 using VelrixWorkHub.Application.Products;
-using VelrixWorkHub.Application.PmpProjects;
+using VelrixWorkHub.Application.PmsProjects;
 using VelrixWorkHub.Application.SalesOrders;
 using VelrixWorkHub.Domain;
 
@@ -50,15 +50,15 @@ public sealed class SalesOrderContractValidationTests
     {
         var customer = new Customer("Aster 科技");
         var anotherCustomer = new Customer("Beta 贸易");
-        var product = new Product("SKU-PMP", "项目服务", "件", 100m, null);
-        var project = new PmpProject("PRJ-ORDER-01", "Aster 项目", customer.Id, "项目经理", Today, Today.AddDays(30));
-        var foreignProject = new PmpProject("PRJ-ORDER-02", "Beta 项目", anotherCustomer.Id, "项目经理", Today, Today.AddDays(30));
+        var product = new Product("SKU-PMS", "项目服务", "件", 100m, null);
+        var project = new PmsProject("PRJ-ORDER-01", "Aster 项目", customer.Id, "项目经理", Today, Today.AddDays(30));
+        var foreignProject = new PmsProject("PRJ-ORDER-02", "Beta 项目", anotherCustomer.Id, "项目经理", Today, Today.AddDays(30));
         var service = new SalesOrderService(new OrderRepository(), new CustomerRepository(customer, anotherCustomer), new ProductRepository(product), null!, null!, new SalesContractService(new ContractRepository()), null!, new ProjectRepository(project, foreignProject));
 
-        var order = service.Create("SO-PMP-01", customer.Id, product.Id, Today, 1, 100m, null, project.Id);
-        var error = Assert.Throws<InvalidOperationException>(() => service.Create("SO-PMP-02", customer.Id, product.Id, Today, 1, 100m, null, foreignProject.Id));
+        var order = service.Create("SO-PMS-01", customer.Id, product.Id, Today, 1, 100m, null, project.Id);
+        var error = Assert.Throws<InvalidOperationException>(() => service.Create("SO-PMS-02", customer.Id, product.Id, Today, 1, 100m, null, foreignProject.Id));
 
-        Assert.Equal(project.Id, order.PmpProjectId);
+        Assert.Equal(project.Id, order.PmsProjectId);
         Assert.Equal("关联项目不属于所选客户。", error.Message);
     }
 
@@ -96,11 +96,11 @@ public sealed class SalesOrderContractValidationTests
         public void Remove(Guid contractId) => items.RemoveAll(x => x.Id == contractId);
     }
 
-    private sealed class ProjectRepository(params PmpProject[] items) : IPmpProjectRepository
+    private sealed class ProjectRepository(params PmsProject[] items) : IPmsProjectRepository
     {
-        public IReadOnlyList<PmpProject> List() => items;
-        public void Add(PmpProject item) { }
-        public void Update(PmpProject item) { }
+        public IReadOnlyList<PmsProject> List() => items;
+        public void Add(PmsProject item) { }
+        public void Update(PmsProject item) { }
         public void Remove(Guid id) { }
     }
 }

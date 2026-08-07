@@ -15,9 +15,9 @@ public sealed class CrossModuleReminderServiceTests
         var projectId = Guid.CreateVersion7();
         var contract = new SalesContract(customerId, null, "CT-REMINDER-001", "即将到期合同", 100m, today.AddDays(-30), today.AddDays(3));
         contract.Activate();
-        var issue = new PmpProjectIssue(projectId, PmpProjectIssueKind.Risk, "上线风险", "需要升级", "项目经理", PmpProjectIssuePriority.Critical, today.AddDays(5));
-        var phase = new PmpProjectPhase(projectId, "上线里程碑", PmpProjectPhaseKind.Milestone, 1, today.AddDays(-2), today.AddDays(-2));
-        phase.SetStatus(PmpProjectPhaseStatus.Active);
+        var issue = new PmsProjectIssue(projectId, PmsProjectIssueKind.Risk, "上线风险", "需要升级", "项目经理", PmsProjectIssuePriority.Critical, today.AddDays(5));
+        var phase = new PmsProjectPhase(projectId, "上线里程碑", PmsProjectPhaseKind.Milestone, 1, today.AddDays(-2), today.AddDays(-2));
+        phase.SetStatus(PmsProjectPhaseStatus.Active);
         var settlement = new SettlementOrderBalance(Guid.CreateVersion7(), "SO-REMINDER-001", ErpSettlementKind.Receivable, 100m, 0m)
         {
             DueDate = today.AddDays(-1)
@@ -40,8 +40,8 @@ public sealed class CrossModuleReminderServiceTests
         Assert.Contains(repository.Items, item => item.Title == "CRM 合同即将到期");
         Assert.Contains(repository.Items, item => item.Title == "ERP 客户应收逾期" && item.Href!.Contains("Erp/Settlement", StringComparison.Ordinal));
         Assert.Contains(repository.Items, item => item.Title == "ERP 库存低于安全线");
-        Assert.Contains(repository.Items, item => item.Title == "PMP 项目节点逾期");
-        Assert.Contains(repository.Items, item => item.Title == "PMP 风险问题升级");
+        Assert.Contains(repository.Items, item => item.Title == "PMS 项目节点逾期");
+        Assert.Contains(repository.Items, item => item.Title == "PMS 风险问题升级");
 
         var second = service.Scan(
             new DateTime(2026, 7, 19, 10, 0, 0),

@@ -1,6 +1,6 @@
 using VelrixWorkHub.Application.Contracts;
 using VelrixWorkHub.Application.Customers;
-using VelrixWorkHub.Application.PmpProjects;
+using VelrixWorkHub.Application.PmsProjects;
 using VelrixWorkHub.Application.PurchaseOrders;
 using VelrixWorkHub.Application.SalesOrders;
 using VelrixWorkHub.Application.Inventory;
@@ -31,7 +31,7 @@ public sealed class CrossModuleSearchService(
     CustomerService customerService,
     SalesContractService contractService,
     SalesOrderService salesOrderService,
-    PmpProjectService projectService,
+    PmsProjectService projectService,
     PurchaseOrderService purchaseOrderService,
     InventoryService inventoryService,
     SettlementService settlementService)
@@ -45,7 +45,7 @@ public sealed class CrossModuleSearchService(
         IEnumerable<Customer> customers,
         IEnumerable<SalesContract> contracts,
         IEnumerable<SalesOrder> orders,
-        IEnumerable<PmpProject> projects,
+        IEnumerable<PmsProject> projects,
         int take = 50)
         => Build(keyword, scope, customers, contracts, orders, projects, [], [], [], take);
 
@@ -55,7 +55,7 @@ public sealed class CrossModuleSearchService(
         IEnumerable<Customer> customers,
         IEnumerable<SalesContract> contracts,
         IEnumerable<SalesOrder> orders,
-        IEnumerable<PmpProject> projects,
+        IEnumerable<PmsProject> projects,
         IEnumerable<PurchaseOrder> purchaseOrders,
         IEnumerable<InventoryTransaction> inventoryTransactions,
         IEnumerable<ErpSettlement> settlements,
@@ -88,13 +88,13 @@ public sealed class CrossModuleSearchService(
         }
         if (scope.SalesOrders)
         {
-            results.AddRange(orderItems.Where(item => Contains(item.OrderNo, text) || matchedCustomerIds.Contains(item.CustomerId) || matchedContractIds.Contains(item.ContractId ?? Guid.Empty) || matchedProjectIds.Contains(item.PmpProjectId ?? Guid.Empty)).Select(item => new CrossModuleSearchResult(
+            results.AddRange(orderItems.Where(item => Contains(item.OrderNo, text) || matchedCustomerIds.Contains(item.CustomerId) || matchedContractIds.Contains(item.ContractId ?? Guid.Empty) || matchedProjectIds.Contains(item.PmsProjectId ?? Guid.Empty)).Select(item => new CrossModuleSearchResult(
                 "销售订单", item.Id, item.OrderNo, item.OrderNo, SalesOrderStatusLabel(item.Status), $"金额 ¥{item.Amount:N2} · 数量 {item.Quantity:N2} · 收款到期 {item.DueDate:yyyy-MM-dd}", null, $"/Erp/SalesOrder?orderId={item.Id}")));
         }
         if (scope.Projects)
         {
             results.AddRange(projectItems.Where(item => matchedProjectIds.Contains(item.Id)).Select(item => new CrossModuleSearchResult(
-                "项目", item.Id, item.Code, item.Name, ProjectStatusLabel(item.Status), $"计划 {item.PlannedStart:yyyy-MM-dd} 至 {item.PlannedEnd:yyyy-MM-dd} · 完成度 {item.PercentComplete}%", item.ManagerName, $"/Pmp/Project?projectId={item.Id}")));
+                "项目", item.Id, item.Code, item.Name, ProjectStatusLabel(item.Status), $"计划 {item.PlannedStart:yyyy-MM-dd} 至 {item.PlannedEnd:yyyy-MM-dd} · 完成度 {item.PercentComplete}%", item.ManagerName, $"/Pms/Project?projectId={item.Id}")));
         }
         if (scope.PurchaseOrders)
         {
@@ -142,5 +142,5 @@ public sealed class CrossModuleSearchService(
     private static string PurchaseOrderStatusLabel(PurchaseOrderStatus status) => status switch { PurchaseOrderStatus.Draft => "草稿", PurchaseOrderStatus.Submitted => "已提交", PurchaseOrderStatus.Received => "已收货", PurchaseOrderStatus.Cancelled => "已取消", PurchaseOrderStatus.Closed => "已关闭", _ => status.ToString() };
     private static string InventoryKindLabel(InventoryTransactionKind kind) => kind switch { InventoryTransactionKind.Inbound => "入库", InventoryTransactionKind.Outbound => "出库", _ => "库存调整" };
     private static string SettlementStatusLabel(ErpSettlement settlement) => settlement.Status switch { ErpSettlementStatus.PendingApproval => "待审批", ErpSettlementStatus.Rejected => "审批拒绝", ErpSettlementStatus.Active => settlement.Kind == ErpSettlementKind.Receivable ? "有效收款" : "有效付款", _ => "已撤销" };
-    private static string ProjectStatusLabel(PmpProjectStatus status) => status switch { PmpProjectStatus.Draft => "草稿", PmpProjectStatus.Active => "进行中", PmpProjectStatus.OnHold => "暂停", PmpProjectStatus.Completed => "已完成", PmpProjectStatus.Cancelled => "已取消", _ => status.ToString() };
+    private static string ProjectStatusLabel(PmsProjectStatus status) => status switch { PmsProjectStatus.Draft => "草稿", PmsProjectStatus.Active => "进行中", PmsProjectStatus.OnHold => "暂停", PmsProjectStatus.Completed => "已完成", PmsProjectStatus.Cancelled => "已取消", _ => status.ToString() };
 }

@@ -8,7 +8,7 @@ public sealed class ExternalNotificationDispatcherTests
     [Fact]
     public async Task Dispatch_SendsConfiguredChannelsOnceAndIsolatesProviderFailures()
     {
-        var notification = new WorkNotification("admin", WorkNotificationKind.Reminder, "待处理事项", "请及时处理。", "/Pmp/WorkItem", "work-item:1", new DateTime(2026, 7, 22, 9, 0, 0));
+        var notification = new WorkNotification("admin", WorkNotificationKind.Reminder, "待处理事项", "请及时处理。", "/Pms/WorkItem", "work-item:1", new DateTime(2026, 7, 22, 9, 0, 0));
         var email = new RecordingProvider(ExternalNotificationChannel.Email);
         var dispatcher = new ExternalNotificationDispatcher(
             new RecipientResolver(

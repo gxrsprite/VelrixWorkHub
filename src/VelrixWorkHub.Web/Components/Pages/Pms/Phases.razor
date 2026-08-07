@@ -1,0 +1,44 @@
+@page "/Pms/Phase"
+@inject VelrixWorkHub.Application.PmsProjects.PmsProjectPhaseService PhaseService
+@inject VelrixWorkHub.Application.PmsProjects.PmsProjectService ProjectService
+@using VelrixWorkHub.Domain
+
+<PageTitle>项目阶段与里程碑 - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">PMS 项目管理 · Pms/Phase</p><h1>阶段与里程碑</h1><p class="task-page__intro">用阶段组织交付节奏，用里程碑记录关键验收节点。</p></div></div>
+    <section class="task-toolbar customer-toolbar"><div class="customer-search"><i class="fa fa-search"></i><input aria-label="搜索阶段或里程碑" @bind="Keyword" @bind:event="oninput" placeholder="搜索阶段或里程碑名称" /></div><button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus"></i> 新建阶段</button></section>
+    @if (SelectedProject is not null)
+    {
+        <div class="task-context-note" role="status">当前项目：@SelectedProject.Code · @SelectedProject.Name（来自项目组合上下文）</div>
+    }
+    @if (ShowComposer || Editing is not null)
+    {
+        <section class="task-composer" aria-label="阶段编辑"><div class="task-composer__title">@(Editing is null ? "新建阶段或里程碑" : "编辑阶段或里程碑")</div>
+            <div class="task-composer__fields"><label>所属项目<select aria-label="所属项目" @bind="ProjectIdText"><option value="">请选择项目</option>@foreach (var project in ProjectService.List()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label><label>类型<select aria-label="阶段类型" @bind="KindText"><option value="Phase">阶段</option><option value="Milestone">里程碑</option></select></label></div>
+            <div class="task-composer__fields"><label>名称<input aria-label="阶段或里程碑名称" @bind="Name" @bind:event="oninput" placeholder="需求与方案确认" /></label><label>顺序<input aria-label="顺序" type="number" min="1" @bind="SequenceText" @bind:event="oninput" /></label></div>
+            <div class="task-composer__fields"><label>计划开始<input aria-label="计划开始" @bind="StartText" @bind:event="oninput" placeholder="2026-07-12" /></label><label>计划结束<input aria-label="计划结束" @bind="EndText" @bind:event="oninput" placeholder="2026-07-26" /></label></div>
+            @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }<div class="task-composer__actions"><button class="task-secondary-button" @onclick="Close">取消</button><button class="task-primary-button" @onclick="Save">保存</button></div>
+        </section>
+    }
+    <section class="task-list" aria-live="polite">@foreach (var item in PhaseService.List(ProjectFilterId, Keyword)) { var project = ProjectService.List().FirstOrDefault(x => x.Id == item.ProjectId); <article class="task-card customer-card"><div class="customer-avatar"><i class="fa @(item.Kind == PmsProjectPhaseKind.Milestone ? "fa-flag" : "fa-tasks")"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@KindLabel(item.Kind)</span><span>@(project?.Code ?? "未知项目") · 顺序 @item.Sequence</span></div><h2>@item.Name</h2><p>@(project?.Name ?? "项目已不存在") · @item.PlannedStart.ToString() 至 @item.PlannedEnd.ToString()</p><div class="customer-note">@StatusLabel(item.Status) · 完成度 @item.PercentComplete%</div></div><div class="task-card__actions"><button title="编辑" @onclick="() => OpenEditor(item)"><i class="fa fa-pencil"></i></button><button title="推进状态" @onclick="() => Advance(item)"><i class="fa fa-forward"></i></button><button class="danger" title="删除" @onclick="() => PhaseService.Remove(item)"><i class="fa fa-trash-o"></i></button></div></article> }</section>
+</div>
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "projectId")]
+    public Guid? ProjectFilterId { get; set; }
+
+    private PmsProject? SelectedProject => ProjectFilterId is null ? null : ProjectService.List().FirstOrDefault(x => x.Id == ProjectFilterId.Value);
+    private string Keyword = string.Empty, ProjectIdText = string.Empty, Name = string.Empty, KindText = "Phase", SequenceText = "1", StartText = DateTime.Today.ToString("yyyy-MM-dd"), EndText = DateTime.Today.AddDays(14).ToString("yyyy-MM-dd");
+    private string? Error; private bool ShowComposer; private PmsProjectPhase? Editing;
+    private void OpenComposer() { Close(); ShowComposer = true; }
+    private void OpenEditor(PmsProjectPhase x) { Close(); Editing = x; ProjectIdText = x.ProjectId.ToString(); Name = x.Name; KindText = x.Kind.ToString(); SequenceText = x.Sequence.ToString(); StartText = x.PlannedStart.ToString(); EndText = x.PlannedEnd.ToString(); }
+    private void Close() { ShowComposer = false; Editing = null; Error = null; ProjectIdText = Name = string.Empty; KindText = "Phase"; SequenceText = "1"; StartText = DateTime.Today.ToString("yyyy-MM-dd"); EndText = DateTime.Today.AddDays(14).ToString("yyyy-MM-dd"); }
+    private void Save()
+    {
+        if (!Guid.TryParse(ProjectIdText, out var projectId) || !DateOnly.TryParse(StartText, out var start) || !DateOnly.TryParse(EndText, out var end) || !int.TryParse(SequenceText, out var sequence)) { Error = "项目、顺序或计划日期格式不正确。"; return; }
+        try { var kind = Enum.Parse<PmsProjectPhaseKind>(KindText); if (Editing is null) PhaseService.Create(projectId, Name, kind, sequence, start, end); else PhaseService.Edit(Editing, Name, kind, sequence, start, end); Close(); } catch (Exception ex) { Error = ex.Message; }
+    }
+    private void Advance(PmsProjectPhase x) { var next = x.Status switch { PmsProjectPhaseStatus.Planned => PmsProjectPhaseStatus.Active, PmsProjectPhaseStatus.Active => PmsProjectPhaseStatus.Completed, _ => x.Status }; PhaseService.SetStatus(x, next); }
+    private static string KindLabel(PmsProjectPhaseKind kind) => kind == PmsProjectPhaseKind.Milestone ? "里程碑" : "阶段";
+    private static string StatusLabel(PmsProjectPhaseStatus status) => status switch { PmsProjectPhaseStatus.Planned => "计划中", PmsProjectPhaseStatus.Active => "进行中", PmsProjectPhaseStatus.Completed => "已完成", PmsProjectPhaseStatus.Cancelled => "已取消", _ => status.ToString() };
+}

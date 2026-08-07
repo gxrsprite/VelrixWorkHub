@@ -15,14 +15,14 @@ public sealed class UnifiedTodoServiceTests
         var followUp = new CustomerFollowUp(Guid.NewGuid(), null, FollowUpType.Phone, "逾期回访", today.AddDays(-1));
         var expiring = new SalesContract(Guid.NewGuid(), null, "CT-SOON", "即将到期合同", 100m, today.AddDays(-20), today.AddDays(10)); expiring.Activate();
         var distant = new SalesContract(Guid.NewGuid(), null, "CT-LATER", "远期合同", 100m, today, today.AddDays(31)); distant.Activate();
-        var issue = new PmpProjectIssue(Guid.NewGuid(), PmpProjectIssueKind.Risk, "项目风险", "风险说明", "项目经理", PmpProjectIssuePriority.High, today.AddDays(2));
-        var closedIssue = new PmpProjectIssue(Guid.NewGuid(), PmpProjectIssueKind.Issue, "已关闭问题", null, null, PmpProjectIssuePriority.Medium, today.AddDays(1)); closedIssue.SetStatus(PmpProjectIssueStatus.Closed);
+        var issue = new PmsProjectIssue(Guid.NewGuid(), PmsProjectIssueKind.Risk, "项目风险", "风险说明", "项目经理", PmsProjectIssuePriority.High, today.AddDays(2));
+        var closedIssue = new PmsProjectIssue(Guid.NewGuid(), PmsProjectIssueKind.Issue, "已关闭问题", null, null, PmsProjectIssuePriority.Medium, today.AddDays(1)); closedIssue.SetStatus(PmsProjectIssueStatus.Closed);
 
         var items = UnifiedTodoService.Build(today, [task, done], [followUp], [expiring, distant], [issue, closedIssue]);
 
         Assert.Collection(items,
             item => { Assert.Equal(UnifiedTodoSource.CustomerFollowUp, item.Source); Assert.True(item.IsOverdue(today)); },
-            item => { Assert.Equal(UnifiedTodoSource.ProjectIssue, item.Source); Assert.Equal("Pmp/Issue?projectId=" + issue.ProjectId, item.Href); },
+            item => { Assert.Equal(UnifiedTodoSource.ProjectIssue, item.Source); Assert.Equal("Pms/Issue?projectId=" + issue.ProjectId, item.Href); },
             item => Assert.Equal(UnifiedTodoSource.Task, item.Source),
             item => { Assert.Equal(UnifiedTodoSource.Contract, item.Source); Assert.Equal("Crm/ContractLedger/" + expiring.Id, item.Href); });
     }
@@ -72,13 +72,13 @@ public sealed class UnifiedTodoServiceTests
     {
         var today = new DateOnly(2026, 7, 13);
         var task = new WorkTask("普通任务", dueDate: today.AddDays(1));
-        var issue = new PmpProjectIssue(Guid.NewGuid(), PmpProjectIssueKind.Risk, "紧急风险", "影响上线", "项目经理", PmpProjectIssuePriority.Critical, today.AddDays(3));
+        var issue = new PmsProjectIssue(Guid.NewGuid(), PmsProjectIssueKind.Risk, "紧急风险", "影响上线", "项目经理", PmsProjectIssuePriority.Critical, today.AddDays(3));
         var payable = new SettlementOrderBalance(Guid.NewGuid(), "PO-PRIORITY", ErpSettlementKind.Payable, 100m, 0m);
 
         var items = UnifiedTodoService.Build(today, [task], [], [], [issue], settlementBalances: [payable]);
 
         Assert.Equal(UnifiedTodoSource.ProjectIssue, items[0].Source);
-        Assert.Equal(UnifiedTodoModule.Pmp, items[0].Module);
+        Assert.Equal(UnifiedTodoModule.Pms, items[0].Module);
         Assert.Equal(UnifiedTodoPriority.Critical, items[0].Priority);
         Assert.Equal(UnifiedTodoModule.Erp, items[1].Module);
         Assert.Equal(UnifiedTodoPriority.High, items[1].Priority);
@@ -139,20 +139,20 @@ public sealed class UnifiedTodoServiceTests
     {
         var today = new DateOnly(2026, 7, 19);
         var projectId = Guid.CreateVersion7();
-        var overdue = new PmpProjectPhase(projectId, "方案评审", PmpProjectPhaseKind.Milestone, 1, today.AddDays(-1), today.AddDays(-1));
-        overdue.SetStatus(PmpProjectPhaseStatus.Active);
+        var overdue = new PmsProjectPhase(projectId, "方案评审", PmsProjectPhaseKind.Milestone, 1, today.AddDays(-1), today.AddDays(-1));
+        overdue.SetStatus(PmsProjectPhaseStatus.Active);
         overdue.SetPercentComplete(60);
-        var completed = new PmpProjectPhase(projectId, "已完成节点", PmpProjectPhaseKind.Phase, 2, today.AddDays(-10), today.AddDays(-2));
-        completed.SetStatus(PmpProjectPhaseStatus.Active);
+        var completed = new PmsProjectPhase(projectId, "已完成节点", PmsProjectPhaseKind.Phase, 2, today.AddDays(-10), today.AddDays(-2));
+        completed.SetStatus(PmsProjectPhaseStatus.Active);
         completed.SetPercentComplete(100);
-        var future = new PmpProjectPhase(projectId, "未来节点", PmpProjectPhaseKind.Phase, 3, today, today.AddDays(2));
+        var future = new PmsProjectPhase(projectId, "未来节点", PmsProjectPhaseKind.Phase, 3, today, today.AddDays(2));
 
         var item = Assert.Single(UnifiedTodoService.Build(today, [], [], [], phases: [overdue, completed, future]));
 
         Assert.Equal(UnifiedTodoSource.ProjectPhase, item.Source);
         Assert.Equal(UnifiedTodoPriority.High, item.Priority);
         Assert.Equal(today.AddDays(-1), item.DueDate);
-        Assert.Equal($"Pmp/Phase?projectId={projectId}", item.Href);
+        Assert.Equal($"Pms/Phase?projectId={projectId}", item.Href);
         Assert.Contains("完成度 60%", item.Detail);
     }
 
@@ -180,14 +180,14 @@ public sealed class UnifiedTodoServiceTests
     public void Build_PreservesModuleAndPriorityDimensionsForCombinedDashboardFilters()
     {
         var today = new DateOnly(2026, 7, 19);
-        var criticalIssue = new PmpProjectIssue(Guid.CreateVersion7(), PmpProjectIssueKind.Risk, "紧急发布风险", "阻断上线", "项目经理", PmpProjectIssuePriority.Critical, today.AddDays(1));
+        var criticalIssue = new PmsProjectIssue(Guid.CreateVersion7(), PmsProjectIssueKind.Risk, "紧急发布风险", "阻断上线", "项目经理", PmsProjectIssuePriority.Critical, today.AddDays(1));
         var highBalance = new SettlementOrderBalance(Guid.CreateVersion7(), "PO-HIGH", ErpSettlementKind.Payable, 100m, 0m) { DueDate = today.AddDays(-1) };
         var normalTask = new WorkTask("普通跟进任务", dueDate: today.AddDays(2));
 
         var items = UnifiedTodoService.Build(today, [normalTask], [], [], [criticalIssue], settlementBalances: [highBalance]);
 
         Assert.Equal(3, items.Count);
-        Assert.Equal(1, items.Count(x => x.Module == UnifiedTodoModule.Pmp && x.Priority == UnifiedTodoPriority.Critical));
+        Assert.Equal(1, items.Count(x => x.Module == UnifiedTodoModule.Pms && x.Priority == UnifiedTodoPriority.Critical));
         Assert.Equal(1, items.Count(x => x.Module == UnifiedTodoModule.Erp && x.Priority == UnifiedTodoPriority.High));
         Assert.Equal(1, items.Count(x => x.Module == UnifiedTodoModule.Oa && x.Priority == UnifiedTodoPriority.Normal));
     }
@@ -195,14 +195,14 @@ public sealed class UnifiedTodoServiceTests
     [Fact]
     public void Filter_CombinesModuleAndPriorityWithoutChangingSourceOrder()
     {
-        var first = new UnifiedTodoItem(UnifiedTodoSource.Task, Guid.CreateVersion7(), "PMP 高", "项目", new DateOnly(2026, 7, 19), "Pmp/Project")
+        var first = new UnifiedTodoItem(UnifiedTodoSource.Task, Guid.CreateVersion7(), "PMS 高", "项目", new DateOnly(2026, 7, 19), "Pms/Project")
         {
-            ModuleOverride = UnifiedTodoModule.Pmp,
+            ModuleOverride = UnifiedTodoModule.Pms,
             Priority = UnifiedTodoPriority.High
         };
-        var second = new UnifiedTodoItem(UnifiedTodoSource.Task, Guid.CreateVersion7(), "PMP 普通", "项目", new DateOnly(2026, 7, 20), "Pmp/Project")
+        var second = new UnifiedTodoItem(UnifiedTodoSource.Task, Guid.CreateVersion7(), "PMS 普通", "项目", new DateOnly(2026, 7, 20), "Pms/Project")
         {
-            ModuleOverride = UnifiedTodoModule.Pmp,
+            ModuleOverride = UnifiedTodoModule.Pms,
             Priority = UnifiedTodoPriority.Normal
         };
         var third = new UnifiedTodoItem(UnifiedTodoSource.Task, Guid.CreateVersion7(), "ERP 高", "采购", new DateOnly(2026, 7, 19), "Erp/PurchaseOrder")
@@ -211,7 +211,7 @@ public sealed class UnifiedTodoServiceTests
             Priority = UnifiedTodoPriority.High
         };
 
-        var result = UnifiedTodoService.Filter([first, second, third], UnifiedTodoModule.Pmp, UnifiedTodoPriority.High);
+        var result = UnifiedTodoService.Filter([first, second, third], UnifiedTodoModule.Pms, UnifiedTodoPriority.High);
 
         var item = Assert.Single(result);
         Assert.Same(first, item);
