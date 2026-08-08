@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\VelrixWorkHub.Domain\VelrixWorkHub.Domain.csproj" />
     <ProjectReference Include="..\..\src\VelrixWorkHub.Application\VelrixWorkHub.Application.csproj" />
     <ProjectReference Include="..\..\src\VelrixWorkHub.Infrastructure\VelrixWorkHub.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\VelrixWorkHub.Web\VelrixWorkHub.Web.csproj" />
   </ItemGroup>
 
 </Project>

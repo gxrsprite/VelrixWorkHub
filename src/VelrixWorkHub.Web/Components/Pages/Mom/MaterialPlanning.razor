@@ -1,0 +1,43 @@
+@page "/Mom/Mrp"
+@implements IDisposable
+@inject AdminBlazor.IAdminContext Admin
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
+@inject VelrixWorkHub.Application.Mom.MomMaterialPlanningService PlanningService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@using VelrixWorkHub.Domain
+
+<PageTitle>@L.Text("计划与 MRP") - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">@L.Text("MOM 制造运营 · Mom/Mrp")</p><h1>@L.Text("计划与 MRP")</h1><p class="task-page__intro">@L.Text("基于销售订单、在制工单、库存、采购在途和一层 BOM 生成可追溯的供需快照；确认只冻结计划批次，不自动生成采购订单、制造工单或库存流水。")</p></div></div>
+    <section class="task-composer" aria-label='@L.Text("模拟 MRP")'><div class="task-composer__title">@L.Text("模拟 MRP")</div><div class="task-composer__fields"><label>@L.Text("计划批次号")<input aria-label='@L.Text("计划批次号")' @bind="PlanNo" @bind:event="oninput" placeholder="MRP-20260807-001" /></label><label>@L.Text("基准日")<input type="date" @bind="ReferenceDate" /></label><label>@L.Text("展望日")<input type="date" @bind="HorizonDate" /></label></div>@if (Error is not null) { <div class="task-error" role="alert">@Error</div> }<div class="task-composer__actions">@if (Admin.AuthButton("Mom/Mrp/Simulate")) { <button class="task-primary-button" @onclick="Simulate">@L.Text("生成供需快照")</button> }</div></section>
+    <section class="task-list" aria-live="polite">
+        @foreach (var run in PlanningService.ListRuns())
+        {
+            <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-line-chart"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@run.Status.ToString().ToLowerInvariant()">@RunStatusLabel(run.Status)</span><span>@run.PlanNo</span></div><h2>@L.Text("计划批次") @run.ReferenceDate.ToString("yyyy-MM-dd")</h2><p>@L.Text("计划窗口")：@run.ReferenceDate.ToString("yyyy-MM-dd") - @run.HorizonDate.ToString("yyyy-MM-dd") · @L.Text("缺料行") @PlanningService.ListLines(run.Id).Count(x => x.ShortageQuantity > 0)</p></div><div class="task-card__actions"><button title='@L.Text("查看供需快照")' @onclick="() => SelectRun(run)"><i class="fa fa-list"></i></button>@if (run.Status == MomMaterialPlanningRunStatus.Simulated && Admin.AuthButton("Mom/Mrp/Confirm")) { <button title='@L.Text("确认 MRP 批次")' @onclick="() => Confirm(run)"><i class="fa fa-check"></i></button><button class="danger" title='@L.Text("取消 MRP 批次")' @onclick="() => Cancel(run)"><i class="fa fa-ban"></i></button> }</div></article>
+        }
+    </section>
+    @if (SelectedRun is not null)
+    {
+        <section class="task-card customer-card"><div class="task-card__body"><div class="task-card__meta"><strong>@L.Text("供需快照") · @SelectedRun.PlanNo</strong><span>@RunStatusLabel(SelectedRun.Status)</span></div>@foreach (var line in PlanningService.ListLines(SelectedRun.Id)) { var product = ProductService.List().FirstOrDefault(x => x.Id == line.ProductId); <article class="customer-note"><strong>@(product?.Code ?? line.ProductId.ToString()) · @(product?.Name ?? L.Text("未知商品"))</strong><div>@L.Text("需求") @line.DemandQuantity.ToString("N6") · @L.Text("现有库存") @line.OnHandQuantity.ToString("N6") · @L.Text("采购在途") @line.PurchaseInTransitQuantity.ToString("N6") · @L.Text("在制供给") @line.OpenWorkOrderQuantity.ToString("N6") · @L.Text("缺料") @line.ShortageQuantity.ToString("N6")</div><div>@L.Text("建议")：@RecommendationLabel(line.Recommendation) @(line.RecommendationQuantity > 0 ? line.RecommendationQuantity.ToString("N6") : string.Empty) · @L.Text("来源")：@line.SourceSummary</div></article>}</div></section>
+    }
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() { L.Changed += OnLanguageChanged; await Admin.InitAsync(); }
+    private string PlanNo = $"MRP-{DateTime.Today:yyyyMMdd}-001";
+    private DateTime ReferenceDate = DateTime.Today, HorizonDate = DateTime.Today.AddDays(30);
+    private string? Error;
+    private string SelectedRunId = string.Empty;
+    private MomMaterialPlanningRun? SelectedRun => Guid.TryParse(SelectedRunId, out var id) ? PlanningService.ListRuns().FirstOrDefault(x => x.Id == id) : null;
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    private void Simulate()
+    {
+        try { var run = PlanningService.Simulate(PlanNo, DateOnly.FromDateTime(ReferenceDate), DateOnly.FromDateTime(HorizonDate)); SelectedRunId = run.Id.ToString(); Error = null; PlanNo = $"MRP-{DateTime.Today:yyyyMMdd}-{PlanningService.ListRuns().Count + 1:000}"; } catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void SelectRun(MomMaterialPlanningRun run) { SelectedRunId = run.Id.ToString(); Error = null; }
+    private void Confirm(MomMaterialPlanningRun run) { try { PlanningService.Confirm(run); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void Cancel(MomMaterialPlanningRun run) { try { PlanningService.Cancel(run); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private string RunStatusLabel(MomMaterialPlanningRunStatus status) => L.Text(status switch { MomMaterialPlanningRunStatus.Simulated => "模拟中", MomMaterialPlanningRunStatus.Confirmed => "已确认", MomMaterialPlanningRunStatus.Cancelled => "已取消", _ => status.ToString() });
+    private string RecommendationLabel(MomMaterialPlanningRecommendation recommendation) => L.Text(recommendation switch { MomMaterialPlanningRecommendation.None => "无建议", MomMaterialPlanningRecommendation.Purchase => "采购建议", MomMaterialPlanningRecommendation.Production => "生产建议", _ => recommendation.ToString() });
+    public void Dispose() => L.Changed -= OnLanguageChanged;
+}

@@ -1,0 +1,157 @@
+@page "/Mom/Acceptance"
+@implements IDisposable
+@inject AdminBlazor.IAdminContext Admin
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
+@inject VelrixWorkHub.Application.Mom.MomAcceptanceService AcceptanceService
+@inject VelrixWorkHub.Application.Mom.MomFinishedGoodsShipmentService ShipmentService
+@inject VelrixWorkHub.Application.SalesOrders.SalesOrderService SalesOrderService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.PmsProjects.PmsProjectService ProjectService
+@using VelrixWorkHub.Domain
+
+<PageTitle>@L.Text("FAT/SAT 验收") - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">@L.Text("MOM 制造运营 · Mom/Acceptance")</p><h1>@L.Text("FAT/SAT 验收")</h1><p class="task-page__intro">@L.Text("把工厂验收和现场验收绑定到销售订单、发运记录及可追溯检查项；提交后检查项只读，结果完成后保留验收结论。")</p></div></div>
+
+    <section class="task-composer" aria-label='@L.Text("新建 FAT/SAT 验收")'>
+        <div class="task-composer__title">@L.Text("新建 FAT/SAT 验收") · MOM-08E</div>
+        <div class="task-composer__fields">
+            <label>@L.Text("验收类型")<select aria-label='@L.Text("验收类型")' @bind="DraftTypeText"><option value="Fat">@L.Text("FAT 工厂验收")</option><option value="Sat">@L.Text("SAT 现场验收")</option></select></label>
+            <label>@L.Text("销售订单")<select aria-label='@L.Text("销售订单")' @bind="DraftSalesOrderIdText"><option value="">@L.Text("请选择已提交或已发运订单")</option>@foreach (var order in EligibleOrders()) { <option value="@order.Id">@order.OrderNo · @ProductLabel(order.ProductId) · @SalesOrderStatusLabel(order.Status)</option> }</select></label>
+            <label>@L.Text("关联发运记录")<select aria-label='@L.Text("关联发运记录")' @bind="DraftShipmentIdText"><option value="">@L.Text("可选，SAT 必填")</option>@foreach (var shipment in SelectedOrderShipments()) { <option value="@shipment.Id">@shipment.SourceNo · @shipment.ShipmentDate.ToString("yyyy-MM-dd") · @shipment.Quantity.ToString("N4")</option> }</select></label>
+        </div>
+        <div class="task-composer__fields">
+            <label>@L.Text("关联 PMS 项目")<select aria-label='@L.Text("关联 PMS 项目")' @bind="DraftPmsProjectIdText"><option value="">@L.Text("不绑定 PMS 项目")</option>@foreach (var project in SelectedOrderProjects()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label>
+            <label>@L.Text("计划验收日期")<input aria-label='@L.Text("计划验收日期")' type="date" @bind="DraftPlannedDate" /></label>
+            <label>@L.Text("序列号")<input aria-label='@L.Text("序列号")' @bind="DraftSerialNo" @bind:event="oninput" placeholder='@L.Text("可选设备序列号")' /></label>
+        </div>
+        <div class="task-composer__fields">
+            <label>@L.Text("验收地点/方式")<input aria-label='@L.Text("验收地点/方式")' @bind="DraftLocationOrMode" @bind:event="oninput" placeholder='@L.Text("例如：上海工厂现场 / 远程视频")' /></label>
+            <label class="task-composer__field--wide">@L.Text("验收参与人")<input aria-label='@L.Text("验收参与人")' @bind="DraftParticipants" @bind:event="oninput" placeholder='@L.Text("客户、项目、质量和制造代表")' /></label>
+        </div>
+        <label>@L.Text("验收备注")<textarea aria-label='@L.Text("验收备注")' rows="2" @bind="DraftNotes" @bind:event="oninput"></textarea></label>
+        @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+        <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Acceptance/Create")) { <button class="task-primary-button" @onclick="CreateAcceptance">@L.Text("保存验收单")</button> }</div>
+    </section>
+
+    @if (SelectedAcceptance is not null)
+    {
+        <section class="task-composer" aria-label='@L.Text("验收检查项")'>
+            <div class="task-composer__title">@L.Text("验收检查项") · @SelectedAcceptance.AcceptanceNo</div>
+            <p class="customer-note">@TypeLabel(SelectedAcceptance.AcceptanceType) · @StatusLabel(SelectedAcceptance.Status) · @L.Text("销售订单") @SalesOrderLabel(SelectedAcceptance.SalesOrderId) · @ProductLabel(SelectedAcceptance.ProductId)</p>
+            @if (SelectedAcceptance.Status == MomAcceptanceStatus.Draft)
+            {
+                <div class="task-composer__fields">
+                    <label>@L.Text("检查项编码")<input aria-label='@L.Text("检查项编码")' @bind="DraftItemCode" @bind:event="oninput" /></label>
+                    <label>@L.Text("检查项名称")<input aria-label='@L.Text("检查项名称")' @bind="DraftItemName" @bind:event="oninput" /></label>
+                    <label class="task-composer__field--wide">@L.Text("检查要求")<input aria-label='@L.Text("检查要求")' @bind="DraftRequirement" @bind:event="oninput" /></label>
+                    <label>@L.Text("行号")<input aria-label='@L.Text("行号")' type="number" min="1" @bind="DraftItemLineNoText" @bind:event="oninput" /></label>
+                </div>
+                <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Acceptance/Item")) { <button class="task-secondary-button" @onclick="AddItem">@L.Text("添加检查项")</button> } @if (Admin.AuthButton("Mom/Acceptance/Submit")) { <button class="task-primary-button" @onclick="SubmitAcceptance">@L.Text("提交验收单")</button> } @if (Admin.AuthButton("Mom/Acceptance/Cancel")) { <button class="task-secondary-button" @onclick="CancelAcceptance">@L.Text("取消验收单")</button> }</div>
+            }
+            @if (SelectedAcceptance.Status == MomAcceptanceStatus.Submitted)
+            {
+                <div class="task-composer__fields">
+                    <label>@L.Text("验收结果")<select @bind="CompletionResultText"><option value="Passed">@L.Text("验收通过")</option><option value="Failed">@L.Text("验收不通过")</option></select></label>
+                    <label class="task-composer__field--wide">@L.Text("验收结论")<input @bind="CompletionConclusion" @bind:event="oninput" /></label>
+                    <label class="task-composer__field--wide">@L.Text("失败原因")<input @bind="CompletionFailureReason" @bind:event="oninput" /></label>
+                </div>
+                <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Acceptance/Complete")) { <button class="task-primary-button" @onclick="CompleteAcceptance">@L.Text("完成验收")</button> } @if (Admin.AuthButton("Mom/Acceptance/Cancel")) { <button class="task-secondary-button" @onclick="CancelAcceptance">@L.Text("取消验收单")</button> }</div>
+            }
+            @if (SelectedAcceptance.Status is MomAcceptanceStatus.Passed or MomAcceptanceStatus.Failed)
+            {
+                <div class="customer-note"><strong>@L.Text("验收结论")</strong>：@SelectedAcceptance.Conclusion @if (!string.IsNullOrWhiteSpace(SelectedAcceptance.FailureReason)) { <span> · @L.Text("失败原因")：@SelectedAcceptance.FailureReason</span> }</div>
+            }
+            @if (SelectedAcceptance.Status == MomAcceptanceStatus.Draft && DraftItemError is not null) { <div class="task-error" role="alert">@DraftItemError</div> }
+            <div class="task-list">
+                @if (AcceptanceService.ListItems(SelectedAcceptance.Id).Count == 0)
+                {
+                    <div class="customer-note">@L.Text("暂无验收检查项")</div>
+                }
+                else
+                {
+                    @foreach (var item in AcceptanceService.ListItems(SelectedAcceptance.Id))
+                    {
+                        var draft = DraftFor(item);
+                        <article class="task-card customer-card"><div class="customer-avatar"><span>@item.LineNo</span></div><div class="task-card__body"><div class="task-card__meta"><span>@item.ItemCode</span><span>@ItemResultLabel(item.Result)</span></div><h2>@item.ItemName</h2><p>@item.Requirement</p>@if (!string.IsNullOrWhiteSpace(item.Remark)) { <div class="customer-note">@item.Remark</div> }@if (item.CheckedBy is not null) { <div class="customer-note">@L.Text("检查人")：@item.CheckedBy · @item.CheckedOn?.ToString("yyyy-MM-dd HH:mm")</div> }</div>@if (SelectedAcceptance.Status == MomAcceptanceStatus.Draft) { <div class="task-card__actions"><select aria-label='@L.Text("检查项结果")' @bind="draft.ResultText"><option value="Passed">@L.Text("通过")</option><option value="Failed">@L.Text("不通过")</option><option value="NotApplicable">@L.Text("不适用")</option></select><input aria-label='@L.Text("检查项备注")' @bind="draft.Remark" @bind:event="oninput" placeholder='@L.Text("检查项备注")' />@if (Admin.AuthButton("Mom/Acceptance/Item")) { <button title='@L.Text("保存检查项结果")' @onclick="() => SaveItemResult(item, draft)"><i class="fa fa-check"></i></button> }@if (Admin.AuthButton("Mom/Acceptance/Item")) { <button class="danger" title='@L.Text("删除检查项")' @onclick="() => RemoveItem(item)"><i class="fa fa-trash"></i></button> }</div> }</article>
+                    }
+                }
+            </div>
+        </section>
+    }
+
+    <section class="task-list" aria-label='@L.Text("FAT/SAT 验收记录")'>
+        <div class="task-composer__title">@L.Text("FAT/SAT 验收记录")</div>
+        @if (AcceptanceService.List().Count == 0) { <div class="customer-note">@L.Text("暂无 FAT/SAT 验收记录")</div> }
+        else
+        {
+            @foreach (var item in AcceptanceService.List())
+            {
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-check-square-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@StatusLabel(item.Status)</span><span>@TypeLabel(item.AcceptanceType)</span><span>@item.PlannedDate.ToString("yyyy-MM-dd")</span></div><h2>@item.AcceptanceNo</h2><p>@L.Text("销售订单")：@SalesOrderLabel(item.SalesOrderId) · @L.Text("客户")：@CustomerLabel(item.CustomerId) · @L.Text("商品")：@ProductLabel(item.ProductId)</p><div class="customer-note">@L.Text("检查项")：@AcceptanceService.ListItems(item.Id).Count · @L.Text("地点/方式")：@(item.LocationOrMode ?? L.Text("未填写")) · <a href="/Erp/SalesOrder?orderId=@item.SalesOrderId">@L.Text("查看销售订单")</a>@if (item.PmsProjectId is Guid projectId) { <span> · <a href="/Pms/Project?projectId=@projectId">@L.Text("查看 PMS 项目")</a></span> }</div></div><div class="task-card__actions"><button title='@L.Text("维护验收检查项")' @onclick="() => SelectAcceptance(item)"><i class="fa fa-list"></i></button></div></article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() { L.Changed += OnLanguageChanged; await Admin.InitAsync(); }
+    private string DraftTypeText = nameof(MomAcceptanceType.Fat), DraftSalesOrderIdText = string.Empty, DraftShipmentIdText = string.Empty, DraftPmsProjectIdText = string.Empty;
+    private DateTime DraftPlannedDate = DateTime.Today;
+    private string DraftSerialNo = string.Empty, DraftLocationOrMode = string.Empty, DraftParticipants = string.Empty, DraftNotes = string.Empty;
+    private string DraftItemLineNoText = "1", DraftItemCode = string.Empty, DraftItemName = string.Empty, DraftRequirement = string.Empty;
+    private string CompletionResultText = nameof(MomAcceptanceStatus.Passed), CompletionConclusion = string.Empty, CompletionFailureReason = string.Empty;
+    private string? Error, DraftItemError;
+    private MomAcceptance? SelectedAcceptance;
+    private readonly Dictionary<Guid, ChecklistDraft> ItemDrafts = [];
+    private string Actor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private IReadOnlyList<SalesOrder> EligibleOrders() => SalesOrderService.List().Where(x => x.Status is SalesOrderStatus.Submitted or SalesOrderStatus.Shipped).ToArray();
+    private IReadOnlyList<MomFinishedGoodsShipment> SelectedOrderShipments() => Guid.TryParse(DraftSalesOrderIdText, out var id) ? ShipmentService.List(id) : Array.Empty<MomFinishedGoodsShipment>();
+    private IReadOnlyList<PmsProject> SelectedOrderProjects() => Guid.TryParse(DraftSalesOrderIdText, out var id) && SalesOrderService.List().FirstOrDefault(x => x.Id == id)?.PmsProjectId is Guid projectId ? ProjectService.List().Where(x => x.Id == projectId).ToArray() : Array.Empty<PmsProject>();
+    private string ProductLabel(Guid id) => ProductService.List().FirstOrDefault(x => x.Id == id) is { } product ? $"{product.Code} · {product.Name}" : id.ToString();
+    private string CustomerLabel(Guid id) => CustomerService.List().FirstOrDefault(x => x.Id == id)?.Name ?? id.ToString();
+    private string SalesOrderLabel(Guid id) => SalesOrderService.List().FirstOrDefault(x => x.Id == id)?.OrderNo ?? id.ToString();
+    private string SalesOrderStatusLabel(SalesOrderStatus status) => L.Text(status == SalesOrderStatus.Shipped ? "已发运" : "已提交");
+    private string TypeLabel(MomAcceptanceType type) => L.Text(type == MomAcceptanceType.Fat ? "FAT 工厂验收" : "SAT 现场验收");
+    private string StatusLabel(MomAcceptanceStatus status) => L.Text(status switch { MomAcceptanceStatus.Draft => "草稿", MomAcceptanceStatus.Submitted => "已提交", MomAcceptanceStatus.Passed => "验收通过", MomAcceptanceStatus.Failed => "验收不通过", MomAcceptanceStatus.Cancelled => "已取消", _ => status.ToString() });
+    private string ItemResultLabel(MomAcceptanceItemResult result) => L.Text(result switch { MomAcceptanceItemResult.Pending => "待检查", MomAcceptanceItemResult.Passed => "通过", MomAcceptanceItemResult.Failed => "不通过", MomAcceptanceItemResult.NotApplicable => "不适用", _ => result.ToString() });
+    private void CreateAcceptance()
+    {
+        try
+        {
+            if (!Enum.TryParse<MomAcceptanceType>(DraftTypeText, out var type)) throw new InvalidOperationException(L.Text("验收类型无效。"));
+            if (!Guid.TryParse(DraftSalesOrderIdText, out var salesOrderId)) throw new InvalidOperationException(L.Text("请选择销售订单。"));
+            Guid? shipmentId = Guid.TryParse(DraftShipmentIdText, out var parsedShipment) ? parsedShipment : null;
+            Guid? projectId = Guid.TryParse(DraftPmsProjectIdText, out var parsedProject) ? parsedProject : null;
+            SelectedAcceptance = AcceptanceService.Create(type, salesOrderId, shipmentId, projectId, DateOnly.FromDateTime(DraftPlannedDate), Actor, DraftSerialNo, DraftLocationOrMode, DraftParticipants, DraftNotes);
+            ResetCreate(); Error = null;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void SelectAcceptance(MomAcceptance item) { SelectedAcceptance = item; DraftItemError = null; }
+    private void AddItem()
+    {
+        try
+        {
+            if (SelectedAcceptance is null) return;
+            if (!int.TryParse(DraftItemLineNoText, out var lineNo)) throw new InvalidOperationException(L.Text("检查项行号格式不正确。"));
+            AcceptanceService.AddItem(SelectedAcceptance.Id, lineNo, DraftItemCode, DraftItemName, DraftRequirement); ResetItem(); DraftItemError = null;
+        }
+        catch (Exception ex) { DraftItemError = L.Text(ex.Message); }
+    }
+    private void SaveItemResult(MomAcceptanceChecklistItem item, ChecklistDraft draft)
+    {
+        try { if (SelectedAcceptance is null || !Enum.TryParse<MomAcceptanceItemResult>(draft.ResultText, out var result)) throw new InvalidOperationException(L.Text("检查项结果无效。")); AcceptanceService.SetItemResult(SelectedAcceptance.Id, item.Id, result, draft.Remark, Actor); DraftItemError = null; }
+        catch (Exception ex) { DraftItemError = L.Text(ex.Message); }
+    }
+    private void RemoveItem(MomAcceptanceChecklistItem item) { try { if (SelectedAcceptance is not null) AcceptanceService.RemoveItem(SelectedAcceptance.Id, item.Id); DraftItemError = null; } catch (Exception ex) { DraftItemError = L.Text(ex.Message); } }
+    private void SubmitAcceptance() { try { if (SelectedAcceptance is null) return; AcceptanceService.Submit(SelectedAcceptance.Id, Actor); DraftItemError = null; } catch (Exception ex) { DraftItemError = L.Text(ex.Message); } }
+    private void CompleteAcceptance() { try { if (SelectedAcceptance is null || !Enum.TryParse<MomAcceptanceStatus>(CompletionResultText, out var result)) throw new InvalidOperationException(L.Text("验收结果无效。")); AcceptanceService.Complete(SelectedAcceptance.Id, result, Actor, CompletionConclusion, CompletionFailureReason); DraftItemError = null; } catch (Exception ex) { DraftItemError = L.Text(ex.Message); } }
+    private void CancelAcceptance() { try { if (SelectedAcceptance is not null) AcceptanceService.Cancel(SelectedAcceptance.Id, Actor, L.Text("业务人员取消验收单")); DraftItemError = null; } catch (Exception ex) { DraftItemError = L.Text(ex.Message); } }
+    private ChecklistDraft DraftFor(MomAcceptanceChecklistItem item) { if (!ItemDrafts.TryGetValue(item.Id, out var draft)) { draft = new ChecklistDraft { ResultText = item.Result == MomAcceptanceItemResult.Pending ? nameof(MomAcceptanceItemResult.Passed) : item.Result.ToString(), Remark = item.Remark ?? string.Empty }; ItemDrafts[item.Id] = draft; } return draft; }
+    private void ResetCreate() { DraftTypeText = nameof(MomAcceptanceType.Fat); DraftSalesOrderIdText = DraftShipmentIdText = DraftPmsProjectIdText = string.Empty; DraftPlannedDate = DateTime.Today; DraftSerialNo = DraftLocationOrMode = DraftParticipants = DraftNotes = string.Empty; }
+    private void ResetItem() { DraftItemLineNoText = "1"; DraftItemCode = DraftItemName = DraftRequirement = string.Empty; }
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => L.Changed -= OnLanguageChanged;
+    private sealed class ChecklistDraft { public string ResultText { get; set; } = nameof(MomAcceptanceItemResult.Passed); public string Remark { get; set; } = string.Empty; }
+}

@@ -1,0 +1,142 @@
+@page "/Mom/Shipment"
+@implements IDisposable
+@inject AdminBlazor.IAdminContext Admin
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
+@inject VelrixWorkHub.Application.Mom.MomFinishedGoodsShipmentService ShipmentService
+@inject VelrixWorkHub.Application.Mom.MomFinishedGoodsReceiptService ReceiptService
+@inject VelrixWorkHub.Application.Mom.MomWorkOrderService WorkOrderService
+@inject VelrixWorkHub.Application.SalesOrders.SalesOrderService SalesOrderService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@inject VelrixWorkHub.Application.Warehouses.WarehouseService WarehouseService
+@using VelrixWorkHub.Domain
+@using VelrixWorkHub.Application.Mom
+
+<PageTitle>@L.Text("销售订单发运") - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">@L.Text("MOM 制造运营 · Mom/Shipment")</p><h1>@L.Text("销售订单发运")</h1><p class="task-page__intro">@L.Text("把已完工并入库的成品关联到已提交销售订单；库存出库、发运追溯和销售订单状态在同一事务内完成。")</p></div></div>
+    <section class="task-composer" aria-label='@L.Text("完工成品发运")'>
+        <div class="task-composer__title">@L.Text("完工成品发运") · MOM-08C</div>
+        <div class="task-composer__fields">
+            <label>@L.Text("已提交销售订单")<select aria-label='@L.Text("已提交销售订单")' @bind="SalesOrderIdText"><option value="">@L.Text("请选择销售订单")</option>@foreach (var order in SubmittedSalesOrders()) { <option value="@order.Id">@order.OrderNo · @ProductLabel(order.ProductId) · @L.Text("剩余发运数量") @ShipmentService.RemainingQuantity(order.Id).ToString("N4")</option> }</select></label>
+            <label>@L.Text("完工入库来源")<select aria-label='@L.Text("完工入库来源")' @bind="ReceiptIdText"><option value="">@L.Text("请选择完工入库来源")</option>@foreach (var receipt in AvailableReceipts()) { <option value="@receipt.Id">@ReceiptLabel(receipt)</option> }</select></label>
+        </div>
+        <div class="task-composer__fields"><label>@L.Text("本次发运数量")<input aria-label='@L.Text("本次发运数量")' type="number" step="0.000001" min="0" @bind="ShipmentQuantityText" placeholder='@L.Text("留空发运订单剩余数量")' /></label><label>@L.Text("发运日期")<input aria-label='@L.Text("发运日期")' type="date" @bind="ShipmentDate" /></label><div class="task-composer__actions">@if (Admin.AuthButton("Mom/Shipment/Create")) { <button class="task-primary-button" @onclick="Save">@L.Text("保存销售订单发运")</button> }</div></div>
+        @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+    </section>
+    <section class="task-composer" aria-label='@L.Text("原子多来源发运")'>
+        <div class="task-composer__title">@L.Text("原子多来源发运") · MOM-08D</div>
+        <p class="customer-note">@L.Text("同一发运单可一次绑定多个完工入库来源；所有来源出库、分配快照和订单状态在同一事务内提交。")</p>
+        <div class="task-composer__fields">
+            <label>@L.Text("已提交销售订单")<select aria-label='@L.Text("已提交销售订单")' @bind="MultiSalesOrderIdText"><option value="">@L.Text("请选择销售订单")</option>@foreach (var order in SubmittedSalesOrders()) { <option value="@order.Id">@order.OrderNo · @ProductLabel(order.ProductId) · @L.Text("剩余发运数量") @ShipmentService.RemainingQuantity(order.Id).ToString("N4")</option> }</select></label>
+            <label>@L.Text("发运日期")<input aria-label='@L.Text("发运日期")' type="date" @bind="MultiShipmentDate" /></label>
+        </div>
+        @foreach (var draft in MultiAllocations)
+        {
+            <div class="task-composer__fields">
+                <label class="task-composer__field--wide">@L.Text("发运来源分配")<select aria-label='@L.Text("发运来源分配")' @bind="draft.ReceiptIdText"><option value="">@L.Text("请选择完工入库来源")</option>@foreach (var receipt in AvailableReceiptsFor(draft)) { <option value="@receipt.Id">@ReceiptLabel(receipt)</option> }</select></label>
+                <label>@L.Text("分配数量")<input aria-label='@L.Text("分配数量")' type="number" min="0" step="0.000001" @bind="draft.QuantityText" /></label>
+                @if (MultiAllocations.Count > 1) { <button class="task-secondary-button align-self-end" type="button" title='@L.Text("移除来源")' @onclick="() => RemoveAllocation(draft)"><i class="fa fa-minus"></i> @L.Text("移除来源")</button> }
+            </div>
+        }
+        <div class="task-composer__actions">
+            <button class="task-secondary-button" type="button" @onclick="AddAllocation">@L.Text("添加来源")</button>
+            @if (Admin.AuthButton("Mom/Shipment/Create")) { <button class="task-primary-button" type="button" @onclick="SaveMulti">@L.Text("保存多来源发运")</button> }
+        </div>
+        @if (MultiError is not null) { <div class="task-error" role="alert">@MultiError</div> }
+    </section>
+    <section class="task-list" aria-label='@L.Text("发运记录")'>
+        <div class="task-composer__title">@L.Text("发运记录")</div>
+        @if (ShipmentService.List().Count == 0)
+        {
+            <div class="customer-note">@L.Text("暂无销售订单发运记录")</div>
+        }
+        else
+        {
+            @foreach (var item in ShipmentService.List())
+            {
+                var allocations = ShipmentService.ListAllocations(item.Id);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-truck"></i></div><div class="task-card__body"><div class="task-card__meta"><span>@item.SourceNo</span><span>@item.ShipmentDate.ToString("yyyy-MM-dd")</span><span>@ShipmentStatusLabel(item.SalesOrderId)</span></div><h2>@SalesOrderLabel(item.SalesOrderId)</h2><p>@L.Text("完工成品")：@ProductLabel(item.ProductId) · @L.Text("本次发运数量") @item.Quantity.ToString("N4") · @L.Text("发运仓库") @WarehouseLabel(item.WarehouseId)</p><div class="customer-note">@L.Text("完工入库来源")：@ReceiptSourceLabel(item.FinishedGoodsReceiptId) · @L.Text("发运库位")：@LocationLabel(item.WarehouseId, item.LocationId) · @L.Text("订单累计发运") @ShipmentService.ShippedQuantity(item.SalesOrderId).ToString("N4") · @L.Text("订单剩余") @ShipmentService.RemainingQuantity(item.SalesOrderId).ToString("N4") · <a href="/Erp/SalesOrder?orderId=@item.SalesOrderId">@L.Text("查看销售订单")</a></div>@if (allocations.Count > 0) { <div class="customer-note"><strong>@L.Text("发运来源分配")</strong>：@foreach (var allocation in allocations) { <span class="me-2">@ReceiptSourceLabel(allocation.FinishedGoodsReceiptId) · @L.Text("分配数量") @allocation.Quantity.ToString("N4") · @allocation.SourceNo</span> }</div> }</div></article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() { L.Changed += OnLanguageChanged; await Admin.InitAsync(); }
+    private string SalesOrderIdText = string.Empty, ReceiptIdText = string.Empty, ShipmentQuantityText = string.Empty;
+    private string MultiSalesOrderIdText = string.Empty;
+    private string? MultiError;
+    private DateTime MultiShipmentDate = DateTime.Today;
+    private List<AllocationDraft> MultiAllocations { get; } = [new()];
+    private DateTime ShipmentDate = DateTime.Today;
+    private string? Error;
+    private IReadOnlyList<SalesOrder> SubmittedSalesOrders() => SalesOrderService.List().Where(x => x.Status == SalesOrderStatus.Submitted && ShipmentService.RemainingQuantity(x.Id) > 0).ToArray();
+    private IReadOnlyList<MomFinishedGoodsReceipt> AvailableReceipts()
+    {
+        var productId = Guid.TryParse(SalesOrderIdText, out var salesOrderId)
+            ? SalesOrderService.List().FirstOrDefault(x => x.Id == salesOrderId)?.ProductId
+            : null;
+        return ReceiptService.List().Where(x => (productId is null || x.ProductId == productId) && ShipmentService.ReceiptRemainingQuantity(x.Id) > 0).ToArray();
+    }
+    private IReadOnlyList<MomFinishedGoodsReceipt> AvailableReceiptsFor(AllocationDraft draft)
+    {
+        var productId = Guid.TryParse(MultiSalesOrderIdText, out var salesOrderId)
+            ? SalesOrderService.List().FirstOrDefault(x => x.Id == salesOrderId)?.ProductId
+            : null;
+        var selectedElsewhere = MultiAllocations.Where(x => !ReferenceEquals(x, draft) && Guid.TryParse(x.ReceiptIdText, out _))
+            .Select(x => Guid.Parse(x.ReceiptIdText)).ToHashSet();
+        return ReceiptService.List().Where(x => (productId is null || x.ProductId == productId)
+            && (!selectedElsewhere.Contains(x.Id) || x.Id == ParseGuidOrEmpty(draft.ReceiptIdText))
+            && ShipmentService.ReceiptRemainingQuantity(x.Id) > 0).ToArray();
+    }
+    private string ProductLabel(Guid id) => ProductService.List().FirstOrDefault(x => x.Id == id) is { } product ? $"{product.Code} · {product.Name}" : id.ToString();
+    private string SalesOrderLabel(Guid id) => SalesOrderService.List().FirstOrDefault(x => x.Id == id) is { } order ? order.OrderNo : id.ToString();
+    private string ReceiptSourceLabel(Guid id) => ReceiptService.List().FirstOrDefault(x => x.Id == id)?.SourceNo ?? id.ToString();
+    private string ReceiptLabel(MomFinishedGoodsReceipt receipt) => $"{receipt.SourceNo} · {ProductLabel(receipt.ProductId)} · {L.Text("可发数量")} {ShipmentService.ReceiptRemainingQuantity(receipt.Id).ToString("N4")} · {WarehouseLabel(receipt.WarehouseId)}";
+    private string WarehouseLabel(Guid id) => WarehouseService.List(status: WarehouseStatus.Active).FirstOrDefault(x => x.Id == id) is { } warehouse ? $"{warehouse.Code} · {warehouse.Name}" : id.ToString();
+    private string LocationLabel(Guid warehouseId, Guid? locationId) => locationId is not Guid selected ? L.Text("未指定库位") : WarehouseService.List(status: WarehouseStatus.Active).FirstOrDefault(x => x.Id == warehouseId)?.Locations.FirstOrDefault(x => x.Id == selected) is { } location ? $"{location.Code} · {location.Name}" : selected.ToString();
+    private string ShipmentStatusLabel(Guid salesOrderId) => SalesOrderService.List().FirstOrDefault(x => x.Id == salesOrderId)?.Status == SalesOrderStatus.Shipped ? L.Text("销售订单已发运") : L.Text("部分发运");
+    private void Save()
+    {
+        try
+        {
+            if (!Guid.TryParse(SalesOrderIdText, out var salesOrderId)) throw new InvalidOperationException(L.Text("请选择销售订单"));
+            if (!Guid.TryParse(ReceiptIdText, out var receiptId)) throw new InvalidOperationException(L.Text("请选择完工入库来源"));
+            if (!string.IsNullOrWhiteSpace(ShipmentQuantityText) && (!decimal.TryParse(ShipmentQuantityText, out var quantity) || quantity <= 0)) throw new InvalidOperationException(L.Text("发运数量格式不正确。"));
+            if (decimal.TryParse(ShipmentQuantityText, out var parsedQuantity)) ShipmentService.Create(salesOrderId, receiptId, DateOnly.FromDateTime(ShipmentDate), parsedQuantity);
+            else ShipmentService.Create(salesOrderId, receiptId, DateOnly.FromDateTime(ShipmentDate));
+            SalesOrderIdText = ReceiptIdText = ShipmentQuantityText = string.Empty; ShipmentDate = DateTime.Today; Error = null;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void AddAllocation() => MultiAllocations.Add(new());
+    private void RemoveAllocation(AllocationDraft draft)
+    {
+        if (MultiAllocations.Count > 1) MultiAllocations.Remove(draft);
+    }
+    private void SaveMulti()
+    {
+        try
+        {
+            if (!Guid.TryParse(MultiSalesOrderIdText, out var salesOrderId)) throw new InvalidOperationException(L.Text("请选择销售订单"));
+            var requests = new List<MomFinishedGoodsShipmentAllocationRequest>();
+            foreach (var draft in MultiAllocations)
+            {
+                if (!Guid.TryParse(draft.ReceiptIdText, out var receiptId)) throw new InvalidOperationException(L.Text("请选择完工入库来源"));
+                if (!decimal.TryParse(draft.QuantityText, out var quantity) || quantity <= 0) throw new InvalidOperationException(L.Text("来源分配数量格式不正确。"));
+                requests.Add(new MomFinishedGoodsShipmentAllocationRequest(receiptId, quantity));
+            }
+            ShipmentService.CreateFromReceipts(salesOrderId, DateOnly.FromDateTime(MultiShipmentDate), requests);
+            MultiSalesOrderIdText = string.Empty; MultiShipmentDate = DateTime.Today; MultiAllocations.Clear(); MultiAllocations.Add(new()); MultiError = null;
+        }
+        catch (Exception ex) { MultiError = L.Text(ex.Message); }
+    }
+    private static Guid ParseGuidOrEmpty(string value) => Guid.TryParse(value, out var id) ? id : Guid.Empty;
+    private sealed class AllocationDraft
+    {
+        public string ReceiptIdText { get; set; } = string.Empty;
+        public string QuantityText { get; set; } = string.Empty;
+    }
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => L.Changed -= OnLanguageChanged;
+}

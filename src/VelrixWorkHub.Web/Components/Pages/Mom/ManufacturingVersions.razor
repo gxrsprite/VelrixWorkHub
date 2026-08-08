@@ -1,0 +1,65 @@
+@page "/Mom/ManufacturingVersion"
+@implements IDisposable
+@inject AdminBlazor.IAdminContext Admin
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
+@inject VelrixWorkHub.Application.Mom.MomManufacturingVersionService ManufacturingService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@using VelrixWorkHub.Domain
+
+<PageTitle>@L.Text("制造版本与 BOM") - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">@L.Text("MOM 制造运营 · Mom/ManufacturingVersion")</p><h1>@L.Text("制造版本与 BOM")</h1><p class="task-page__intro">@L.Text("为 ERP 商品维护可发布的制造版本、组件用量、损耗率和工程变更引用；MOM 只保存制造执行所需的稳定引用，不复制 PLM 图文档。")</p></div></div>
+    <section class="task-toolbar customer-toolbar"><label>@L.Text("制造商品")<select aria-label='@L.Text("筛选制造商品")' @bind="ProductFilterText"><option value="">@L.Text("全部商品")</option>@foreach (var product in Products()) { <option value="@product.Id">@product.Code · @product.Name</option> }</select></label><label>@L.Text("状态")<select aria-label='@L.Text("筛选制造版本状态")' @bind="StatusFilterText"><option value="">@L.Text("全部状态")</option>@foreach (var status in Enum.GetValues<MomManufacturingVersionStatus>()) { <option value="@status">@StatusLabel(status)</option> }</select></label>@if (Admin.AuthButton("Mom/ManufacturingVersion/Create")) { <button class="task-primary-button" @onclick="OpenVersionComposer"><i class="fa fa-plus"></i> @L.Text("新建制造版本")</button> }</section>
+    @if (ShowVersionComposer)
+    {
+        <section class="task-composer" aria-label='@L.Text("新建制造版本")'><div class="task-composer__title">@L.Text("制造版本主数据")</div><div class="task-composer__fields"><label>@L.Text("制造商品")<select @bind="VersionProductIdText"><option value="">@L.Text("请选择启用商品")</option>@foreach (var product in Products()) { <option value="@product.Id">@product.Code · @product.Name</option> }</select></label><label>@L.Text("版本编码")<input @bind="VersionCode" @bind:event="oninput" placeholder="V1.0" /></label></div><div class="task-composer__fields"><label>@L.Text("版本名称")<input @bind="VersionName" @bind:event="oninput" placeholder="标准装配版本" /></label><label>@L.Text("工程变更引用")<input @bind="EngineeringChangeReference" @bind:event="oninput" placeholder="ECR-2026-001" /></label></div><div class="task-composer__fields"><label>@L.Text("有效开始")<input type="date" @bind="EffectiveFrom" /></label><label>@L.Text("有效结束")<input type="date" @bind="EffectiveTo" disabled="@(!UseEffectiveTo)" /></label></div><label><input type="checkbox" @bind="UseEffectiveTo" /> @L.Text("设置有效结束日")</label>@if (Error is not null) { <div class="task-error" role="alert">@Error</div> }<div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseComposer">@L.Text("取消")</button><button class="task-primary-button" @onclick="SaveVersion">@L.Text("保存制造版本")</button></div></section>
+    }
+    @if (SelectedVersion is not null && SelectedVersion.Status == MomManufacturingVersionStatus.Draft)
+    {
+        <section class="task-composer" aria-label='@L.Text("维护 BOM 组件")'><div class="task-composer__title">@L.Text("维护 BOM 组件") · @SelectedVersion.VersionCode</div><div class="task-composer__fields"><label>@L.Text("组件商品")<select @bind="ComponentProductIdText"><option value="">@L.Text("请选择启用组件商品")</option>@foreach (var product in Products().Where(x => x.Id != SelectedVersion.ProductId)) { <option value="@product.Id">@product.Code · @product.Name</option> }</select></label><label>@L.Text("组件行号")<input type="number" min="1" @bind="ComponentLineNoText" @bind:event="oninput" /></label></div><div class="task-composer__fields"><label>@L.Text("单位用量")<input type="number" min="0.000001" step="0.000001" @bind="ComponentQuantityText" @bind:event="oninput" /></label><label>@L.Text("损耗率 %")<input type="number" min="0" max="100" step="0.01" @bind="ComponentScrapRateText" @bind:event="oninput" /></label></div><div class="task-composer__fields"><label>@L.Text("工序顺序")<input type="number" min="0" step="1" @bind="ComponentOperationSequenceText" @bind:event="oninput" /></label><label>@L.Text("组件备注")<input @bind="ComponentNotes" @bind:event="oninput" /></label></div>@if (Error is not null) { <div class="task-error" role="alert">@Error</div> }<div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseComponentComposer">@L.Text("取消")</button><button class="task-primary-button" @onclick="SaveComponent">@L.Text("添加组件")</button></div></section>
+    }
+    <section class="task-list" aria-live="polite">
+        @foreach (var version in Versions())
+        {
+            var product = Products().FirstOrDefault(x => x.Id == version.ProductId);
+            var components = ManufacturingService.ListComponents(version.Id);
+            <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-sitemap"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@version.Status.ToString().ToLowerInvariant()">@StatusLabel(version.Status)</span><span>@version.VersionCode</span><span>@(product?.Code ?? version.ProductId.ToString())</span></div><h2>@version.Name</h2><p>@(product?.Name ?? version.ProductId.ToString()) · @L.Text("有效期") @version.EffectiveFrom.ToString("yyyy-MM-dd") - @EffectiveToLabel(version)</p><div class="customer-note">@L.Text("组件") @components.Count · @L.Text("工程变更引用") @(version.EngineeringChangeReference ?? L.Text("未填写"))</div>@if (SelectedVersionId == version.Id.ToString()) { <div class="customer-note"><strong>@L.Text("BOM 组件")</strong>@foreach (var component in components) { var componentProduct = Products().FirstOrDefault(x => x.Id == component.ComponentProductId); <div>#{component.LineNo} · @(componentProduct?.Code ?? component.ComponentProductId.ToString()) · @L.Text("单位用量") @component.QuantityPer.ToString("N6") · @L.Text("损耗率") @component.ScrapRatePercent.ToString("N2")% · @L.Text("工序") @component.OperationSequence@if (!string.IsNullOrWhiteSpace(component.Notes)) { <span> · @component.Notes</span> }@if (Admin.AuthButton("Mom/ManufacturingVersion/Components")) { <button class="btn btn-sm btn-link" @onclick="() => RemoveComponent(component)">@L.Text("移除")</button> }</div>}</div> } </div><div class="task-card__actions"><button title='@L.Text("查看 BOM")' @onclick="() => SelectVersion(version)"><i class="fa fa-list"></i></button>@if (version.Status == MomManufacturingVersionStatus.Draft && Admin.AuthButton("Mom/ManufacturingVersion/Components")) { <button title='@L.Text("维护 BOM 组件")' @onclick="() => OpenComponentComposer(version)"><i class="fa fa-plus-square"></i></button> }@if (version.Status == MomManufacturingVersionStatus.Draft && Admin.AuthButton("Mom/ManufacturingVersion/Release")) { <button title='@L.Text("发布制造版本")' @onclick="() => Release(version)"><i class="fa fa-check"></i></button> }@if (version.Status == MomManufacturingVersionStatus.Released && Admin.AuthButton("Mom/ManufacturingVersion/Release")) { <button title='@L.Text("停用制造版本")' @onclick="() => Retire(version)"><i class="fa fa-archive"></i></button> }</div></article>
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() { L.Changed += OnLanguageChanged; await Admin.InitAsync(); }
+    private string ProductFilterText = string.Empty, StatusFilterText = string.Empty, VersionProductIdText = string.Empty, VersionCode = string.Empty, VersionName = string.Empty, EngineeringChangeReference = string.Empty, SelectedVersionId = string.Empty, ComponentProductIdText = string.Empty, ComponentLineNoText = "10", ComponentQuantityText = "1", ComponentScrapRateText = "0", ComponentOperationSequenceText = "10", ComponentNotes = string.Empty;
+    private DateTime EffectiveFrom = DateTime.Today, EffectiveTo = DateTime.Today.AddYears(1);
+    private bool UseEffectiveTo;
+    private bool ShowVersionComposer;
+    private string? Error;
+    private MomManufacturingVersion? SelectedVersion => Guid.TryParse(SelectedVersionId, out var id) ? ManufacturingService.List().FirstOrDefault(x => x.Id == id) : null;
+    private IReadOnlyList<Product> Products() => ProductService.List(status: ProductStatus.Active);
+    private MomManufacturingVersionStatus? SelectedStatus() => Enum.TryParse<MomManufacturingVersionStatus>(StatusFilterText, out var status) ? status : null;
+    private Guid? SelectedProduct() => Guid.TryParse(ProductFilterText, out var id) ? id : null;
+    private IReadOnlyList<MomManufacturingVersion> Versions() => ManufacturingService.List(SelectedProduct(), SelectedStatus());
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OpenVersionComposer() { CloseComponentComposer(); Error = null; ShowVersionComposer = true; }
+    private void CloseComposer() { ShowVersionComposer = false; Error = null; }
+    private void SaveVersion()
+    {
+        try { if (!Guid.TryParse(VersionProductIdText, out var productId)) throw new InvalidOperationException(L.Text("请选择启用商品")); ManufacturingService.Create(productId, VersionCode, VersionName, DateOnly.FromDateTime(EffectiveFrom), UseEffectiveTo ? DateOnly.FromDateTime(EffectiveTo) : null, EngineeringChangeReference); ResetVersionComposer(); } catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void SelectVersion(MomManufacturingVersion version) { SelectedVersionId = version.Id.ToString(); Error = null; }
+    private void OpenComponentComposer(MomManufacturingVersion version) { SelectedVersionId = version.Id.ToString(); ShowVersionComposer = false; Error = null; }
+    private void CloseComponentComposer() { SelectedVersionId = string.Empty; Error = null; }
+    private void SaveComponent()
+    {
+        try { var version = SelectedVersion ?? throw new InvalidOperationException(L.Text("请选择草稿制造版本")); if (!Guid.TryParse(ComponentProductIdText, out var componentProductId)) throw new InvalidOperationException(L.Text("请选择启用组件商品")); if (!int.TryParse(ComponentLineNoText, out var lineNo) || !decimal.TryParse(ComponentQuantityText, out var quantity) || !decimal.TryParse(ComponentScrapRateText, out var scrap) || !int.TryParse(ComponentOperationSequenceText, out var operation)) throw new InvalidOperationException(L.Text("BOM 组件数值格式不正确")); ManufacturingService.AddComponent(version.Id, lineNo, componentProductId, quantity, scrap, operation, ComponentNotes); ResetComponentComposer(); } catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void RemoveComponent(MomManufacturingComponent component) { try { ManufacturingService.RemoveComponent(component); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void Release(MomManufacturingVersion version) { try { ManufacturingService.Release(version); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void Retire(MomManufacturingVersion version) { try { ManufacturingService.Retire(version); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void ResetVersionComposer() { ShowVersionComposer = false; Error = null; VersionProductIdText = VersionCode = VersionName = EngineeringChangeReference = string.Empty; EffectiveFrom = DateTime.Today; EffectiveTo = DateTime.Today.AddYears(1); UseEffectiveTo = false; }
+    private void ResetComponentComposer() { SelectedVersionId = string.Empty; Error = null; ComponentProductIdText = ComponentNotes = string.Empty; ComponentLineNoText = "10"; ComponentQuantityText = "1"; ComponentScrapRateText = ComponentOperationSequenceText = "0"; ComponentOperationSequenceText = "10"; }
+    private string StatusLabel(MomManufacturingVersionStatus status) => L.Text(status switch { MomManufacturingVersionStatus.Draft => "草稿", MomManufacturingVersionStatus.Released => "已发布", MomManufacturingVersionStatus.Retired => "已停用", _ => status.ToString() });
+    private string EffectiveToLabel(MomManufacturingVersion version) => version.EffectiveTo is DateOnly value ? value.ToString("yyyy-MM-dd") : L.Text("长期有效");
+    public void Dispose() => L.Changed -= OnLanguageChanged;
+}

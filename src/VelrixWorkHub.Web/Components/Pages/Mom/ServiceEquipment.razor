@@ -1,0 +1,142 @@
+@page "/Mom/ServiceEquipment"
+@implements IDisposable
+@inject AdminBlazor.IAdminContext Admin
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
+@inject VelrixWorkHub.Application.Mom.MomServiceEquipmentService EquipmentService
+@inject VelrixWorkHub.Application.Mom.MomFinishedGoodsShipmentService ShipmentService
+@inject VelrixWorkHub.Application.SalesOrders.SalesOrderService SalesOrderService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.PmsProjects.PmsProjectService ProjectService
+@using VelrixWorkHub.Domain
+
+<PageTitle>@L.Text("售后设备档案") - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">@L.Text("MOM 制造运营 · Mom/ServiceEquipment")</p><h1>@L.Text("售后设备档案")</h1><p class="task-page__intro">@L.Text("把已发运成品登记为客户侧设备，保留客户、销售订单、发运来源、序列号和 PMS 项目追溯；安装与报废动作形成不可变生命周期记录。")</p></div></div>
+
+    <section class="task-composer" aria-label='@L.Text("登记售后设备")'>
+        <div class="task-composer__title">@L.Text("登记售后设备") · MOM-08F</div>
+        <div class="task-composer__fields">
+            <label class="task-composer__field--wide">@L.Text("选择已发运记录")<select aria-label='@L.Text("选择已发运记录")' @bind="DraftShipmentKey"><option value="">@L.Text("请选择发运记录")</option>@foreach (var option in ShipmentOptions()) { <option value="@option.Key">@option.Label</option> }</select></label>
+            <label>@L.Text("设备序列号")<input aria-label='@L.Text("设备序列号")' @bind="DraftSerialNo" @bind:event="oninput" placeholder='@L.Text("请输入客户侧序列号")' /></label>
+            <label>@L.Text("设备档案编号")<input aria-label='@L.Text("设备档案编号")' @bind="DraftEquipmentNo" @bind:event="oninput" placeholder='@L.Text("留空自动生成")' /></label>
+        </div>
+        <div class="task-composer__fields">
+            <label>@L.Text("关联 PMS 项目")<select aria-label='@L.Text("关联 PMS 项目")' @bind="DraftPmsProjectIdText"><option value="">@L.Text("不绑定项目")</option>@foreach (var project in ProjectsForDraft()) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label>
+            <label>@L.Text("设备型号")<input aria-label='@L.Text("设备型号")' @bind="DraftModel" @bind:event="oninput" /></label>
+            <label>@L.Text("保修开始")<input aria-label='@L.Text("保修开始")' type="date" @bind="DraftWarrantyStart" /></label>
+            <label>@L.Text("保修结束")<input aria-label='@L.Text("保修结束")' type="date" @bind="DraftWarrantyEnd" /></label>
+        </div>
+        <label>@L.Text("档案备注")<textarea aria-label='@L.Text("档案备注")' rows="2" @bind="DraftNotes" @bind:event="oninput"></textarea></label>
+        @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+        <div class="task-composer__actions">@if (Admin.AuthButton("Mom/ServiceEquipment/Create")) { <button class="task-primary-button" @onclick="CreateEquipment">@L.Text("保存设备档案")</button> }</div>
+    </section>
+
+    @if (SelectedEquipment is not null)
+    {
+        <section class="task-composer" aria-label='@L.Text("生命周期")'>
+            <div class="task-composer__title">@SelectedEquipment.EquipmentNo · @L.Text("生命周期")</div>
+            @if (SelectedEquipment.Status == MomServiceEquipmentStatus.PendingInstallation)
+            {
+                <div class="task-composer__fields"><label>@L.Text("安装日期")<input aria-label='@L.Text("安装日期")' type="date" @bind="InstallDate" /></label><label class="task-composer__field--wide">@L.Text("安装位置")<input aria-label='@L.Text("安装位置")' @bind="InstallLocation" @bind:event="oninput" placeholder='@L.Text("请输入客户现场位置")' /></label></div>
+                @if (Admin.AuthButton("Mom/ServiceEquipment/Install")) { <button class="task-primary-button" @onclick="InstallEquipment">@L.Text("安装设备")</button> }
+            }
+            else if (SelectedEquipment.Status == MomServiceEquipmentStatus.Active)
+            {
+                <div class="task-composer__fields"><label class="task-composer__field--wide">@L.Text("报废原因")<input aria-label='@L.Text("报废原因")' @bind="RetireReason" @bind:event="oninput" placeholder='@L.Text("请输入报废原因")' /></label></div>
+                @if (Admin.AuthButton("Mom/ServiceEquipment/Retire")) { <button class="task-primary-button danger" @onclick="RetireEquipment">@L.Text("报废设备")</button> }
+            }
+            @if (ActionError is not null) { <div class="task-error" role="alert">@ActionError</div> }
+            <div class="task-list">@foreach (var entry in EquipmentService.ListLifecycle(SelectedEquipment.Id)) { <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-history"></i></div><div class="task-card__body"><div class="task-card__meta"><span>@LifecycleActionLabel(entry.Action)</span><span>@StatusLabel(entry.ToStatus)</span><span>@entry.OccurredOn.ToString("yyyy-MM-dd HH:mm")</span></div><p>@L.Text("由") @entry.Actor@if (!string.IsNullOrWhiteSpace(entry.Reason)) { <span> · @entry.Reason</span> }</p></div></article>}</div>
+        </section>
+    }
+
+    <section class="task-list" aria-label='@L.Text("售后设备列表")'>
+        <div class="task-composer__title">@L.Text("售后设备列表")</div>
+        @if (EquipmentService.List().Count == 0) { <div class="customer-note">@L.Text("暂无售后设备档案")</div> }
+        else
+        {
+            @foreach (var item in EquipmentService.List())
+            {
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-cogs"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@StatusLabel(item.Status)</span><span>@item.EquipmentNo</span></div><h2>@ProductLabel(item.ProductId) · @item.SerialNo</h2><p>@L.Text("客户")：@CustomerLabel(item.CustomerId) · @L.Text("销售订单")：@SalesOrderLabel(item.SalesOrderId) · @L.Text("发运来源")：@item.ShipmentSourceNo</p><div class="customer-note">@L.Text("安装信息")：@(item.InstallationLocation ?? L.Text("待安装")) · @L.Text("保修期")：@WarrantyLabel(item)</div><div class="customer-note"><a href="/Erp/SalesOrder?orderId=@item.SalesOrderId">@L.Text("查看销售订单")</a> · <a href="/Mom/Shipment?shipmentId=@item.ShipmentId">@L.Text("查看发运记录")</a> · <a href="/Mom/ServiceWorkOrder?equipmentId=@item.Id">@L.Text("查看安装工单")</a>@if (item.PmsProjectId is Guid projectId) { <span> · <a href="/Pms/Project?projectId=@projectId">@L.Text("查看 PMS 项目")</a></span> }</div></div><div class="task-card__actions"><button title='@L.Text("生命周期")' @onclick="() => SelectEquipment(item)"><i class="fa fa-history"></i></button>@if (Admin.AuthButton("Mom/ServiceEquipment/PrintLabel")) { <a class="task-card__icon-link" title='@L.Text("打印标签")' href="/Mom/ServiceEquipment/Label?equipmentId=@item.Id"><i class="fa fa-print"></i></a> }@if (item.Status == MomServiceEquipmentStatus.PendingInstallation && Admin.AuthButton("Mom/ServiceEquipment/Install")) { <button title='@L.Text("登记安装")' @onclick="() => SelectEquipment(item)"><i class="fa fa-wrench"></i></button> }@if (item.Status == MomServiceEquipmentStatus.Active && Admin.AuthButton("Mom/ServiceEquipment/Retire")) { <button title='@L.Text("设备报废")' @onclick="() => SelectEquipment(item)"><i class="fa fa-ban"></i></button> }</div></article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() { L.Changed += OnLanguageChanged; await Admin.InitAsync(); }
+    private string DraftShipmentKey = string.Empty, DraftSerialNo = string.Empty, DraftEquipmentNo = string.Empty, DraftPmsProjectIdText = string.Empty, DraftModel = string.Empty, DraftNotes = string.Empty;
+    private DateTime? DraftWarrantyStart, DraftWarrantyEnd;
+    private DateTime InstallDate = DateTime.Today;
+    private string InstallLocation = string.Empty, RetireReason = string.Empty;
+    private string? Error, ActionError;
+    private MomServiceEquipment? SelectedEquipment;
+    private string Actor => Admin.User?.Username?.Trim() ?? string.Empty;
+
+    private IReadOnlyList<ShipmentOption> ShipmentOptions()
+    {
+        var shippedOrders = SalesOrderService.List().Where(x => x.Status == SalesOrderStatus.Shipped).Select(x => x.Id).ToHashSet();
+        return ShipmentService.List().Where(x => shippedOrders.Contains(x.SalesOrderId)).SelectMany(shipment =>
+        {
+            var allocations = ShipmentService.ListAllocations(shipment.Id);
+            if (allocations.Count == 0) return [new ShipmentOption($"{shipment.Id}|{shipment.SourceNo}", $"{SalesOrderLabel(shipment.SalesOrderId)} · {shipment.SourceNo} · {ProductLabel(shipment.ProductId)}", shipment.Id, shipment.SourceNo, shipment.SerialNo)];
+            return allocations.Select(allocation => new ShipmentOption($"{shipment.Id}|{allocation.SourceNo}", $"{SalesOrderLabel(shipment.SalesOrderId)} · {allocation.SourceNo} · {ProductLabel(allocation.ProductId)}", shipment.Id, allocation.SourceNo, allocation.SerialNo));
+        }).ToArray();
+    }
+
+    private IReadOnlyList<PmsProject> ProjectsForDraft()
+    {
+        if (!TryParseShipmentKey(out var shipmentId, out _)) return [];
+        var shipment = ShipmentService.List().FirstOrDefault(x => x.Id == shipmentId);
+        var order = shipment is null ? null : SalesOrderService.List().FirstOrDefault(x => x.Id == shipment.SalesOrderId);
+        return order?.PmsProjectId is Guid projectId ? ProjectService.List().Where(x => x.Id == projectId).ToArray() : [];
+    }
+
+    private void CreateEquipment()
+    {
+        try
+        {
+            if (!TryParseShipmentKey(out var shipmentId, out var sourceNo)) throw new InvalidOperationException(L.Text("请选择发运记录"));
+            Guid? projectId = Guid.TryParse(DraftPmsProjectIdText, out var parsedProject) ? parsedProject : null;
+            SelectedEquipment = EquipmentService.CreateFromShipment(shipmentId, DraftSerialNo, Actor, DraftEquipmentNo, sourceNo, projectId, DraftModel,
+                DraftWarrantyStart is DateTime start ? DateOnly.FromDateTime(start) : null, DraftWarrantyEnd is DateTime end ? DateOnly.FromDateTime(end) : null, DraftNotes);
+            ResetCreate(); Error = null; ActionError = null;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+
+    private void InstallEquipment()
+    {
+        try { if (SelectedEquipment is null) return; EquipmentService.Install(SelectedEquipment.Id, Actor, DateOnly.FromDateTime(InstallDate), InstallLocation); ActionError = null; }
+        catch (Exception ex) { ActionError = L.Text(ex.Message); }
+    }
+
+    private void RetireEquipment()
+    {
+        try { if (SelectedEquipment is null) return; EquipmentService.Retire(SelectedEquipment.Id, Actor, RetireReason); ActionError = null; }
+        catch (Exception ex) { ActionError = L.Text(ex.Message); }
+    }
+
+    private void SelectEquipment(MomServiceEquipment item) { SelectedEquipment = item; ActionError = null; }
+    private bool TryParseShipmentKey(out Guid shipmentId, out string sourceNo)
+    {
+        shipmentId = Guid.Empty; sourceNo = string.Empty; var separator = DraftShipmentKey.IndexOf('|');
+        return separator > 0 && Guid.TryParse(DraftShipmentKey[..separator], out shipmentId) && (sourceNo = DraftShipmentKey[(separator + 1)..]).Length > 0;
+    }
+    private string CustomerLabel(Guid id) => CustomerService.List().FirstOrDefault(x => x.Id == id)?.Name ?? id.ToString();
+    private string ProductLabel(Guid id) => ProductService.List().FirstOrDefault(x => x.Id == id) is { } item ? $"{item.Code} · {item.Name}" : id.ToString();
+    private string SalesOrderLabel(Guid id) => SalesOrderService.List().FirstOrDefault(x => x.Id == id)?.OrderNo ?? id.ToString();
+    private string StatusLabel(MomServiceEquipmentStatus status) => L.Text(status switch { MomServiceEquipmentStatus.PendingInstallation => "待安装", MomServiceEquipmentStatus.Active => "在用", MomServiceEquipmentStatus.Retired => "已报废", _ => status.ToString() });
+    private string LifecycleActionLabel(MomServiceEquipmentLifecycleAction action) => L.Text(action switch { MomServiceEquipmentLifecycleAction.Created => "创建", MomServiceEquipmentLifecycleAction.Installed => "安装", MomServiceEquipmentLifecycleAction.Retired => "报废", _ => action.ToString() });
+    private string WarrantyLabel(MomServiceEquipment item)
+    {
+        var start = item.WarrantyStartDate?.ToString("yyyy-MM-dd") ?? "-";
+        var end = item.WarrantyEndDate?.ToString("yyyy-MM-dd") ?? "-";
+        return item.WarrantyStartDate is not null || item.WarrantyEndDate is not null ? $"{start} ~ {end}" : L.Text("未填写");
+    }
+    private void ResetCreate() { DraftShipmentKey = DraftSerialNo = DraftEquipmentNo = DraftPmsProjectIdText = DraftModel = DraftNotes = string.Empty; DraftWarrantyStart = DraftWarrantyEnd = null; }
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => L.Changed -= OnLanguageChanged;
+    private sealed record ShipmentOption(string Key, string Label, Guid ShipmentId, string SourceNo, string? SerialNo);
+}

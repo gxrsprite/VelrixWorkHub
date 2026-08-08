@@ -1,0 +1,67 @@
+@page "/Mom/OperationStandard"
+@implements IDisposable
+@inject AdminBlazor.IAdminContext Admin
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
+@inject VelrixWorkHub.Application.Mom.MomManufacturingVersionService ManufacturingService
+@inject VelrixWorkHub.Application.Mom.MomManufacturingOperationStandardService StandardService
+@inject VelrixWorkHub.Application.Mom.MomWorkCenterService WorkCenterService
+@using VelrixWorkHub.Domain
+
+<PageTitle>@L.Text("工序路线与标准工时") - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">@L.Text("MOM 制造运营 · Mom/OperationStandard")</p><h1>@L.Text("工序路线与标准工时")</h1><p class="task-page__intro">@L.Text("在草稿制造版本中维护跨工作中心的工序路线、准备工时和单位运行工时；制造工单生成工序时会冻结这些执行基线。")</p></div></div>
+    <section class="task-toolbar customer-toolbar">
+        <label>@L.Text("制造版本")<select aria-label='@L.Text("筛选草稿制造版本")' @bind="VersionIdText"><option value="">@L.Text("请选择草稿制造版本")</option>@foreach (var version in DraftVersions()) { <option value="@version.Id">@version.VersionCode · @version.Name</option> }</select></label>
+        @if (Admin.AuthButton("Mom/OperationStandard/Manage")) { <button class="task-primary-button" @onclick="OpenComposer" disabled="@(!Guid.TryParse(VersionIdText, out _))"><i class="fa fa-plus"></i> @L.Text("新增工序标准")</button> }
+    </section>
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label='@L.Text("新增工序标准")'>
+            <div class="task-composer__title">@L.Text("工序标准")</div>
+            <div class="task-composer__fields"><label>@L.Text("工序顺序")<input type="number" min="0" step="1" @bind="SequenceText" @bind:event="oninput" /></label><label>@L.Text("工序编码")<input @bind="Code" @bind:event="oninput" placeholder="OP-010" /></label></div>
+            <div class="task-composer__fields"><label>@L.Text("工序名称")<input @bind="Name" @bind:event="oninput" placeholder="装配" /></label><label>@L.Text("工作中心")<select @bind="WorkCenterIdText"><option value="">@L.Text("请选择启用工作中心")</option>@foreach (var center in ActiveWorkCenters()) { <option value="@center.Id">@center.Code · @center.Name</option> }</select></label></div>
+            <div class="task-composer__fields"><label>@L.Text("准备工时")<input type="number" min="0" step="0.01" @bind="SetupHoursText" @bind:event="oninput" /></label><label>@L.Text("单位运行工时")<input type="number" min="0" step="0.0001" @bind="RunHoursText" @bind:event="oninput" /></label></div>
+            @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseComposer">@L.Text("取消")</button><button class="task-primary-button" @onclick="Save">@L.Text("保存工序标准")</button></div>
+        </section>
+    }
+    @if (Guid.TryParse(VersionIdText, out var versionId))
+    {
+        var version = DraftVersions().FirstOrDefault(x => x.Id == versionId);
+        <section class="task-list" aria-live="polite">
+            @if (version is not null) { <div class="customer-note"><strong>@version.VersionCode · @version.Name</strong> · @L.Text("发布前可维护，发布后自动冻结到工单工序")</div> }
+            @foreach (var standard in StandardService.List(versionId))
+            {
+                var center = ActiveWorkCenters().FirstOrDefault(x => x.Id == standard.WorkCenterId) ?? WorkCenterService.List().FirstOrDefault(x => x.Id == standard.WorkCenterId);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-route"></i></div><div class="task-card__body"><div class="task-card__meta"><span>@L.Text("工序") @standard.OperationSequence</span><span>@standard.OperationCode</span><span>@(center?.Code ?? standard.WorkCenterId.ToString())</span></div><h2>@standard.OperationName</h2><p>@L.Text("工作中心")：@(center?.Name ?? L.Text("未找到工作中心")) · @L.Text("准备工时") @standard.SetupHours.ToString("N2") @L.Text("小时") · @L.Text("单位运行工时") @standard.RunHoursPerUnit.ToString("N4") @L.Text("小时/件")</p></div><div class="task-card__actions">@if (Admin.AuthButton("Mom/OperationStandard/Manage")) { <button title='@L.Text("移除")' @onclick="() => Remove(standard)"><i class="fa fa-trash"></i></button> }</div></article>
+            }
+            @if (!StandardService.List(versionId).Any()) { <div class="empty-state">@L.Text("暂无工序标准")</div> }
+        </section>
+    }
+</div>
+
+@code {
+    private string VersionIdText = string.Empty, SequenceText = "10", Code = string.Empty, Name = string.Empty, WorkCenterIdText = string.Empty, SetupHoursText = "0.5", RunHoursText = "0.1";
+    private bool ShowComposer;
+    private string? Error;
+    protected override async Task OnInitializedAsync() { L.Changed += OnLanguageChanged; await Admin.InitAsync(); }
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    private IReadOnlyList<MomManufacturingVersion> DraftVersions() => ManufacturingService.List(status: MomManufacturingVersionStatus.Draft);
+    private IReadOnlyList<MomWorkCenter> ActiveWorkCenters() => WorkCenterService.List(status: MomMasterDataStatus.Active);
+    private void OpenComposer() { Error = null; ShowComposer = true; if (string.IsNullOrWhiteSpace(WorkCenterIdText)) WorkCenterIdText = ActiveWorkCenters().FirstOrDefault()?.Id.ToString() ?? string.Empty; }
+    private void CloseComposer() { ShowComposer = false; Error = null; }
+    private void Save()
+    {
+        try
+        {
+            if (!Guid.TryParse(VersionIdText, out var versionId)) throw new InvalidOperationException(L.Text("请选择草稿制造版本"));
+            if (!Guid.TryParse(WorkCenterIdText, out var workCenterId)) throw new InvalidOperationException(L.Text("请选择启用工作中心"));
+            if (!int.TryParse(SequenceText, out var sequence) || !decimal.TryParse(SetupHoursText, out var setup) || !decimal.TryParse(RunHoursText, out var run)) throw new InvalidOperationException(L.Text("工序标准数值格式不正确。"));
+            StandardService.Create(versionId, sequence, Code, Name, workCenterId, setup, run); Reset();
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void Remove(MomManufacturingOperationStandard item) { try { StandardService.Remove(item); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void Reset() { ShowComposer = false; Error = null; SequenceText = "10"; Code = Name = string.Empty; SetupHoursText = "0.5"; RunHoursText = "0.1"; }
+    public void Dispose() => L.Changed -= OnLanguageChanged;
+}

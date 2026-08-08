@@ -1,6 +1,8 @@
 @using AdminBlazor
 @using BootstrapBlazor.Components
 @inject NavigationManager Navigation
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService Localizer
+@implements IDisposable
 
 @foreach (var menu in Menus.Where(HasVisibleContent))
 {
@@ -22,6 +24,9 @@
         }
     }
 
+    protected override void OnInitialized() => Localizer.Changed += OnLanguageChanged;
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+
     private RenderFragment RenderMenu(NavigationItem menu, int depth) => builder =>
     {
         var children = GetChildren(menu, depth);
@@ -41,7 +46,7 @@
                 content.OpenElement(0, "i");
                 content.AddAttribute(1, "class", string.IsNullOrWhiteSpace(menu.Icon) ? "fa fa-circle-o" : menu.Icon);
                 content.CloseElement();
-                content.AddContent(2, menu.Label);
+                content.AddContent(2, Localizer.Text(menu.Label));
             }));
             builder.CloseComponent();
         }
@@ -49,7 +54,7 @@
         {
             builder.OpenElement(7, "span");
             builder.AddAttribute(8, "class", "hub-menu-label");
-            builder.AddContent(9, menu.Label);
+            builder.AddContent(9, Localizer.Text(menu.Label));
             builder.CloseElement();
         }
         if (hasChildren)
@@ -57,8 +62,8 @@
             builder.OpenElement(10, "button");
             builder.AddAttribute(11, "type", "button");
             builder.AddAttribute(12, "class", "hub-menu-toggle");
-            builder.AddAttribute(13, "title", isExpanded ? "收起子菜单" : "展开子菜单");
-            builder.AddAttribute(14, "aria-label", isExpanded ? $"收起{menu.Label}子菜单" : $"展开{menu.Label}子菜单");
+            builder.AddAttribute(13, "title", isExpanded ? $"{Localizer.Text("收起")} {Localizer.Text("子菜单")}" : $"{Localizer.Text("展开")} {Localizer.Text("子菜单")}");
+            builder.AddAttribute(14, "aria-label", isExpanded ? $"{Localizer.Text("收起")}{Localizer.Text(menu.Label)}" : $"{Localizer.Text("展开")}{Localizer.Text(menu.Label)}");
             builder.AddAttribute(15, "aria-expanded", isExpanded);
             builder.AddAttribute(16, "onclick", EventCallback.Factory.Create(this, () => Toggle(menu.Key)));
             builder.OpenElement(17, "i");
@@ -164,6 +169,7 @@
             "项目管理" => "Pms/Overview",
             "流程平台" => "Workflow/Overview",
             "许可证管理" => "Lms/Overview",
+            "MOM 制造运营" => "Mom/MasterData",
             "系统管理" => "Admin/Overview",
             _ => null
         };
@@ -211,12 +217,23 @@
             new("产品与特性", "Lms/Product", "fa fa-cube", ["Lms/Product", "Lms/Feature", "Lms/FeatureVersion"]),
             new("客户与授权", "Lms/Machine", "fa fa-desktop", ["Lms/Machine", "Lms/CustomerFeature", "Lms/MachineFeature"])
         ],
+        "MOM 制造运营" =>
+        [
+            new("制造基础主数据", "Mom/MasterData", "fa fa-cogs", ["Mom/MasterData", "Mom/WorkOrder"]),
+            new("制造版本与 BOM", "Mom/ManufacturingVersion", "fa fa-sitemap", ["Mom/ManufacturingVersion"]),
+            new("计划与 MRP", "Mom/Mrp", "fa fa-line-chart", ["Mom/Mrp"]),
+            new("物料齐套与领料", "Mom/Kitting", "fa fa-cubes", ["Mom/Kitting"]),
+            new("工序执行与报工", "Mom/Operations", "fa fa-gears", ["Mom/Operations"]),
+            new("完工交付", "Mom/Shipment", "fa fa-truck", ["Mom/Shipment"])
+        ],
         "系统管理" =>
         [
             new("系统运维工作台", "Admin/Overview", "fa fa-dashboard", ["Admin/Overview", "Admin/PermissionAudit", "Admin/NotificationFailures"])
         ],
         _ => []
     };
+
+    public void Dispose() => Localizer.Changed -= OnLanguageChanged;
 
     private sealed record NavigationItem(
         string Key,

@@ -2,16 +2,18 @@
 @implements IDisposable
 @inject IAdminContext Admin
 @inject VelrixWorkHub.Application.Navigation.UserMenuPreferenceService MenuPreferenceService
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService Localizer
 @inject NavigationManager Navigation
+@inject IJSRuntime Js
 
 <CascadingValue Value="Admin">
 <div class="admin-layout workhub-layout">
     <aside class="admin-sidebar">
         <div class="sidebar-brand px-3 py-3">
             <h5 class="mb-0 text-white">@(Admin.Tenant?.Title ?? "Velrix Work Hub")</h5>
-            <small class="text-white-50">工作台</small>
+            <small class="text-white-50">@Localizer.Text("工作台")</small>
         </div>
-        <nav class="nav flex-column px-2" aria-label="主导航">
+        <nav class="nav flex-column px-2" aria-label="@Localizer.Text("主导航")">
             <MenuTree Menus="Admin.RoleMenus" HiddenMenuIds="HiddenMenuIds" />
         </nav>
     </aside>
@@ -19,15 +21,15 @@
         <div class="admin-topbar px-3 py-2 d-flex justify-content-between align-items-center">
             <div class="quick-bar">
                 <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleQuick" aria-expanded="@QuickOpen">
-                    <i class="fa fa-bolt me-1"></i>快捷
+                    <i class="fa fa-bolt me-1"></i>@Localizer.Text("快捷")
                 </button>
                 @if (QuickOpen)
                 {
-                    <div class="quick-popover" role="dialog" aria-label="快捷入口">
-                        <div class="quick-popover__title">我的快捷入口</div>
+                    <div class="quick-popover" role="dialog" aria-label="@Localizer.Text("快捷入口")">
+                        <div class="quick-popover__title">@Localizer.Text("我的快捷入口")</div>
                         @if (FavoriteMenus.Count == 0)
                         {
-                            <div class="quick-empty">还没有收藏菜单</div>
+                            <div class="quick-empty">@Localizer.Text("还没有收藏菜单")</div>
                         }
                         else
                         {
@@ -38,19 +40,20 @@
                                 </a>
                             }
                         }
-                        <a class="quick-popover__config" href="/Menu/Customize" @onclick="CloseQuick">配置菜单与收藏</a>
+                        <a class="quick-popover__config" href="/Menu/Customize" @onclick="CloseQuick">@Localizer.Text("配置菜单与收藏")</a>
                     </div>
                 }
             </div>
-            <div class="d-flex align-items-center">
+            <div class="d-flex align-items-center gap-2">
+                <select class="form-select form-select-sm" aria-label="@Localizer.Text("语言")" value="@Localizer.Language" @onchange="ChangeLanguage"><option value="zh-CN">@Localizer.Text("中文")</option><option value="en-US">@Localizer.Text("English")</option></select>
                 @if (Admin.User != null)
                 {
                     <a class="topbar-user me-3" href="/Admin/UserProfile">@(Admin.User.Nickname ?? Admin.User.Username)</a>
-                    <button class="btn btn-sm btn-outline-secondary" @onclick="LogoutAsync">退出</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="LogoutAsync">@Localizer.Text("退出")</button>
                 }
                 else
                 {
-                    <a href="/Login" class="btn btn-sm btn-outline-light">登录</a>
+                    <a href="/Login" class="btn btn-sm btn-outline-light">@Localizer.Text("登录")</a>
                 }
             </div>
         </div>
@@ -94,9 +97,12 @@
     private bool QuickOpen;
     private HashSet<Guid> HiddenMenuIds { get; set; } = [];
     private List<SysMenu> FavoriteMenus { get; set; } = [];
+    private bool _languageLoaded;
+    private const string LanguageStorageKey = "velrix-workhub-language";
 
     protected override async Task OnInitializedAsync()
     {
+        Localizer.Changed += OnLanguageChanged;
         await Admin.InitAsync();
         if (Admin.User == null)
         {
@@ -142,6 +148,30 @@
         Navigation.NavigateTo("/api/admin/logout", forceLoad: true);
     }
 
+    private async Task ChangeLanguage(ChangeEventArgs args)
+    {
+        Localizer.SetLanguage(args.Value?.ToString());
+        await ApplyDocumentLanguageAsync();
+        try { await Js.InvokeVoidAsync("localStorage.setItem", LanguageStorageKey, Localizer.Language); }
+        catch (JSException) { }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _languageLoaded) return;
+        _languageLoaded = true;
+        try
+        {
+            var language = await Js.InvokeAsync<string?>("localStorage.getItem", LanguageStorageKey);
+            Localizer.SetLanguage(language);
+            await ApplyDocumentLanguageAsync();
+        }
+        catch (JSException) { }
+    }
+
+    private Task ApplyDocumentLanguageAsync() => Js.InvokeVoidAsync("workHubSetLanguage", Localizer.Language).AsTask();
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+
     private static IEnumerable<SysMenu> Flatten(IEnumerable<SysMenu> menus)
     {
         foreach (var menu in menus)
@@ -154,5 +184,9 @@
         }
     }
 
-    public void Dispose() => MenuPreferenceService.Changed -= RefreshPreferences;
+    public void Dispose()
+    {
+        MenuPreferenceService.Changed -= RefreshPreferences;
+        Localizer.Changed -= OnLanguageChanged;
+    }
 }

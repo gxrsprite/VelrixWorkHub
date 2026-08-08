@@ -1,0 +1,413 @@
+@page "/Mom/Quality"
+@implements IDisposable
+@inject AdminBlazor.IAdminContext Admin
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
+@inject VelrixWorkHub.Application.Mom.MomQualityInspectionService QualityService
+@inject VelrixWorkHub.Application.Mom.MomQualityInspectionStandardService StandardService
+@inject VelrixWorkHub.Application.Mom.MomQualityNonconformanceService NonconformanceService
+@inject VelrixWorkHub.Application.Mom.MomQualityReportService ReportService
+@inject VelrixWorkHub.Application.Mom.MomQualityReceiptInspectionService ReceiptQualityService
+@inject VelrixWorkHub.Application.Attachments.AttachmentService AttachmentService
+@inject VelrixWorkHub.Application.Attachments.IAttachmentContentStore AttachmentContentStore
+@inject VelrixWorkHub.Application.Mom.MomWorkOrderService WorkOrderService
+@inject VelrixWorkHub.Application.Mom.MomOperationExecutionService OperationService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@inject VelrixWorkHub.Application.PurchaseOrders.PurchaseOrderService PurchaseOrderService
+@using VelrixWorkHub.Domain
+@using VelrixWorkHub.Application.Mom
+@using VelrixWorkHub.Application.PurchaseOrders
+@using VelrixWorkHub.Application.Attachments
+@using Microsoft.AspNetCore.Components.Forms
+
+<PageTitle>@L.Text("质量检验") - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">@L.Text("MOM 制造运营 · Mom/Quality")</p><h1>@L.Text("质量检验")</h1><p class="task-page__intro">@L.Text("把 IQC、IPQC、FQC 和 SQC 检验结果绑定到制造工单、工序、商品和批次；IPQC 最新结果作为工序完工门禁。")</p></div></div>
+
+    <section class="task-composer" aria-label='@L.Text("质量标准维护")'>
+        <div class="task-composer__title">@L.Text("质量标准维护")</div>
+        <p class="customer-note">@L.Text("质量标准支持通用标准或商品专用标准；发布后不可修改，创建检验记录时会冻结标准和检验项目快照。")</p>
+        <div class="task-composer__fields">
+            <label>@L.Text("标准商品")<select aria-label='@L.Text("标准商品")' @bind="StandardProductIdText"><option value="">@L.Text("通用标准")</option>@foreach (var product in Products()) { <option value="@product.Id">@product.Code · @product.Name</option> }</select></label>
+            <label>@L.Text("检验类型")<select aria-label='@L.Text("检验类型")' @bind="StandardInspectionTypeText"><option value="Ipqc">@L.Text("IPQC 过程检验")</option><option value="Iqc">@L.Text("IQC 来料检验")</option><option value="Fqc">@L.Text("FQC 成品检验")</option><option value="Sqc">@L.Text("SQC 供应商质量检验")</option></select></label>
+            <label>@L.Text("标准编码")<input aria-label='@L.Text("标准编码")' @bind="StandardCode" @bind:event="oninput" placeholder='@L.Text("例如：IQC-RAW")' /></label>
+            <label>@L.Text("标准名称")<input aria-label='@L.Text("标准名称")' @bind="StandardName" @bind:event="oninput" /></label>
+            <label>@L.Text("标准版本")<input aria-label='@L.Text("标准版本")' @bind="StandardVersion" @bind:event="oninput" placeholder="1.0" /></label>
+        </div>
+        @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+        <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Quality/Standard")) { <button class="task-primary-button" @onclick="CreateStandard">@L.Text("保存质量标准")</button> }</div>
+    </section>
+
+    <section class="task-list" aria-label='@L.Text("质量标准列表")'>
+        @if (Standards().Count == 0)
+        {
+            <div class="customer-note">@L.Text("暂无质量标准")</div>
+        }
+        else
+        {
+            @foreach (var standard in Standards())
+            {
+                <article class="task-card customer-card">
+                    <div class="customer-avatar"><i class="fa fa-list-alt"></i></div>
+                    <div class="task-card__body">
+                        <div class="task-card__meta"><span class="task-status customer-status--@standard.Status.ToString().ToLowerInvariant()">@StandardStatusLabel(standard.Status)</span><span>@TypeLabel(standard.InspectionType)</span><span>@standard.Code · @standard.Version</span></div>
+                        <h2>@standard.Name</h2>
+                        <p>@L.Text("标准商品")：@ProductLabel(standard.ProductId) · @L.Text("检验项目")：@StandardService.ListItems(standard.Id).Count</p>
+                    </div>
+                    <div class="task-card__actions">
+                        <button title='@L.Text("维护检验项目")' @onclick="() => SelectStandard(standard)"><i class="fa fa-list"></i></button>
+                        @if (standard.Status == MomQualityInspectionStandardStatus.Draft && Admin.AuthButton("Mom/Quality/Standard")) { <button title='@L.Text("发布质量标准")' @onclick="() => PublishStandard(standard)"><i class="fa fa-check"></i></button> }
+                        @if (standard.Status == MomQualityInspectionStandardStatus.Active && Admin.AuthButton("Mom/Quality/Standard")) { <button title='@L.Text("停用质量标准")' @onclick="() => RetireStandard(standard)"><i class="fa fa-ban"></i></button> }
+                    </div>
+                </article>
+            }
+        }
+    </section>
+
+    @if (SelectedStandard is not null)
+    {
+        <section class="task-composer" aria-label='@L.Text("检验项目维护")'>
+            <div class="task-composer__title">@L.Text("检验项目维护") · @SelectedStandard.Code · @SelectedStandard.Version</div>
+            <p class="customer-note">@SelectedStandard.Name · @StandardStatusLabel(SelectedStandard.Status)</p>
+            @if (SelectedStandard.Status == MomQualityInspectionStandardStatus.Draft)
+            {
+                <div class="task-composer__fields">
+                    <label>@L.Text("项目行号")<input type="number" min="1" @bind="StandardItemLineNoText" @bind:event="oninput" /></label>
+                    <label>@L.Text("项目编码")<input @bind="StandardItemCode" @bind:event="oninput" /></label>
+                    <label>@L.Text("项目名称")<input @bind="StandardItemName" @bind:event="oninput" /></label>
+                    <label>@L.Text("检验要求")<input @bind="StandardItemRequirement" @bind:event="oninput" /></label>
+                    <label>@L.Text("单位")<input @bind="StandardItemUnit" @bind:event="oninput" /></label>
+                    <label>@L.Text("最小值")<input type="number" step="0.000001" @bind="StandardItemMinValueText" @bind:event="oninput" /></label>
+                    <label>@L.Text("最大值")<input type="number" step="0.000001" @bind="StandardItemMaxValueText" @bind:event="oninput" /></label>
+                </div>
+                <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Quality/StandardItem")) { <button class="task-primary-button" @onclick="AddStandardItem">@L.Text("添加检验项目")</button> }</div>
+            }
+            <div class="task-list">
+                @foreach (var item in StandardService.ListItems(SelectedStandard.Id))
+                {
+                    <article class="task-card customer-card"><div class="customer-avatar"><span>@item.LineNo</span></div><div class="task-card__body"><h2>@item.Code · @item.Name</h2><p>@item.Requirement · @L.Text("范围")：@RangeLabel(item)</p></div>@if (SelectedStandard.Status == MomQualityInspectionStandardStatus.Draft && Admin.AuthButton("Mom/Quality/StandardItem")) { <div class="task-card__actions"><button class="danger" title='@L.Text("移除检验项目")' @onclick="() => RemoveStandardItem(item)"><i class="fa fa-trash"></i></button></div> }</article>
+                }
+            </div>
+        </section>
+    }
+
+    <section class="task-composer" aria-label='@L.Text("新建质量检验")'>
+        <div class="task-composer__title">@L.Text("新建质量检验")</div>
+        <div class="task-composer__fields">
+            <label>@L.Text("生产工单")<select aria-label='@L.Text("生产工单")' @bind="WorkOrderIdText"><option value="">@L.Text("请选择生产工单")</option>@foreach (var order in WorkOrders()) { <option value="@order.Id">@order.WorkOrderNo</option> }</select></label>
+            <label>@L.Text("检验类型")<select aria-label='@L.Text("检验类型")' @bind="InspectionTypeText"><option value="Ipqc">@L.Text("IPQC 过程检验")</option><option value="Iqc">@L.Text("IQC 来料检验")</option><option value="Fqc">@L.Text("FQC 成品检验")</option><option value="Sqc">@L.Text("SQC 供应商质量检验")</option></select></label>
+        </div>
+        <div class="task-composer__fields">
+            @if (IsIpqc)
+            {
+                <label>@L.Text("检验工序")<select aria-label='@L.Text("检验工序")' @bind="OperationIdText"><option value="">@L.Text("请选择工序")</option>@foreach (var operation in Operations()) { <option value="@operation.Id">@operation.OperationCode · @L.Text("工序") @operation.OperationSequence</option> }</select></label>
+            }
+            else
+            {
+                <label>@L.Text("检验商品")<select aria-label='@L.Text("检验商品")' @bind="ProductIdText"><option value="">@L.Text("请选择商品")</option>@foreach (var product in Products()) { <option value="@product.Id">@product.Code · @product.Name</option> }</select></label>
+            }
+            <label>@L.Text("质量标准")<select aria-label='@L.Text("质量标准")' @bind="StandardIdText"><option value="">@L.Text("不绑定质量标准")</option>@foreach (var standard in ActiveStandards()) { <option value="@standard.Id">@standard.Code · @standard.Name · @standard.Version</option> }</select></label>
+            <label>@L.Text("批次号")<input aria-label='@L.Text("批次号")' @bind="BatchNo" @bind:event="oninput" placeholder="BATCH-20260807-001" /></label>
+        </div>
+        <div class="task-composer__fields"><label>@L.Text("序列号")<input aria-label='@L.Text("序列号")' @bind="SerialNo" @bind:event="oninput" placeholder="SN-001" /></label><label>@L.Text("抽检数量")<input aria-label='@L.Text("抽检数量")' type="number" min="0.000001" step="0.000001" @bind="SampleQuantityText" @bind:event="oninput" /></label></div>
+        <div class="task-composer__fields"><label class="task-composer__field--full">@L.Text("检验备注")<input @bind="Notes" @bind:event="oninput" /></label></div>
+        @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+        <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Quality/Create")) { <button class="task-primary-button" @onclick="Create">@L.Text("保存质量检验")</button> }</div>
+    </section>
+
+    <section class="task-list" aria-label='@L.Text("质量检验记录")'>
+        @if (Inspections().Count == 0) { <div class="customer-note">@L.Text("暂无质量检验记录")</div> }
+        else
+        {
+            @foreach (var inspection in Inspections())
+            {
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-check-square-o"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@inspection.Status.ToString().ToLowerInvariant()">@StatusLabel(inspection.Status)</span><span>@TypeLabel(inspection.InspectionType)</span><span>@inspection.InspectionNo</span></div><h2>@TypeLabel(inspection.InspectionType) · @inspection.WorkOrderId</h2><p>@L.Text("抽检数量") @inspection.SampleQuantity.ToString("N6") · @L.Text("合格数量") @inspection.AcceptedQuantity.ToString("N6") · @L.Text("不合格数量") @inspection.RejectedQuantity.ToString("N6")</p><div class="customer-note">@L.Text("批次号")：@(inspection.BatchNo ?? L.Text("未填写")) · @L.Text("序列号")：@(inspection.SerialNo ?? L.Text("未填写")) · @(inspection.Inspector is null ? string.Empty : $"{L.Text("质检员")}：{inspection.Inspector}")</div>@if (inspection.StandardId is not null) { <div class="customer-note">@L.Text("质量标准")：@inspection.StandardCode · @inspection.StandardVersion · @L.Text("已冻结标准快照")</div> }@if (inspection.OperationId is Guid operationId) { <div class="customer-note">@L.Text("检验工序")：@OperationLabel(operationId)</div> }</div><div class="task-card__actions">@if (inspection.Status == MomQualityInspectionStatus.Pending && Admin.AuthButton("Mom/Quality/Result")) { <button title='@L.Text("登记检验结果")' @onclick="() => OpenResult(inspection)"><i class="fa fa-pencil"></i></button> }@if (inspection.Status == MomQualityInspectionStatus.Pending && Admin.AuthButton("Mom/Quality/Cancel")) { <button class="danger" title='@L.Text("取消质量检验")' @onclick="() => Cancel(inspection)"><i class="fa fa-ban"></i></button> }</div></article>
+            }
+        }
+    </section>
+
+    <section class="task-list" aria-label='@L.Text("质量报告")'>
+        <div class="task-composer__title">@L.Text("质量报告")</div>
+        <p class="customer-note">@L.Text("质量报告只从已通过或不通过的检验生成，保存检验结果和标准快照；附件通过通用附件服务单独审计。")</p>
+        @if (CompletedInspections().Count == 0 && ReportService.List().Count == 0)
+        {
+            <div class="customer-note">@L.Text("暂无可生成质量报告的检验")</div>
+        }
+        @foreach (var inspection in CompletedInspections())
+        {
+            var report = ReportService.List(inspection.Id).FirstOrDefault();
+            <article class="task-card customer-card">
+                <div class="customer-avatar"><i class="fa fa-file-text-o"></i></div>
+                <div class="task-card__body"><div class="task-card__meta"><span>@TypeLabel(inspection.InspectionType)</span><span>@StatusLabel(inspection.Status)</span><span>@inspection.InspectionNo</span>@if (report is not null) { <span>@ReportStatusLabel(report.Status)</span> }</div><h2>@(report?.ReportNo ?? L.Text("尚未生成报告"))</h2><p>@L.Text("抽检数量") @inspection.SampleQuantity.ToString("N6") · @L.Text("合格数量") @inspection.AcceptedQuantity.ToString("N6") · @L.Text("不合格数量") @inspection.RejectedQuantity.ToString("N6")</p></div>
+                <div class="task-card__actions">
+                    @if (report is null && Admin.AuthButton("Mom/Quality/Report")) { <button title='@L.Text("生成质量报告")' @onclick="() => CreateReport(inspection)"><i class="fa fa-file-text-o"></i></button> }
+                    @if (report is not null) { <button title='@L.Text("查看质量报告附件")' @onclick="() => SelectReport(report)"><i class="fa fa-paperclip"></i></button> }
+                    @if (report?.Status == MomQualityReportStatus.Draft && Admin.AuthButton("Mom/Quality/Report")) { <button title='@L.Text("发布质量报告")' @onclick="() => PublishReport(report)"><i class="fa fa-check"></i></button> }
+                    @if (report?.Status == MomQualityReportStatus.Published && Admin.AuthButton("Mom/Quality/Report")) { <button class="danger" title='@L.Text("作废质量报告")' @onclick="() => VoidReport(report)"><i class="fa fa-ban"></i></button> }
+                </div>
+            </article>
+        }
+    </section>
+
+    <section class="task-composer" aria-label='@L.Text("收货质量关联")'>
+        <div class="task-composer__title">@L.Text("收货质量关联")</div>
+        <p class="customer-note">@L.Text("采购收货质量关联只允许关联已有的 IQC/SQC 检验；关联后，采购订单收货前必须全部通过。")</p>
+        <div class="task-composer__fields">
+            <label>@L.Text("采购订单")<select aria-label='@L.Text("采购订单")' @bind="ReceiptPurchaseOrderIdText"><option value="">@L.Text("请选择采购订单")</option>@foreach (var order in SubmittedPurchaseOrders()) { <option value="@order.Id">@PurchaseOrderLabel(order)</option> }</select></label>
+            <label>@L.Text("收货质量检验")<select aria-label='@L.Text("收货质量检验")' @bind="ReceiptInspectionIdText"><option value="">@L.Text("请选择质量检验")</option>@foreach (var inspection in ReceiptInspections()) { <option value="@inspection.Id">@inspection.InspectionNo · @TypeLabel(inspection.InspectionType) · @StatusLabel(inspection.Status)</option> }</select></label>
+        </div>
+        @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+        <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Quality/ReceiptLink")) { <button class="task-primary-button" @onclick="LinkReceiptInspection">@L.Text("关联收货质量检验")</button> }</div>
+    </section>
+
+    <section class="task-list" aria-label='@L.Text("收货质量关联记录")'>
+        <div class="task-composer__title">@L.Text("收货质量关联记录")</div>
+        @if (ReceiptQualityLinks().Count == 0)
+        {
+            <div class="customer-note">@L.Text("暂无收货质量关联")</div>
+        }
+        else
+        {
+            @foreach (var link in ReceiptQualityLinks())
+            {
+                var inspection = QualityService.List().FirstOrDefault(x => x.Id == link.InspectionId);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-link"></i></div><div class="task-card__body"><div class="task-card__meta"><span>@link.InspectionNo</span><span>@TypeLabel(link.InspectionType)</span><span>@(inspection is null ? L.Text("记录已删除") : StatusLabel(inspection.Status))</span></div><h2>@PurchaseOrderLabel(link.PurchaseOrderId)</h2><p>@L.Text("商品")：@ProductLabel(link.ProductId) · @L.Text("关联时间")：@link.LinkedOn.ToString("yyyy-MM-dd HH:mm")</p></div><div class="task-card__actions"><span class="task-status customer-status--active">@L.Text("已关联")</span></div></article>
+            }
+        }
+    </section>
+
+    @if (SelectedReport is not null)
+    {
+        <section class="task-composer" aria-label='@L.Text("质量报告附件")'>
+            <div class="task-composer__title">@L.Text("质量报告附件") · @SelectedReport.ReportNo</div>
+            <p class="customer-note">@L.Text("附件不会写入质量报告快照，上传、下载和删除均保留通用附件审计记录。")</p>
+            @if (SelectedReport.Status != MomQualityReportStatus.Voided && Admin.AuthButton("Mom/Quality/ReportAttachment")) { <InputFile OnChange="SelectAttachment" /> <div class="task-composer__actions"><button class="task-primary-button" disabled="@(SelectedFile is null)" @onclick="UploadAttachment">@L.Text("上传附件")</button><button class="task-secondary-button" @onclick="CloseReport">@L.Text("关闭")</button></div> }
+            @if (SelectedFile is not null) { <div class="customer-note">@L.Text("待上传文件")：@SelectedFile.Name</div> }
+            @if (Attachments(SelectedReport.Id).Count == 0) { <div class="customer-note">@L.Text("暂无质量报告附件")</div> }
+            else { <div class="task-list">@foreach (var attachment in Attachments(SelectedReport.Id)) { <div class="customer-note"><a href="/api/attachments/@attachment.Id/download" target="_blank" rel="noopener">@attachment.FileName</a> · @attachment.SizeBytes.ToString("N0") bytes · V@attachment.VersionNumber</div> }</div> }
+            @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+        </section>
+    }
+
+    <section class="task-composer" aria-label='@L.Text("不合格登记")'>
+        <div class="task-composer__title">@L.Text("不合格登记")</div>
+        <div class="task-composer__fields">
+            <label>@L.Text("不通过检验")<select aria-label='@L.Text("不通过检验")' @bind="FailedInspectionIdText"><option value="">@L.Text("请选择不通过检验")</option>@foreach (var inspection in FailedInspections()) { <option value="@inspection.Id">@inspection.InspectionNo · @inspection.BatchNo</option> }</select></label>
+            <label>@L.Text("不合格编码")<input aria-label='@L.Text("不合格编码")' @bind="DefectCode" @bind:event="oninput" /></label>
+            <label>@L.Text("不合格等级")<select aria-label='@L.Text("不合格等级")' @bind="SeverityText"><option value="Minor">@L.Text("轻微")</option><option value="Major">@L.Text("一般")</option><option value="Critical">@L.Text("严重")</option></select></label>
+        </div>
+        <div class="task-composer__fields"><label class="task-composer__field--full">@L.Text("不合格描述")<input @bind="DefectDescription" @bind:event="oninput" /></label></div>
+        <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Quality/Nonconformance")) { <button class="task-primary-button" @onclick="CreateNonconformance">@L.Text("保存不合格")</button> }</div>
+    </section>
+
+    <section class="task-list" aria-label='@L.Text("不合格处置记录")'>
+        <div class="task-composer__title">@L.Text("不合格处置记录")</div>
+        @if (Nonconformances().Count == 0) { <div class="customer-note">@L.Text("暂无不合格记录")</div> }
+        else
+        {
+            @foreach (var nonconformance in Nonconformances())
+            {
+                var disposition = NonconformanceService.ListDispositions(nonconformance.Id).FirstOrDefault();
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-exclamation-triangle"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@nonconformance.Status.ToString().ToLowerInvariant()">@NonconformanceStatusLabel(nonconformance.Status)</span><span>@SeverityLabel(nonconformance.Severity)</span><span>@nonconformance.NonconformanceNo</span></div><h2>@nonconformance.DefectCode · @nonconformance.Description</h2><p>@L.Text("不合格数量")：@nonconformance.Quantity.ToString("N6") · @L.Text("批次号")：@(nonconformance.BatchNo ?? L.Text("未填写"))</p>@if (disposition is not null) { <div class="customer-note">@L.Text("处置方式")：@DispositionActionLabel(disposition.Action) · @DispositionStatusLabel(disposition.Status)@if (disposition.Action == MomQualityDispositionAction.Rework) { <text> · @L.Text("返工目标")：@disposition.TargetWorkOrderId / @disposition.TargetOperationId</text> }</div> }</div><div class="task-card__actions">@if (nonconformance.Status == MomQualityNonconformanceStatus.Open && Admin.AuthButton("Mom/Quality/Disposition")) { <button title='@L.Text("制定不合格处置")' @onclick="() => SelectNonconformance(nonconformance)"><i class="fa fa-gavel"></i></button> }@if (disposition?.Status == MomQualityDispositionStatus.Planned && Admin.AuthButton("Mom/Quality/Disposition")) { <button title='@L.Text("完成不合格处置")' @onclick="() => CompleteDisposition(disposition)"><i class="fa fa-check"></i></button><button class="danger" title='@L.Text("取消不合格处置")' @onclick="() => CancelDisposition(disposition)"><i class="fa fa-ban"></i></button> }</div></article>
+            }
+        }
+    </section>
+
+    @if (SelectedNonconformance is not null && SelectedNonconformance.Status == MomQualityNonconformanceStatus.Open)
+    {
+        <section class="task-composer" aria-label='@L.Text("制定不合格处置")'>
+            <div class="task-composer__title">@L.Text("制定不合格处置") · @SelectedNonconformance.NonconformanceNo</div>
+            <div class="task-composer__fields"><label>@L.Text("处置方式")<select @bind="DispositionActionText"><option value="Rework">@L.Text("返工")</option><option value="Scrap">@L.Text("报废")</option><option value="UseAsIs">@L.Text("让步接收")</option><option value="ReturnToSupplier">@L.Text("退回供应商")</option></select></label></div>
+            @if (IsRework)
+            {
+                <div class="task-composer__fields"><label>@L.Text("返工目标工单")<select @bind="ReworkTargetWorkOrderIdText"><option value="">@L.Text("请选择返工目标工单")</option>@foreach (var order in WorkOrders()) { <option value="@order.Id">@order.WorkOrderNo</option> }</select></label><label>@L.Text("返工目标工序")<select @bind="ReworkTargetOperationIdText"><option value="">@L.Text("请选择返工目标工序")</option>@foreach (var operation in ReworkTargetOperations()) { <option value="@operation.Id">@operation.OperationCode · @operation.OperationSequence</option> }</select></label></div>
+            }
+            <div class="task-composer__fields"><label class="task-composer__field--full">@L.Text("处置说明")<input @bind="DispositionNotes" @bind:event="oninput" /></label></div>
+            <div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseNonconformanceComposer">@L.Text("取消")</button>@if (Admin.AuthButton("Mom/Quality/Disposition")) { <button class="task-primary-button" @onclick="CreateDisposition">@L.Text("保存处置方案")</button> }</div>
+        </section>
+    }
+
+    @if (ResultInspection is not null)
+    {
+        <section class="task-composer" aria-label='@L.Text("登记检验结果")'><div class="task-composer__title">@L.Text("登记检验结果") · @ResultInspection.InspectionNo</div><div class="task-composer__fields"><label>@L.Text("合格数量")<input type="number" min="0" step="0.000001" @bind="AcceptedQuantityText" @bind:event="oninput" /></label><label>@L.Text("不合格数量")<input type="number" min="0" step="0.000001" @bind="RejectedQuantityText" @bind:event="oninput" /></label></div><div class="task-composer__fields"><label class="task-composer__field--full">@L.Text("检验备注")<input @bind="ResultNotes" @bind:event="oninput" /></label></div>@if (Error is not null) { <div class="task-error" role="alert">@Error</div> }<div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseResult">@L.Text("取消")</button>@if (Admin.AuthButton("Mom/Quality/Result")) { <button class="task-primary-button" @onclick="SaveResult">@L.Text("保存检验结果")</button> }</div></section>
+    }
+</div>
+
+    @code {
+    private string WorkOrderIdText = string.Empty, InspectionTypeText = "Ipqc", OperationIdText = string.Empty, ProductIdText = string.Empty, StandardIdText = string.Empty;
+    private string BatchNo = string.Empty, SerialNo = string.Empty, SampleQuantityText = "1", Notes = string.Empty;
+    private string FailedInspectionIdText = string.Empty, DefectCode = string.Empty, DefectDescription = string.Empty, SeverityText = "Major";
+    private string DispositionActionText = "Rework", ReworkTargetWorkOrderIdText = string.Empty, ReworkTargetOperationIdText = string.Empty, DispositionNotes = string.Empty;
+    private string StandardProductIdText = string.Empty, StandardInspectionTypeText = "Ipqc", StandardCode = string.Empty, StandardName = string.Empty, StandardVersion = "1.0";
+    private string StandardItemLineNoText = "1", StandardItemCode = string.Empty, StandardItemName = string.Empty, StandardItemRequirement = string.Empty, StandardItemUnit = string.Empty, StandardItemMinValueText = string.Empty, StandardItemMaxValueText = string.Empty;
+    private string AcceptedQuantityText = "0", RejectedQuantityText = "0", ResultNotes = string.Empty;
+    private string ReceiptPurchaseOrderIdText = string.Empty, ReceiptInspectionIdText = string.Empty;
+    private Guid? SelectedReportId;
+    private IBrowserFile? SelectedFile;
+    private string? Error;
+    private Guid? SelectedStandardId;
+    private MomQualityInspection? ResultInspection;
+    private Guid? SelectedNonconformanceId;
+    private MomQualityNonconformance? SelectedNonconformance => SelectedNonconformanceId is Guid id ? NonconformanceService.List().FirstOrDefault(x => x.Id == id) : null;
+    private MomQualityInspectionStandard? SelectedStandard => SelectedStandardId is Guid id ? Standards().FirstOrDefault(x => x.Id == id) : null;
+    private MomQualityReport? SelectedReport => SelectedReportId is Guid id ? ReportService.List().FirstOrDefault(x => x.Id == id) : null;
+
+    protected override async Task OnInitializedAsync() { L.Changed += OnLanguageChanged; await Admin.InitAsync(); }
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    private bool IsIpqc => InspectionTypeText == nameof(MomQualityInspectionType.Ipqc);
+    private IReadOnlyList<MomWorkOrder> WorkOrders() => WorkOrderService.List().Where(x => x.Status is MomWorkOrderStatus.Released or MomWorkOrderStatus.InProgress).ToArray();
+    private IReadOnlyList<PurchaseOrder> SubmittedPurchaseOrders() => PurchaseOrderService.List().Where(x => x.Status == PurchaseOrderStatus.Submitted).ToArray();
+    private IReadOnlyList<MomQualityReceiptInspection> ReceiptQualityLinks() => ReceiptQualityService.List();
+    private IReadOnlyList<MomQualityInspection> ReceiptInspections()
+    {
+        if (!Guid.TryParse(ReceiptPurchaseOrderIdText, out var orderId)) return [];
+        var order = PurchaseOrderService.List().FirstOrDefault(x => x.Id == orderId);
+        if (order is null) return [];
+        var linkedIds = ReceiptQualityService.List(orderId).Select(x => x.InspectionId).ToHashSet();
+        return QualityService.List().Where(x => x.ProductId == order.ProductId && (x.InspectionType is MomQualityInspectionType.Iqc or MomQualityInspectionType.Sqc) && x.Status != MomQualityInspectionStatus.Cancelled && !linkedIds.Contains(x.Id)).ToArray();
+    }
+    private string PurchaseOrderLabel(PurchaseOrder order) => $"{order.OrderNo} · {ProductLabel(order.ProductId)}";
+    private string PurchaseOrderLabel(Guid orderId) => PurchaseOrderService.List().FirstOrDefault(x => x.Id == orderId) is { } order ? PurchaseOrderLabel(order) : orderId.ToString();
+    private MomWorkOrder? SelectedWorkOrder() => Guid.TryParse(WorkOrderIdText, out var id) ? WorkOrders().FirstOrDefault(x => x.Id == id) : null;
+    private IReadOnlyList<MomWorkOrderOperation> Operations() => Guid.TryParse(WorkOrderIdText, out var id) ? OperationService.List(id).Where(x => x.Status != MomOperationStatus.Cancelled).ToArray() : [];
+    private IReadOnlyList<Product> Products() => ProductService.List(status: ProductStatus.Active);
+    private IReadOnlyList<MomQualityInspectionStandard> Standards() => StandardService.List();
+    private IReadOnlyList<MomQualityInspectionStandard> ActiveStandards()
+    {
+        if (!Enum.TryParse<MomQualityInspectionType>(InspectionTypeText, out var type)) return [];
+        var productId = IsIpqc ? SelectedWorkOrder()?.ProductId : Guid.TryParse(ProductIdText, out var product) ? product : null;
+        return productId is Guid selected ? StandardService.List(selected, type, MomQualityInspectionStandardStatus.Active) : [];
+    }
+    private IReadOnlyList<MomQualityInspection> Inspections() => Guid.TryParse(WorkOrderIdText, out var id) ? QualityService.List(id) : QualityService.List();
+    private IReadOnlyList<MomQualityInspection> CompletedInspections() => Inspections().Where(x => x.Status is MomQualityInspectionStatus.Passed or MomQualityInspectionStatus.Failed).ToArray();
+    private IReadOnlyList<BusinessAttachment> Attachments(Guid reportId) => AttachmentService.List(MomQualityReportService.AttachmentBusinessType, reportId);
+    private IReadOnlyList<MomQualityInspection> FailedInspections() => Inspections().Where(x => x.Status == MomQualityInspectionStatus.Failed && NonconformanceService.List().All(n => n.InspectionId != x.Id)).ToArray();
+    private IReadOnlyList<MomQualityNonconformance> Nonconformances() => Guid.TryParse(WorkOrderIdText, out var id) ? NonconformanceService.List(id) : NonconformanceService.List();
+    private IReadOnlyList<MomWorkOrderOperation> ReworkTargetOperations() => Guid.TryParse(ReworkTargetWorkOrderIdText, out var id) ? OperationService.List(id).Where(x => x.Status != MomOperationStatus.Cancelled).ToArray() : [];
+    private bool IsRework => DispositionActionText == nameof(MomQualityDispositionAction.Rework);
+    private string ReportStatusLabel(MomQualityReportStatus status) => L.Text(status switch { MomQualityReportStatus.Draft => "草稿", MomQualityReportStatus.Published => "已发布", MomQualityReportStatus.Voided => "已作废", _ => status.ToString() });
+    private string OperationLabel(Guid id) => OperationService.List(Guid.TryParse(WorkOrderIdText, out var workOrderId) ? workOrderId : Guid.Empty).FirstOrDefault(x => x.Id == id)?.OperationCode ?? id.ToString();
+    private string ProductLabel(Guid? id) => id is Guid productId ? Products().FirstOrDefault(x => x.Id == productId) is { } product ? $"{product.Code} · {product.Name}" : productId.ToString() : L.Text("通用标准");
+    private string RangeLabel(MomQualityInspectionStandardItem item) => item.MinValue is decimal min && item.MaxValue is decimal max ? $"{min} - {max} {item.Unit}" : item.Unit ?? L.Text("定性要求");
+
+    private void CreateStandard()
+    {
+        try
+        {
+            if (!Enum.TryParse<MomQualityInspectionType>(StandardInspectionTypeText, out var type)) throw new InvalidOperationException(L.Text("质量检验类型无效。"));
+            var productId = Guid.TryParse(StandardProductIdText, out var product) ? product : (Guid?)null;
+            var standard = StandardService.Create(productId, type, StandardCode, StandardName, StandardVersion);
+            SelectedStandardId = standard.Id; Error = null; StandardCode = StandardName = string.Empty; StandardVersion = "1.0";
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void SelectStandard(MomQualityInspectionStandard standard) { SelectedStandardId = standard.Id; Error = null; }
+    private void PublishStandard(MomQualityInspectionStandard standard) { try { StandardService.Publish(standard); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void RetireStandard(MomQualityInspectionStandard standard) { try { StandardService.Retire(standard); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void AddStandardItem()
+    {
+        if (SelectedStandard is null) return;
+        try
+        {
+            if (!int.TryParse(StandardItemLineNoText, out var lineNo)) throw new InvalidOperationException(L.Text("项目行号格式不正确。"));
+            StandardService.AddItem(SelectedStandard.Id, lineNo, StandardItemCode, StandardItemName, StandardItemRequirement, StandardItemUnit, ParseOptionalDecimal(StandardItemMinValueText), ParseOptionalDecimal(StandardItemMaxValueText));
+            StandardItemLineNoText = (lineNo + 1).ToString(); StandardItemCode = StandardItemName = StandardItemRequirement = StandardItemUnit = StandardItemMinValueText = StandardItemMaxValueText = string.Empty; Error = null;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void RemoveStandardItem(MomQualityInspectionStandardItem item) { try { StandardService.RemoveItem(item); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private decimal? ParseOptionalDecimal(string value) => string.IsNullOrWhiteSpace(value) ? null : decimal.TryParse(value, out var result) ? result : throw new InvalidOperationException(L.Text("检验项目数值格式不正确。"));
+
+    private void CreateNonconformance()
+    {
+        try
+        {
+            var inspectionId = ParseRequired(FailedInspectionIdText, "请选择不通过检验");
+            if (!Enum.TryParse<MomQualityNonconformanceSeverity>(SeverityText, out var severity)) throw new InvalidOperationException(L.Text("不合格等级无效。"));
+            var item = NonconformanceService.CreateFromFailedInspection(inspectionId, DefectCode, DefectDescription, severity);
+            SelectedNonconformanceId = item.Id; FailedInspectionIdText = DefectCode = DefectDescription = string.Empty; SeverityText = "Major"; Error = null;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void LinkReceiptInspection()
+    {
+        try
+        {
+            var orderId = ParseRequired(ReceiptPurchaseOrderIdText, "请选择采购订单");
+            var inspectionId = ParseRequired(ReceiptInspectionIdText, "请选择质量检验");
+            ReceiptQualityService.Link(orderId, inspectionId);
+            ReceiptInspectionIdText = string.Empty; Error = null;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void SelectNonconformance(MomQualityNonconformance item) { SelectedNonconformanceId = item.Id; DispositionActionText = "Rework"; ReworkTargetWorkOrderIdText = ReworkTargetOperationIdText = DispositionNotes = string.Empty; Error = null; }
+    private void CloseNonconformanceComposer() { SelectedNonconformanceId = null; Error = null; }
+    private void CreateDisposition()
+    {
+        if (SelectedNonconformance is null) return;
+        try
+        {
+            if (!Enum.TryParse<MomQualityDispositionAction>(DispositionActionText, out var action)) throw new InvalidOperationException(L.Text("不合格处置类型无效。"));
+            Guid? targetWorkOrderId = IsRework && Guid.TryParse(ReworkTargetWorkOrderIdText, out var workOrderId) ? workOrderId : null;
+            Guid? targetOperationId = IsRework && Guid.TryParse(ReworkTargetOperationIdText, out var operationId) ? operationId : null;
+            NonconformanceService.CreateDisposition(SelectedNonconformance.Id, action, targetWorkOrderId, targetOperationId, notes: DispositionNotes);
+            SelectedNonconformanceId = null; Error = null;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void CompleteDisposition(MomQualityDisposition disposition) { try { NonconformanceService.CompleteDisposition(disposition.Id, Actor); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void CancelDisposition(MomQualityDisposition disposition) { try { NonconformanceService.CancelDisposition(disposition.Id); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+
+    private void CreateReport(MomQualityInspection inspection) { try { ReportService.CreateFromInspection(inspection.Id, Actor); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void PublishReport(MomQualityReport report) { try { ReportService.Publish(report.Id, Actor); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void VoidReport(MomQualityReport report) { try { ReportService.Void(report.Id, Actor); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void SelectReport(MomQualityReport report) { SelectedReportId = report.Id; SelectedFile = null; Error = null; }
+    private void CloseReport() { SelectedReportId = null; SelectedFile = null; Error = null; }
+    private void SelectAttachment(InputFileChangeEventArgs args) { SelectedFile = args.File; Error = null; }
+    private async Task UploadAttachment()
+    {
+        if (SelectedReport is null || SelectedFile is null) return;
+        try
+        {
+            await using var stream = SelectedFile.OpenReadStream(VelrixWorkHub.Application.Attachments.AttachmentService.MaxUploadBytes);
+            await AttachmentService.UploadAsync(MomQualityReportService.AttachmentBusinessType, SelectedReport.Id, SelectedFile.Name, SelectedFile.ContentType, stream, Actor, AttachmentContentStore);
+            SelectedFile = null; Error = null;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+
+    private void Create()
+    {
+        try
+        {
+            var workOrderId = ParseRequired(WorkOrderIdText, "请选择生产工单");
+            if (!Enum.TryParse<MomQualityInspectionType>(InspectionTypeText, out var type)) throw new InvalidOperationException(L.Text("质量检验类型无效。"));
+            Guid? operationId = IsIpqc && Guid.TryParse(OperationIdText, out var operation) ? operation : null;
+            Guid? productId = !IsIpqc && Guid.TryParse(ProductIdText, out var product) ? product : null;
+            Guid? standardId = Guid.TryParse(StandardIdText, out var selectedStandard) ? selectedStandard : null;
+            if (!decimal.TryParse(SampleQuantityText, out var sample)) throw new InvalidOperationException(L.Text("抽检数量格式不正确。"));
+            QualityService.Create(workOrderId, type, operationId, productId, BatchNo, SerialNo, sample, Notes, standardId: standardId);
+            ResetComposer(); Error = null;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void OpenResult(MomQualityInspection inspection) { ResultInspection = inspection; AcceptedQuantityText = inspection.SampleQuantity.ToString("0.######"); RejectedQuantityText = "0"; ResultNotes = string.Empty; Error = null; }
+    private void CloseResult() => ResultInspection = null;
+    private void SaveResult()
+    {
+        if (ResultInspection is null) return;
+        try { if (!decimal.TryParse(AcceptedQuantityText, out var accepted) || !decimal.TryParse(RejectedQuantityText, out var rejected)) throw new InvalidOperationException(L.Text("检验结果数量格式不正确。")); QualityService.RecordResult(ResultInspection.Id, accepted, rejected, Actor, notes: ResultNotes); ResultInspection = null; Error = null; }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void Cancel(MomQualityInspection inspection) { try { QualityService.Cancel(inspection.Id); Error = null; } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void ResetComposer() { OperationIdText = ProductIdText = StandardIdText = BatchNo = SerialNo = Notes = string.Empty; SampleQuantityText = "1"; }
+    private string Actor => Admin.User?.Username?.Trim() ?? string.Empty;
+    private Guid ParseRequired(string value, string key) => Guid.TryParse(value, out var id) ? id : throw new InvalidOperationException(L.Text(key));
+    private string TypeLabel(MomQualityInspectionType type) => L.Text(type switch { MomQualityInspectionType.Iqc => "IQC 来料检验", MomQualityInspectionType.Ipqc => "IPQC 过程检验", MomQualityInspectionType.Fqc => "FQC 成品检验", MomQualityInspectionType.Sqc => "SQC 供应商质量检验", _ => type.ToString() });
+    private string StatusLabel(MomQualityInspectionStatus status) => L.Text(status switch { MomQualityInspectionStatus.Pending => "待检", MomQualityInspectionStatus.Passed => "通过", MomQualityInspectionStatus.Failed => "不通过", MomQualityInspectionStatus.Cancelled => "已取消", _ => status.ToString() });
+    private string StandardStatusLabel(MomQualityInspectionStandardStatus status) => L.Text(status switch { MomQualityInspectionStandardStatus.Draft => "草稿", MomQualityInspectionStandardStatus.Active => "已发布", MomQualityInspectionStandardStatus.Inactive => "已停用", _ => status.ToString() });
+    private string NonconformanceStatusLabel(MomQualityNonconformanceStatus status) => L.Text(status switch { MomQualityNonconformanceStatus.Open => "待处置", MomQualityNonconformanceStatus.DispositionPlanned => "已制定处置", MomQualityNonconformanceStatus.Closed => "已关闭", _ => status.ToString() });
+    private string SeverityLabel(MomQualityNonconformanceSeverity severity) => L.Text(severity switch { MomQualityNonconformanceSeverity.Minor => "轻微", MomQualityNonconformanceSeverity.Major => "一般", MomQualityNonconformanceSeverity.Critical => "严重", _ => severity.ToString() });
+    private string DispositionActionLabel(MomQualityDispositionAction action) => L.Text(action switch { MomQualityDispositionAction.Rework => "返工", MomQualityDispositionAction.Scrap => "报废", MomQualityDispositionAction.UseAsIs => "让步接收", MomQualityDispositionAction.ReturnToSupplier => "退回供应商", _ => action.ToString() });
+    private string DispositionStatusLabel(MomQualityDispositionStatus status) => L.Text(status switch { MomQualityDispositionStatus.Planned => "计划中", MomQualityDispositionStatus.Completed => "已完成", MomQualityDispositionStatus.Cancelled => "已取消", _ => status.ToString() });
+    public void Dispose() => L.Changed -= OnLanguageChanged;
+}

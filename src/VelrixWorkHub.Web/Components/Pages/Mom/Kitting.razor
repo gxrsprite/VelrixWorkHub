@@ -1,0 +1,330 @@
+@page "/Mom/Kitting"
+@implements IDisposable
+@inject AdminBlazor.IAdminContext Admin
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
+@inject VelrixWorkHub.Application.Mom.MomMaterialKittingService KittingService
+@inject VelrixWorkHub.Application.Mom.MomWorkOrderService WorkOrderService
+@inject VelrixWorkHub.Application.Mom.MomWorkCenterService WorkCenterService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@inject VelrixWorkHub.Application.Warehouses.WarehouseService WarehouseService
+@using VelrixWorkHub.Application.Mom
+@using VelrixWorkHub.Domain
+
+<PageTitle>@L.Text("物料齐套与领料") - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">@L.Text("MOM 制造运营 · Mom/Kitting")</p><h1>@L.Text("物料齐套与领料")</h1><p class="task-page__intro">@L.Text("按已发布制造版本冻结工单用料需求，在指定仓库或库位检查可用库存，并通过 ERP 库存 Application 完成领料与退料。")</p></div></div>
+    <section class="task-composer" aria-label='@L.Text("检查齐套")'>
+        <div class="task-composer__title">@L.Text("检查齐套")</div>
+        <div class="task-composer__fields">
+            <label>@L.Text("选择工单")<select aria-label='@L.Text("选择工单")' @bind="WorkOrderIdText"><option value="">@L.Text("请选择已下达或执行中的工单")</option>@foreach (var item in OpenWorkOrders()) { var product = ProductService.List().FirstOrDefault(x => x.Id == item.ProductId); <option value="@item.Id">@item.WorkOrderNo · @(product?.Code ?? item.ProductId.ToString())</option> }</select></label>
+            <label>@L.Text("选择仓库")<select aria-label='@L.Text("选择仓库")' @bind="WarehouseIdText"><option value="">@L.Text("请选择启用仓库")</option>@foreach (var item in ActiveWarehouses()) { <option value="@item.Id">@item.Code · @item.Name</option> }</select></label>
+        </div>
+        <div class="task-composer__fields">
+            <label>@L.Text("库位")<select aria-label='@L.Text("库位")' @bind="LocationIdText"><option value="">@L.Text("不指定库位")</option>@foreach (var item in SelectedWarehouseLocations()) { <option value="@item.Id">@item.Code · @item.Name</option> }</select></label>
+            <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Kitting/Check")) { <button class="task-primary-button" @onclick="Check">@L.Text("检查齐套")</button> }</div>
+        </div>
+        @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+    </section>
+
+    @if (Snapshot is not null)
+    {
+        <section class="task-card customer-card">
+            <div class="task-card__body">
+                <div class="task-card__meta"><span class="task-status customer-status--@(Snapshot.IsReady ? "active" : "pending")">@(Snapshot.IsReady ? L.Text("已齐套") : L.Text("缺料"))</span><span>@L.Text("用料明细")</span><span>@Snapshot.Lines.Count</span></div>
+                @foreach (var line in Snapshot.Lines)
+                {
+                    var product = ProductService.List().FirstOrDefault(x => x.Id == line.ProductId);
+                    <article class="customer-note"><strong>#{line.LineNo} · @(product?.Code ?? line.ProductId.ToString()) · @(product?.Name ?? L.Text("未知商品"))</strong><div>@L.Text("需求数量") @line.RequiredQuantity.ToString("N6") · @L.Text("净领料") @line.NetIssuedQuantity.ToString("N6") · @L.Text("剩余需求") @line.RemainingQuantity.ToString("N6") · @L.Text("可用库存") @line.AvailableQuantity.ToString("N6") · @L.Text("缺口") @line.ShortageQuantity.ToString("N6") · @StatusLabel(line.Status)</div></article>
+                }
+            </div>
+        </section>
+
+        <section class="task-composer" aria-label='@L.Text("执行物料动作")'>
+            <div class="task-composer__title">@L.Text("执行物料动作")</div>
+            <div class="task-composer__fields">
+                <label>@L.Text("选择用料行")<select aria-label='@L.Text("选择用料行")' @bind="RequirementIdText"><option value="">@L.Text("请选择用料行")</option>@foreach (var line in Snapshot.Lines) { var product = ProductService.List().FirstOrDefault(x => x.Id == line.ProductId); <option value="@line.RequirementId">#@line.LineNo · @(product?.Code ?? line.ProductId.ToString())</option> }</select></label>
+                <label>@L.Text("动作数量")<input aria-label='@L.Text("动作数量")' type="number" min="0.000001" step="0.000001" @bind="QuantityText" @bind:event="oninput" /></label>
+            </div>
+            <div class="task-composer__fields">
+                <label>@L.Text("批次号")<input @bind="BatchNo" @bind:event="oninput" /></label>
+                <label>@L.Text("保质期")<input type="date" @bind="ExpiryDate" /></label>
+            </div>
+            <div class="task-composer__fields">
+                <label>@L.Text("序列号")<input @bind="SerialNo" @bind:event="oninput" /></label>
+                <label>@L.Text("动作备注")<input @bind="Notes" @bind:event="oninput" /></label>
+            </div>
+            <div class="task-composer__actions">
+                @if (Admin.AuthButton("Mom/Kitting/Issue")) { <button class="task-primary-button" @onclick="Issue">@L.Text("执行领料")</button> }
+                @if (Admin.AuthButton("Mom/Kitting/Return")) { <button class="task-secondary-button" @onclick="Return">@L.Text("执行退料")</button> }
+            </div>
+        </section>
+
+        <section class="task-composer" aria-label='@L.Text("工位配送与实际消耗")'>
+            <div class="task-composer__title">@L.Text("工位配送与实际消耗")</div>
+            <div class="task-composer__fields">
+                <label>@L.Text("工作中心")<select aria-label='@L.Text("工作中心")' @bind="WorkCenterIdText"><option value="">@L.Text("请选择启用工作中心")</option>@foreach (var workCenter in ActiveWorkCenters()) { <option value="@workCenter.Id">@workCenter.Code · @workCenter.Name</option> }</select></label>
+                <label>@L.Text("动作数量")<input aria-label='@L.Text("动作数量")' type="number" min="0.000001" step="0.000001" @bind="QuantityText" @bind:event="oninput" /></label>
+            </div>
+            <div class="task-composer__fields">
+                <label>@L.Text("消耗配送来源")<select aria-label='@L.Text("消耗配送来源")' @bind="ConsumptionDeliveryIdText"><option value="">@L.Text("请选择消耗配送来源")</option>@foreach (var delivery in ConsumableDeliveries()) { var product = ProductService.List().FirstOrDefault(x => x.Id == delivery.ProductId); <option value="@delivery.Id">@(product?.Code ?? delivery.ProductId.ToString()) · @L.Text("剩余可消耗") @AvailableDeliveryQuantity(delivery).ToString("N6") · @delivery.SourceNo</option> }</select></label>
+                <label>@L.Text("消耗批次号")<input @bind="ConsumptionBatchNoText" @bind:event="oninput" /></label>
+                <div class="customer-note">@L.Text("实际消耗可绑定具体配送记录；也可按批次跨配送自动分配，历史未绑定来源的消耗仍兼容显示。")</div>
+            </div>
+            <div class="task-composer__fields">
+                <label>@L.Text("动作备注")<input @bind="Notes" @bind:event="oninput" /></label>
+                <div class="task-composer__actions">
+                    @if (Admin.AuthButton("Mom/Kitting/Deliver")) { <button class="task-primary-button" @onclick="Deliver">@L.Text("配送到工位")</button> }
+                    @if (Admin.AuthButton("Mom/Kitting/Consume")) { <button class="task-secondary-button" @onclick="Consume">@L.Text("登记实际消耗")</button> }
+                    @if (Admin.AuthButton("Mom/Kitting/Consume")) { <button class="task-secondary-button" @onclick="ConsumeByBatch">@L.Text("按批次登记消耗")</button> }
+                </div>
+            </div>
+            <div class="task-composer__fields">
+                <label>@L.Text("目标仓库")<select aria-label='@L.Text("目标仓库")' @bind="PhysicalTargetWarehouseIdText"><option value="">@L.Text("请选择目标仓库")</option>@foreach (var item in ActiveWarehouses()) { <option value="@item.Id">@item.Code · @item.Name</option> }</select></label>
+                <label>@L.Text("目标库位")<select aria-label='@L.Text("目标库位")' @bind="PhysicalTargetLocationIdText"><option value="">@L.Text("请选择目标库位")</option>@foreach (var item in PhysicalTargetLocations()) { <option value="@item.Id">@item.Code · @item.Name</option> }</select></label>
+            </div>
+            <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Kitting/PhysicalDeliver")) { <button class="task-secondary-button" @onclick="PhysicalDeliver">@L.Text("物理配送到线边")</button> }</div>
+        </section>
+
+        <section class="task-composer" aria-label='@L.Text("配送撤回")'>
+            <div class="task-composer__title">@L.Text("配送撤回")</div>
+            <div class="task-composer__fields">
+                <label>@L.Text("选择配送记录")<select aria-label='@L.Text("选择配送记录")' @bind="DeliveryIdText"><option value="">@L.Text("请选择可撤回的配送记录")</option>@foreach (var delivery in ActiveDeliveries()) { var product = ProductService.List().FirstOrDefault(x => x.Id == delivery.ProductId); <option value="@delivery.Id">@(product?.Code ?? delivery.ProductId.ToString()) · @(AvailableDeliveryQuantity(delivery).ToString("N6")) · @delivery.SourceNo</option> }</select></label>
+                <label>@L.Text("撤回数量")<input aria-label='@L.Text("撤回数量")' type="number" min="0.000001" step="0.000001" @bind="WithdrawalQuantityText" @bind:event="oninput" /></label>
+            </div>
+            <div class="task-composer__fields">
+                <label>@L.Text("撤回备注")<input aria-label='@L.Text("撤回备注")' @bind="WithdrawalNotes" @bind:event="oninput" /></label>
+                <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Kitting/WithdrawDelivery")) { <button class="task-secondary-button" @onclick="WithdrawDelivery">@L.Text("撤回配送")</button> }</div>
+            </div>
+        </section>
+
+        <section class="task-composer" aria-label='@L.Text("实际消耗逆向")'>
+            <div class="task-composer__title">@L.Text("实际消耗逆向")</div>
+            <div class="task-composer__fields">
+                <label>@L.Text("选择实际消耗")<select aria-label='@L.Text("选择实际消耗")' @bind="ConsumptionIdText"><option value="">@L.Text("请选择可逆向的实际消耗")</option>@foreach (var consumption in ReversibleConsumptions()) { var product = ProductService.List().FirstOrDefault(x => x.Id == consumption.ProductId); <option value="@consumption.Id">@(product?.Code ?? consumption.ProductId.ToString()) · @AvailableConsumptionQuantity(consumption).ToString("N6") · @consumption.SourceNo</option> }</select></label>
+                <label>@L.Text("逆向数量")<input aria-label='@L.Text("逆向数量")' type="number" min="0.000001" step="0.000001" @bind="ConsumptionReversalQuantityText" @bind:event="oninput" /></label>
+            </div>
+            <div class="task-composer__fields">
+                <label>@L.Text("逆向备注")<input aria-label='@L.Text("逆向备注")' @bind="ConsumptionReversalNotes" @bind:event="oninput" /></label>
+                <div class="task-composer__actions">@if (Admin.AuthButton("Mom/Kitting/ReverseConsumption")) { <button class="task-secondary-button" @onclick="ReverseConsumption">@L.Text("逆向实际消耗")</button> }</div>
+            </div>
+        </section>
+
+        <section class="task-card customer-card">
+            <div class="task-card__body"><div class="task-card__meta"><strong>@L.Text("物料动作")</strong><span>@KittingService.ListMovements(Snapshot.WorkOrderId).Count</span></div>
+                @foreach (var movement in KittingService.ListMovements(Snapshot.WorkOrderId).Take(20))
+                {
+                    var product = ProductService.List().FirstOrDefault(x => x.Id == movement.ProductId);
+                    var warehouse = WarehouseService.List().FirstOrDefault(x => x.Id == movement.WarehouseId);
+                    var location = warehouse?.Locations.FirstOrDefault(x => x.Id == movement.LocationId);
+                    <div class="customer-note"><strong>@MovementLabel(movement.Kind)</strong> · @(product?.Code ?? movement.ProductId.ToString()) · @movement.Quantity.ToString("N6") · @(warehouse?.Code ?? movement.WarehouseId.ToString()) · @(location?.Code ?? L.Text("不指定库位")) · @movement.SourceNo</div>
+                }
+            </div>
+        </section>
+        <section class="task-card customer-card">
+            <div class="task-card__body">
+                <div class="task-card__meta"><strong>@L.Text("工位配送记录")</strong><span>@KittingService.ListDeliveries(Snapshot.WorkOrderId).Count</span></div>
+                @foreach (var delivery in KittingService.ListDeliveries(Snapshot.WorkOrderId).Take(20))
+                {
+                    var workCenter = WorkCenterService.List().FirstOrDefault(x => x.Id == delivery.WorkCenterId);
+                    var product = ProductService.List().FirstOrDefault(x => x.Id == delivery.ProductId);
+                    var sourceWarehouse = delivery.SourceWarehouseId is Guid sourceWarehouseId ? WarehouseService.List().FirstOrDefault(x => x.Id == sourceWarehouseId) : null;
+                    var targetWarehouse = delivery.TargetWarehouseId is Guid targetWarehouseId ? WarehouseService.List().FirstOrDefault(x => x.Id == targetWarehouseId) : null;
+                    var sourceLocation = sourceWarehouse?.Locations.FirstOrDefault(x => x.Id == delivery.SourceLocationId);
+                    var targetLocation = targetWarehouse?.Locations.FirstOrDefault(x => x.Id == delivery.TargetLocationId);
+                    <div class="customer-note"><strong>@(product?.Code ?? delivery.ProductId.ToString())</strong> · @delivery.Quantity.ToString("N6") · @(workCenter?.Code ?? delivery.WorkCenterId.ToString()) · @if (sourceWarehouse is not null || targetWarehouse is not null) { <span>@(sourceWarehouse?.Code ?? "-")/@(sourceLocation?.Code ?? "-") → @(targetWarehouse?.Code ?? "-")/@(targetLocation?.Code ?? "-") · </span> }@delivery.SourceNo</div>
+                }
+            </div>
+        </section>
+        <section class="task-card customer-card">
+            <div class="task-card__body">
+                <div class="task-card__meta"><strong>@L.Text("实际消耗记录")</strong><span>@KittingService.ListConsumptions(Snapshot.WorkOrderId).Count</span></div>
+                @foreach (var consumption in KittingService.ListConsumptions(Snapshot.WorkOrderId).Take(20))
+                {
+                    var workCenter = WorkCenterService.List().FirstOrDefault(x => x.Id == consumption.WorkCenterId);
+                    var product = ProductService.List().FirstOrDefault(x => x.Id == consumption.ProductId);
+                    var allocationCount = KittingService.ListConsumptionAllocations(Snapshot.WorkOrderId).Count(x => x.ConsumptionId == consumption.Id);
+                    var sourceLabel = consumption.DeliveryId is not null ? L.Text("单条配送来源") : allocationCount > 0 ? L.Text("批次分配") : L.Text("历史来源未绑定");
+                    <div class="customer-note"><strong>@(product?.Code ?? consumption.ProductId.ToString())</strong> · @consumption.Quantity.ToString("N6") · @(workCenter?.Code ?? consumption.WorkCenterId.ToString()) · @sourceLabel · @consumption.SourceNo</div>
+                }
+            </div>
+        </section>
+        <section class="task-card customer-card">
+            <div class="task-card__body">
+                <div class="task-card__meta"><strong>@L.Text("消耗批次分配记录")</strong><span>@KittingService.ListConsumptionAllocations(Snapshot.WorkOrderId).Count</span></div>
+                @foreach (var allocation in KittingService.ListConsumptionAllocations(Snapshot.WorkOrderId).Take(20))
+                {
+                    var product = ProductService.List().FirstOrDefault(x => x.Id == allocation.ProductId);
+                    <div class="customer-note"><strong>@(product?.Code ?? allocation.ProductId.ToString())</strong> · @L.Text("批次") @(allocation.BatchNo ?? "-") · @allocation.Quantity.ToString("N6") · @allocation.SourceNo</div>
+                }
+            </div>
+        </section>
+        <section class="task-card customer-card">
+            <div class="task-card__body">
+                <div class="task-card__meta"><strong>@L.Text("实际消耗逆向记录")</strong><span>@KittingService.ListConsumptionReversals(Snapshot.WorkOrderId).Count</span></div>
+                @foreach (var reversal in KittingService.ListConsumptionReversals(Snapshot.WorkOrderId).Take(20))
+                {
+                    var product = ProductService.List().FirstOrDefault(x => x.Id == reversal.ProductId);
+                    <div class="customer-note"><strong>@(product?.Code ?? reversal.ProductId.ToString())</strong> · @reversal.Quantity.ToString("N6") · @L.Text("批次") @(reversal.BatchNo ?? "-") · @reversal.SourceNo · @reversal.OccurredOn.ToString("yyyy-MM-dd")</div>
+                }
+            </div>
+        </section>
+        <section class="task-card customer-card">
+            <div class="task-card__body">
+                <div class="task-card__meta"><strong>@L.Text("配送撤回记录")</strong><span>@KittingService.ListDeliveryReversals(Snapshot.WorkOrderId).Count</span></div>
+                @foreach (var reversal in KittingService.ListDeliveryReversals(Snapshot.WorkOrderId).Take(20))
+                {
+                    var product = ProductService.List().FirstOrDefault(x => x.Id == reversal.ProductId);
+                    <div class="customer-note"><strong>@(product?.Code ?? reversal.ProductId.ToString())</strong> · @reversal.Quantity.ToString("N6") · @reversal.SourceNo · @reversal.OccurredOn.ToString("yyyy-MM-dd")</div>
+                }
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    private string WorkOrderIdText = string.Empty, WarehouseIdText = string.Empty, LocationIdText = string.Empty, RequirementIdText = string.Empty, WorkCenterIdText = string.Empty, PhysicalTargetWarehouseIdText = string.Empty, PhysicalTargetLocationIdText = string.Empty, DeliveryIdText = string.Empty, ConsumptionDeliveryIdText = string.Empty, ConsumptionBatchNoText = string.Empty, ConsumptionIdText = string.Empty;
+    private string QuantityText = "1", BatchNo = string.Empty, SerialNo = string.Empty, Notes = string.Empty;
+    private string WithdrawalQuantityText = "1", WithdrawalNotes = string.Empty, ConsumptionReversalQuantityText = "1", ConsumptionReversalNotes = string.Empty;
+    private DateTime? ExpiryDate;
+    private string? Error;
+    private MomMaterialKittingSnapshot? Snapshot;
+
+    protected override async Task OnInitializedAsync() { L.Changed += OnLanguageChanged; await Admin.InitAsync(); }
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    private IReadOnlyList<MomWorkOrder> OpenWorkOrders() => WorkOrderService.List().Where(x => x.Status is MomWorkOrderStatus.Released or MomWorkOrderStatus.InProgress).ToArray();
+    private IReadOnlyList<Warehouse> ActiveWarehouses() => WarehouseService.List(status: WarehouseStatus.Active);
+    private IReadOnlyList<MomWorkCenter> ActiveWorkCenters() => WorkCenterService.List(status: MomMasterDataStatus.Active);
+    private IReadOnlyList<WarehouseLocation> PhysicalTargetLocations() => ActiveWarehouses().FirstOrDefault(x => x.Id == ParseGuid(PhysicalTargetWarehouseIdText))?.Locations ?? [];
+    private IReadOnlyList<WarehouseLocation> SelectedWarehouseLocations() => ActiveWarehouses().FirstOrDefault(x => x.Id == ParseGuid(WarehouseIdText))?.Locations ?? [];
+    private IReadOnlyList<MomMaterialDelivery> ActiveDeliveries() => Snapshot is null ? [] : KittingService.ListDeliveries(Snapshot.WorkOrderId).Where(x => AvailableDeliveryQuantity(x) > 0).ToArray();
+    private decimal AvailableDeliveryQuantity(MomMaterialDelivery delivery)
+    {
+        var reversed = KittingService.ListDeliveryReversals(delivery.WorkOrderId).Where(x => x.DeliveryId == delivery.Id).Sum(x => x.Quantity);
+        var allocations = KittingService.ListConsumptionAllocations(delivery.WorkOrderId).Where(x => x.DeliveryId == delivery.Id).Sum(x => x.Quantity);
+        var allocatedConsumptionIds = KittingService.ListConsumptionAllocations(delivery.WorkOrderId).Where(x => x.DeliveryId == delivery.Id).Select(x => x.ConsumptionId).ToHashSet();
+        var legacyConsumed = KittingService.ListConsumptions(delivery.WorkOrderId).Where(x => x.DeliveryId == delivery.Id && !allocatedConsumptionIds.Contains(x.Id)).Sum(x => x.Quantity);
+        var consumptionReversed = KittingService.ListConsumptionReversals(delivery.WorkOrderId).Where(x => x.DeliveryId == delivery.Id).Sum(x => x.Quantity);
+        return Math.Max(0, delivery.Quantity - reversed - allocations - legacyConsumed + consumptionReversed);
+    }
+    private IReadOnlyList<MomMaterialDelivery> ConsumableDeliveries() => Snapshot is null || ParseGuid(RequirementIdText) is not Guid requirementId
+        ? [] : ActiveDeliveries().Where(x => x.RequirementId == requirementId).ToArray();
+    private IReadOnlyList<MomMaterialConsumption> ReversibleConsumptions() => Snapshot is null ? [] : KittingService.ListConsumptions(Snapshot.WorkOrderId)
+        .Where(x => AvailableConsumptionQuantity(x) > 0).ToArray();
+    private decimal AvailableConsumptionQuantity(MomMaterialConsumption consumption)
+        => Math.Max(0, consumption.Quantity - KittingService.ListConsumptionReversals(consumption.WorkOrderId).Where(x => x.ConsumptionId == consumption.Id).Sum(x => x.Quantity));
+    private void Check()
+    {
+        try
+        {
+            var workOrderId = ParseRequired(WorkOrderIdText, "请选择工单");
+            var warehouseId = ParseRequired(WarehouseIdText, "请选择启用仓库");
+            Snapshot = KittingService.CheckKitting(workOrderId, warehouseId, ParseGuid(LocationIdText));
+            RequirementIdText = Snapshot.Lines.FirstOrDefault()?.RequirementId.ToString() ?? string.Empty;
+            WorkCenterIdText = OpenWorkOrders().FirstOrDefault(x => x.Id == workOrderId)?.WorkCenterId?.ToString() ?? string.Empty;
+            Error = null;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void Issue()
+    {
+        try { ExecuteMovement(MomMaterialMovementKind.Issue); }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void Return()
+    {
+        try { ExecuteMovement(MomMaterialMovementKind.Return); }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void Deliver()
+    {
+        try { ExecuteExecution(false); }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void Consume()
+    {
+        try { ExecuteExecution(true); }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void ConsumeByBatch()
+    {
+        try
+        {
+            var requirementId = ParseRequired(RequirementIdText, "请选择用料行");
+            var workCenterId = ParseRequired(WorkCenterIdText, "请选择启用工作中心");
+            if (!decimal.TryParse(QuantityText, out var quantity)) throw new InvalidOperationException(L.Text("动作数量格式不正确。"));
+            KittingService.ConsumeByBatch(requirementId, workCenterId, ConsumptionBatchNoText, quantity, DateOnly.FromDateTime(DateTime.Today), Notes);
+            Check(); QuantityText = "1"; Notes = string.Empty; ConsumptionBatchNoText = string.Empty;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void ReverseConsumption()
+    {
+        try
+        {
+            var consumptionId = ParseRequired(ConsumptionIdText, "请选择可逆向的实际消耗");
+            if (!decimal.TryParse(ConsumptionReversalQuantityText, out var quantity)) throw new InvalidOperationException(L.Text("逆向数量格式不正确。"));
+            KittingService.ReverseConsumption(consumptionId, quantity, DateOnly.FromDateTime(DateTime.Today), ConsumptionReversalNotes);
+            Check(); ConsumptionIdText = string.Empty; ConsumptionReversalQuantityText = "1"; ConsumptionReversalNotes = string.Empty;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void WithdrawDelivery()
+    {
+        try
+        {
+            var deliveryId = ParseRequired(DeliveryIdText, "请选择可撤回的配送记录");
+            if (!decimal.TryParse(WithdrawalQuantityText, out var quantity)) throw new InvalidOperationException(L.Text("撤回数量格式不正确。"));
+            KittingService.WithdrawDelivery(deliveryId, quantity, DateOnly.FromDateTime(DateTime.Today), WithdrawalNotes);
+            Check(); DeliveryIdText = string.Empty; WithdrawalQuantityText = "1"; WithdrawalNotes = string.Empty;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void PhysicalDeliver()
+    {
+        try
+        {
+            var requirementId = ParseRequired(RequirementIdText, "请选择用料行");
+            var sourceWarehouseId = ParseRequired(WarehouseIdText, "请选择启用仓库");
+            var targetWarehouseId = ParseRequired(PhysicalTargetWarehouseIdText, "请选择目标仓库");
+            var targetLocationId = ParseRequired(PhysicalTargetLocationIdText, "请选择目标库位");
+            var workCenterId = ParseRequired(WorkCenterIdText, "请选择启用工作中心");
+            if (!decimal.TryParse(QuantityText, out var quantity)) throw new InvalidOperationException(L.Text("动作数量格式不正确。"));
+            DateOnly? expiry = ExpiryDate is DateTime date ? DateOnly.FromDateTime(date) : null;
+            KittingService.DeliverPhysically(requirementId, workCenterId, sourceWarehouseId, ParseGuid(LocationIdText), targetWarehouseId, targetLocationId,
+                quantity, DateOnly.FromDateTime(DateTime.Today), Notes, BatchNo, expiry, SerialNo);
+            Check(); QuantityText = "1"; Notes = string.Empty;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void ExecuteMovement(MomMaterialMovementKind kind)
+    {
+        var requirementId = ParseRequired(RequirementIdText, "请选择用料行");
+        var warehouseId = ParseRequired(WarehouseIdText, "请选择启用仓库");
+        if (!decimal.TryParse(QuantityText, out var quantity)) throw new InvalidOperationException(L.Text("动作数量格式不正确。"));
+        DateOnly? expiry = ExpiryDate is DateTime date ? DateOnly.FromDateTime(date) : null;
+        if (kind == MomMaterialMovementKind.Issue) KittingService.Issue(requirementId, warehouseId, ParseGuid(LocationIdText), quantity, DateOnly.FromDateTime(DateTime.Today), Notes, BatchNo, expiry, SerialNo);
+        else KittingService.Return(requirementId, warehouseId, ParseGuid(LocationIdText), quantity, DateOnly.FromDateTime(DateTime.Today), Notes, BatchNo, expiry, SerialNo);
+        Check();
+        QuantityText = "1"; Notes = string.Empty;
+    }
+    private void ExecuteExecution(bool consume)
+    {
+        var requirementId = ParseRequired(RequirementIdText, "请选择用料行");
+        var workCenterId = ParseRequired(WorkCenterIdText, "请选择启用工作中心");
+        if (!decimal.TryParse(QuantityText, out var quantity)) throw new InvalidOperationException(L.Text("动作数量格式不正确。"));
+        Guid? deliveryId = consume ? ParseRequired(ConsumptionDeliveryIdText, "请选择消耗配送来源") : null;
+        if (consume) KittingService.Consume(requirementId, workCenterId, quantity, DateOnly.FromDateTime(DateTime.Today), Notes, deliveryId: deliveryId);
+        else
+        {
+            DateOnly? expiry = ExpiryDate is DateTime date ? DateOnly.FromDateTime(date) : null;
+            KittingService.Deliver(requirementId, workCenterId, quantity, DateOnly.FromDateTime(DateTime.Today), Notes, batchNo: BatchNo, expiryDate: expiry, serialNo: SerialNo);
+        }
+        Check();
+        QuantityText = "1"; Notes = string.Empty; if (consume) ConsumptionDeliveryIdText = string.Empty;
+    }
+    private Guid ParseRequired(string value, string key) => ParseGuid(value) ?? throw new InvalidOperationException(L.Text(key));
+    private static Guid? ParseGuid(string value) => Guid.TryParse(value, out var id) ? id : null;
+    private string StatusLabel(MomMaterialRequirementStatus status) => L.Text(status switch { MomMaterialRequirementStatus.Pending => "待领料", MomMaterialRequirementStatus.PartiallyIssued => "部分领料", MomMaterialRequirementStatus.Issued => "已领料", _ => status.ToString() });
+    private string MovementLabel(MomMaterialMovementKind kind) => L.Text(kind == MomMaterialMovementKind.Issue ? "领料" : "退料");
+    public void Dispose() => L.Changed -= OnLanguageChanged;
+}

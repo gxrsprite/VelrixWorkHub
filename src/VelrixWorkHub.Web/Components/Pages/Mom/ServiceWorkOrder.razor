@@ -1,0 +1,223 @@
+@page "/Mom/ServiceWorkOrder"
+@implements IDisposable
+@inject AdminBlazor.IAdminContext Admin
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
+@inject VelrixWorkHub.Application.Mom.MomServiceWorkOrderService WorkOrderService
+@inject VelrixWorkHub.Application.Mom.MomServiceEquipmentService EquipmentService
+@inject VelrixWorkHub.Application.Mom.MomServiceWorkOrderPartConsumptionService PartConsumptionService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@inject VelrixWorkHub.Application.Warehouses.WarehouseService WarehouseService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@using Microsoft.AspNetCore.Components
+@using VelrixWorkHub.Domain
+
+<PageTitle>@L.Text("售后服务工单") - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">@L.Text("MOM 制造运营 · Mom/ServiceWorkOrder")</p><h1>@L.Text("售后服务工单")</h1><p class="task-page__intro">@L.Text("统一记录客户设备的安装与维修服务，保留计划日期、负责人、现场位置和完成结果；安装工单完成后才推进待安装设备进入在用状态。")</p></div></div>
+
+    <section class="task-composer" aria-label='@L.Text("创建安装工单")'>
+        <div class="task-composer__title">@L.Text("创建安装工单") · MOM-08H</div>
+        <div class="task-composer__fields">
+            <label class="task-composer__field--wide">@L.Text("选择待安装设备")<select aria-label='@L.Text("选择待安装设备")' @bind="EquipmentIdText"><option value="">@L.Text("请选择客户设备")</option>@foreach (var equipment in EquipmentOptions()) { <option value="@equipment.Id">@EquipmentLabel(equipment)</option> }</select></label>
+            <label>@L.Text("服务工单编号")<input aria-label='@L.Text("服务工单编号")' @bind="WorkOrderNo" @bind:event="oninput" placeholder='@L.Text("留空自动生成")' /></label>
+            <label>@L.Text("计划安装日期")<input aria-label='@L.Text("计划安装日期")' type="date" @bind="ScheduledDate" /></label>
+        </div>
+        <div class="task-composer__fields">
+            <label>@L.Text("安装负责人")<input aria-label='@L.Text("安装负责人")' @bind="AssignedTo" @bind:event="oninput" /></label>
+            <label class="task-composer__field--wide">@L.Text("客户现场位置")<input aria-label='@L.Text("客户现场位置")' @bind="PlannedLocation" @bind:event="oninput" placeholder='@L.Text("请输入客户现场位置")' /></label>
+        </div>
+        <label>@L.Text("安装说明")<textarea aria-label='@L.Text("安装说明")' rows="2" @bind="Description" @bind:event="oninput" placeholder='@L.Text("请输入安装准备和交付说明")'></textarea></label>
+        @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+        <div class="task-composer__actions">@if (Admin.AuthButton("Mom/ServiceWorkOrder/Create")) { <button class="task-primary-button" @onclick="Create">@L.Text("保存安装工单")</button> }</div>
+    </section>
+
+    <section class="task-composer" aria-label='@L.Text("创建维修工单")'>
+        <div class="task-composer__title">@L.Text("创建维修工单") · MOM-08I</div>
+        <div class="task-composer__fields">
+            <label class="task-composer__field--wide">@L.Text("选择在用设备")<select aria-label='@L.Text("选择在用设备")' @bind="RepairEquipmentIdText"><option value="">@L.Text("请选择客户设备")</option>@foreach (var equipment in RepairEquipmentOptions()) { <option value="@equipment.Id">@EquipmentLabel(equipment)</option> }</select></label>
+            <label>@L.Text("服务工单编号")<input aria-label='@L.Text("服务工单编号")' @bind="RepairWorkOrderNo" @bind:event="oninput" placeholder='@L.Text("留空自动生成")' /></label>
+            <label>@L.Text("计划维修日期")<input aria-label='@L.Text("计划维修日期")' type="date" @bind="RepairScheduledDate" /></label>
+        </div>
+        <div class="task-composer__fields">
+            <label>@L.Text("维修负责人")<input aria-label='@L.Text("维修负责人")' @bind="RepairAssignedTo" @bind:event="oninput" /></label>
+            <label class="task-composer__field--wide">@L.Text("维修现场位置")<input aria-label='@L.Text("维修现场位置")' @bind="RepairLocation" @bind:event="oninput" placeholder='@L.Text("请输入维修现场位置")' /></label>
+        </div>
+        <label>@L.Text("维修说明")<textarea aria-label='@L.Text("维修说明")' rows="2" @bind="RepairDescription" @bind:event="oninput" placeholder='@L.Text("请输入故障现象和维修要求")'></textarea></label>
+        @if (RepairError is not null) { <div class="task-error" role="alert">@RepairError</div> }
+        <div class="task-composer__actions">@if (Admin.AuthButton("Mom/ServiceWorkOrder/CreateRepair")) { <button class="task-primary-button" @onclick="CreateRepair">@L.Text("保存维修工单")</button> }</div>
+    </section>
+
+    @if (SelectedWorkOrder is not null && SelectedWorkOrder.Status == MomServiceWorkOrderStatus.InProgress)
+    {
+        <section class="task-composer" aria-label='@(SelectedWorkOrder.Type == MomServiceWorkOrderType.Installation ? L.Text("完成安装工单") : L.Text("完成维修工单"))'>
+            <div class="task-composer__title">@SelectedWorkOrder.WorkOrderNo · @(SelectedWorkOrder.Type == MomServiceWorkOrderType.Installation ? L.Text("完成安装工单") : L.Text("完成维修工单"))</div>
+            <div class="task-composer__fields"><label>@L.Text("完成日期")<input aria-label='@L.Text("完成日期")' type="date" @bind="CompletionDate" /></label><label class="task-composer__field--wide">@L.Text("完成说明")<input aria-label='@L.Text("完成说明")' @bind="CompletionNotes" @bind:event="oninput" /></label></div>
+            @if (ActionError is not null) { <div class="task-error" role="alert">@ActionError</div> }
+            @if (Admin.AuthButton("Mom/ServiceWorkOrder/Complete")) { <button class="task-primary-button" @onclick="Complete">@L.Text("确认完成")</button> }
+        </section>
+    }
+    else if (SelectedWorkOrder is not null && SelectedWorkOrder.Status is (MomServiceWorkOrderStatus.Draft or MomServiceWorkOrderStatus.Scheduled or MomServiceWorkOrderStatus.InProgress))
+    {
+        <section class="task-composer" aria-label='@L.Text("取消服务工单")'>
+            <div class="task-composer__title">@SelectedWorkOrder.WorkOrderNo · @L.Text("取消服务工单")</div>
+            <label>@L.Text("取消原因")<input aria-label='@L.Text("取消原因")' @bind="CancellationReason" @bind:event="oninput" /></label>
+            @if (ActionError is not null) { <div class="task-error" role="alert">@ActionError</div> }
+            @if (Admin.AuthButton("Mom/ServiceWorkOrder/Cancel")) { <button class="task-primary-button danger" @onclick="Cancel">@L.Text("确认取消")</button> }
+        </section>
+    }
+
+    @if (SelectedWorkOrder is not null && SelectedWorkOrder.Type == MomServiceWorkOrderType.Repair)
+    {
+        <section class="task-composer" aria-label='@L.Text("维修备件消耗")'>
+            <div class="task-composer__title">@SelectedWorkOrder.WorkOrderNo · @L.Text("维修备件消耗")</div>
+            @if (SelectedWorkOrder.Status == MomServiceWorkOrderStatus.InProgress)
+            {
+                <div class="task-composer__fields">
+                    <label class="task-composer__field--wide">@L.Text("备件商品")<select aria-label='@L.Text("备件商品")' @bind="PartProductIdText"><option value="">@L.Text("请选择启用备件商品")</option>@foreach (var product in PartProducts()) { <option value="@product.Id">@product.Code · @product.Name · @product.Unit</option> }</select></label>
+                    <label>@L.Text("消耗数量")<input aria-label='@L.Text("消耗数量")' type="number" min="0.01" step="0.01" @bind="PartQuantityText" @bind:event="oninput" /></label>
+                    <label>@L.Text("消耗日期")<input aria-label='@L.Text("消耗日期")' type="date" @bind="PartConsumedDate" /></label>
+                </div>
+                <div class="task-composer__fields">
+                    <label>@L.Text("出库仓库")<select aria-label='@L.Text("出库仓库")' @bind="PartWarehouseIdText"><option value="">@L.Text("请选择启用仓库")</option>@foreach (var warehouse in PartWarehouses()) { <option value="@warehouse.Id">@warehouse.Code · @warehouse.Name</option> }</select></label>
+                    <label>@L.Text("出库库位")<select aria-label='@L.Text("出库库位")' @bind="PartLocationIdText"><option value="">@L.Text("不指定库位")</option>@foreach (var location in PartLocations()) { <option value="@location.Id">@location.Code · @location.Name</option> }</select></label>
+                    <label>@L.Text("备件消耗单号")<input aria-label='@L.Text("备件消耗单号")' @bind="PartSourceNo" @bind:event="oninput" placeholder='@L.Text("留空自动生成")' /></label>
+                </div>
+                <div class="task-composer__fields">
+                    <label>@L.Text("批次号")<input aria-label='@L.Text("批次号")' @bind="PartBatchNo" @bind:event="oninput" /></label>
+                    <label>@L.Text("保质期")<input aria-label='@L.Text("保质期")' type="date" @bind="PartExpiryDate" /></label>
+                    <label>@L.Text("序列号")<input aria-label='@L.Text("序列号")' @bind="PartSerialNo" @bind:event="oninput" /></label>
+                </div>
+                <label>@L.Text("消耗说明")<input aria-label='@L.Text("消耗说明")' @bind="PartNotes" @bind:event="oninput" placeholder='@L.Text("请输入维修备件消耗说明")' /></label>
+                @if (PartsError is not null) { <div class="task-error" role="alert">@PartsError</div> }
+                <div class="task-composer__actions">@if (Admin.AuthButton("Mom/ServiceWorkOrder/ConsumeParts")) { <button class="task-primary-button" @onclick="ConsumePart">@L.Text("登记备件消耗")</button> }</div>
+            }
+            else
+            {
+                <div class="customer-note">@L.Text("只有进行中的维修工单可以新增备件消耗")</div>
+            }
+            @if (PartConsumptionService.List(SelectedWorkOrder.Id).Count == 0)
+            {
+                <div class="customer-note">@L.Text("暂无维修备件消耗")</div>
+            }
+            else
+            {
+                @foreach (var part in PartConsumptionService.List(SelectedWorkOrder.Id))
+                {
+                    <div class="customer-note"><strong>@ProductLabel(part.ProductId)</strong> · @part.Quantity.ToString("N2") · @WarehouseLabel(part.WarehouseId, part.LocationId) · @part.SourceNo@if (!string.IsNullOrWhiteSpace(part.BatchNo)) { <span> · @L.Text("批次")：@part.BatchNo</span> }@if (!string.IsNullOrWhiteSpace(part.SerialNo)) { <span> · @L.Text("序列号")：@part.SerialNo</span> } · @part.ConsumedOn.ToString("yyyy-MM-dd")</div>
+                }
+            }
+        </section>
+    }
+
+    <section class="task-list" aria-label='@L.Text("售后服务工单列表")'>
+        <div class="task-composer__title">@L.Text("售后服务工单列表")</div>
+        @if (WorkOrderService.List().Count == 0) { <div class="customer-note">@L.Text("暂无售后服务工单")</div> }
+        else
+        {
+            @foreach (var item in WorkOrderService.List())
+            {
+                var equipment = EquipmentService.List().FirstOrDefault(x => x.Id == item.EquipmentId);
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa @(item.Type == MomServiceWorkOrderType.Repair ? "fa-medkit" : "fa-wrench")"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@TypeLabel(item.Type) · @StatusLabel(item.Status)</span><span>@item.WorkOrderNo</span></div><h2>@(equipment is null ? L.Text("未知客户设备") : EquipmentLabel(equipment))</h2><p>@L.Text("计划")：@(item.ScheduledOn?.ToString("yyyy-MM-dd") ?? L.Text("未安排")) · @L.Text("负责人")：@(item.AssignedTo ?? L.Text("未指定")) · @L.Text("位置")：@item.PlannedLocation</p><div class="customer-note">@L.Text("说明")：@item.Description</div>@if (item.Status == MomServiceWorkOrderStatus.Completed && !string.IsNullOrWhiteSpace(item.CompletionNotes)) { <div class="customer-note">@L.Text("完成说明")：@item.CompletionNotes</div> }@if (item.Status == MomServiceWorkOrderStatus.Cancelled && !string.IsNullOrWhiteSpace(item.CancellationReason)) { <div class="customer-note">@L.Text("取消原因")：@item.CancellationReason</div> }<div class="customer-note">@L.Text("历史")：@HistorySummary(item.Id)</div></div><div class="task-card__actions">@if (item.Status is MomServiceWorkOrderStatus.Scheduled && Admin.AuthButton("Mom/ServiceWorkOrder/Start")) { <button title='@L.Text("开始工单")' @onclick="() => Start(item)"><i class="fa fa-play"></i></button> }@if (item.Status is MomServiceWorkOrderStatus.InProgress && Admin.AuthButton("Mom/ServiceWorkOrder/Complete")) { <button title='@L.Text("完成工单")' @onclick="() => Select(item)"><i class="fa fa-check"></i></button> }@if (item.Status is (MomServiceWorkOrderStatus.Draft or MomServiceWorkOrderStatus.Scheduled or MomServiceWorkOrderStatus.InProgress) && Admin.AuthButton("Mom/ServiceWorkOrder/Cancel")) { <button class="danger" title='@L.Text("取消工单")' @onclick="() => Select(item)"><i class="fa fa-ban"></i></button> }</div></article>
+            }
+        }
+    </section>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "equipmentId")]
+    public Guid? EquipmentIdQuery { get; set; }
+
+    protected override async Task OnInitializedAsync() { L.Changed += OnLanguageChanged; await Admin.InitAsync(); if (EquipmentIdQuery is Guid equipmentId) EquipmentIdText = equipmentId.ToString(); }
+    private string EquipmentIdText = string.Empty, WorkOrderNo = string.Empty, AssignedTo = string.Empty, PlannedLocation = string.Empty, Description = string.Empty, RepairEquipmentIdText = string.Empty, RepairWorkOrderNo = string.Empty, RepairAssignedTo = string.Empty, RepairLocation = string.Empty, RepairDescription = string.Empty, CompletionNotes = string.Empty, CancellationReason = string.Empty;
+    private string PartProductIdText = string.Empty, PartWarehouseIdText = string.Empty, PartLocationIdText = string.Empty, PartQuantityText = "1", PartSourceNo = string.Empty, PartBatchNo = string.Empty, PartSerialNo = string.Empty, PartNotes = string.Empty;
+    private DateTime ScheduledDate = DateTime.Today, RepairScheduledDate = DateTime.Today, CompletionDate = DateTime.Today, PartConsumedDate = DateTime.Today;
+    private DateTime? PartExpiryDate;
+    private string? Error, RepairError, ActionError, PartsError;
+    private MomServiceWorkOrder? SelectedWorkOrder;
+    private string Actor => Admin.User?.Username?.Trim() ?? string.Empty;
+
+    private IReadOnlyList<MomServiceEquipment> EquipmentOptions() => EquipmentService.List(status: MomServiceEquipmentStatus.PendingInstallation)
+        .Where(x => WorkOrderService.List(x.Id).All(item => item.Status is not (MomServiceWorkOrderStatus.Draft or MomServiceWorkOrderStatus.Scheduled or MomServiceWorkOrderStatus.InProgress))).ToArray();
+
+    private IReadOnlyList<MomServiceEquipment> RepairEquipmentOptions() => EquipmentService.List(status: MomServiceEquipmentStatus.Active)
+        .Where(x => WorkOrderService.List(x.Id).All(item => item.Status is not (MomServiceWorkOrderStatus.Draft or MomServiceWorkOrderStatus.Scheduled or MomServiceWorkOrderStatus.InProgress))).ToArray();
+
+    private IReadOnlyList<Product> PartProducts() => ProductService.List(status: ProductStatus.Active);
+    private IReadOnlyList<Warehouse> PartWarehouses() => WarehouseService.List(status: WarehouseStatus.Active);
+    private IReadOnlyList<WarehouseLocation> PartLocations()
+        => Guid.TryParse(PartWarehouseIdText, out var warehouseId) ? PartWarehouses().FirstOrDefault(x => x.Id == warehouseId)?.Locations ?? [] : [];
+
+    private void Create()
+    {
+        try
+        {
+            if (!Guid.TryParse(EquipmentIdText, out var equipmentId)) throw new InvalidOperationException(L.Text("请选择客户设备"));
+            var number = string.IsNullOrWhiteSpace(WorkOrderNo) ? $"MOM-SVC-{Guid.CreateVersion7():N}" : WorkOrderNo;
+            SelectedWorkOrder = WorkOrderService.CreateInstallation(equipmentId, number, DateOnly.FromDateTime(ScheduledDate), AssignedTo, PlannedLocation, Description, Actor);
+            Reset(); Error = null; ActionError = null;
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+
+    private void CreateRepair()
+    {
+        try
+        {
+            if (!Guid.TryParse(RepairEquipmentIdText, out var equipmentId)) throw new InvalidOperationException(L.Text("请选择客户设备"));
+            var number = string.IsNullOrWhiteSpace(RepairWorkOrderNo) ? $"MOM-SVC-{Guid.CreateVersion7():N}" : RepairWorkOrderNo;
+            SelectedWorkOrder = WorkOrderService.CreateRepair(equipmentId, number, DateOnly.FromDateTime(RepairScheduledDate), RepairAssignedTo, RepairLocation, RepairDescription, Actor);
+            ResetRepair(); RepairError = null; ActionError = null;
+        }
+        catch (Exception ex) { RepairError = L.Text(ex.Message); }
+    }
+
+    private void Start(MomServiceWorkOrder item)
+    {
+        try { WorkOrderService.Start(item.Id, Actor); SelectedWorkOrder = WorkOrderService.Get(item.Id); Error = null; ActionError = null; }
+        catch (Exception ex) { ActionError = L.Text(ex.Message); }
+    }
+
+    private void Complete()
+    {
+        try { if (SelectedWorkOrder is null) return; var id = SelectedWorkOrder.Id; if (SelectedWorkOrder.Type == MomServiceWorkOrderType.Installation) WorkOrderService.CompleteInstallation(id, Actor, DateOnly.FromDateTime(CompletionDate), CompletionNotes); else WorkOrderService.CompleteRepair(id, Actor, CompletionNotes); SelectedWorkOrder = WorkOrderService.Get(id); ActionError = null; }
+        catch (Exception ex) { ActionError = L.Text(ex.Message); }
+    }
+
+    private void Cancel()
+    {
+        try { if (SelectedWorkOrder is null) return; var id = SelectedWorkOrder.Id; WorkOrderService.Cancel(id, Actor, CancellationReason); SelectedWorkOrder = WorkOrderService.Get(id); ActionError = null; }
+        catch (Exception ex) { ActionError = L.Text(ex.Message); }
+    }
+
+    private void ConsumePart()
+    {
+        try
+        {
+            if (SelectedWorkOrder is null) return;
+            if (!Guid.TryParse(PartProductIdText, out var productId)) throw new InvalidOperationException(L.Text("请选择启用备件商品"));
+            if (!Guid.TryParse(PartWarehouseIdText, out var warehouseId)) throw new InvalidOperationException(L.Text("请选择启用仓库"));
+            if (!decimal.TryParse(PartQuantityText, out var quantity)) throw new InvalidOperationException(L.Text("备件消耗数量格式不正确"));
+            var sourceNo = string.IsNullOrWhiteSpace(PartSourceNo) ? $"MOM-REP-{Guid.CreateVersion7():N}" : PartSourceNo;
+            PartConsumptionService.Create(SelectedWorkOrder.Id, productId, warehouseId, ParseOptionalGuid(PartLocationIdText), quantity,
+                sourceNo, DateOnly.FromDateTime(PartConsumedDate), Actor, PartBatchNo, PartExpiryDate is DateTime expiry ? DateOnly.FromDateTime(expiry) : null,
+                PartSerialNo, PartNotes);
+            ResetPart(); PartsError = null; ActionError = null;
+        }
+        catch (Exception ex) { PartsError = L.Text(ex.Message); }
+    }
+
+    private void Select(MomServiceWorkOrder item) { SelectedWorkOrder = item; ActionError = null; PartsError = null; CompletionNotes = string.Empty; CancellationReason = string.Empty; CompletionDate = DateTime.Today; ResetPart(); }
+    private string EquipmentLabel(MomServiceEquipment item) => $"{item.EquipmentNo} · {ProductLabel(item.ProductId)} · {item.SerialNo}";
+    private string ProductLabel(Guid id) => ProductService.List().FirstOrDefault(x => x.Id == id) is { } item ? $"{item.Code} · {item.Name}" : id.ToString();
+    private string WarehouseLabel(Guid warehouseId, Guid? locationId) { var warehouse = WarehouseService.List().FirstOrDefault(x => x.Id == warehouseId); if (warehouse is null) return warehouseId.ToString(); if (locationId is Guid id && warehouse.Locations.FirstOrDefault(x => x.Id == id) is { } location) return $"{warehouse.Code} · {location.Code}"; return $"{warehouse.Code} · {warehouse.Name}"; }
+    private static Guid? ParseOptionalGuid(string value) => Guid.TryParse(value, out var id) ? id : null;
+    private string TypeLabel(MomServiceWorkOrderType value) => L.Text(value == MomServiceWorkOrderType.Repair ? "维修" : "安装");
+    private string StatusLabel(MomServiceWorkOrderStatus value) => L.Text(value switch { MomServiceWorkOrderStatus.Draft => "草稿", MomServiceWorkOrderStatus.Scheduled => "已安排", MomServiceWorkOrderStatus.InProgress => "进行中", MomServiceWorkOrderStatus.Completed => "已完成", MomServiceWorkOrderStatus.Cancelled => "已取消", _ => value.ToString() });
+    private string HistorySummary(Guid id) => string.Join("；", WorkOrderService.ListHistory(id).Take(3).Select(x => $"{HistoryActionLabel(x.Action)} {x.OccurredOn:MM-dd HH:mm}"));
+    private string HistoryActionLabel(MomServiceWorkOrderHistoryAction value) => L.Text(value switch { MomServiceWorkOrderHistoryAction.Created => "创建", MomServiceWorkOrderHistoryAction.Scheduled => "安排", MomServiceWorkOrderHistoryAction.Started => "开始", MomServiceWorkOrderHistoryAction.Completed => "完成", MomServiceWorkOrderHistoryAction.Cancelled => "取消", _ => value.ToString() });
+    private void Reset() { EquipmentIdText = string.Empty; WorkOrderNo = $"MOM-SVC-{Guid.CreateVersion7():N}"; AssignedTo = Actor; PlannedLocation = string.Empty; Description = string.Empty; ScheduledDate = DateTime.Today; }
+    private void ResetRepair() { RepairEquipmentIdText = string.Empty; RepairWorkOrderNo = $"MOM-SVC-{Guid.CreateVersion7():N}"; RepairAssignedTo = Actor; RepairLocation = string.Empty; RepairDescription = string.Empty; RepairScheduledDate = DateTime.Today; }
+    private void ResetPart() { PartProductIdText = string.Empty; PartWarehouseIdText = string.Empty; PartLocationIdText = string.Empty; PartQuantityText = "1"; PartSourceNo = $"MOM-REP-{Guid.CreateVersion7():N}"; PartBatchNo = string.Empty; PartSerialNo = string.Empty; PartNotes = string.Empty; PartConsumedDate = DateTime.Today; PartExpiryDate = null; }
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => L.Changed -= OnLanguageChanged;
+}

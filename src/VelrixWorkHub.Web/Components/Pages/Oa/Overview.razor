@@ -5,50 +5,51 @@
 @inject VelrixWorkHub.Application.Announcements.AnnouncementService AnnouncementService
 @inject VelrixWorkHub.Application.Schedules.WorkScheduleService ScheduleService
 @inject VelrixWorkHub.Application.Notifications.NotificationService NotificationService
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
 @using VelrixWorkHub.Application.Announcements
 @using VelrixWorkHub.Application.Schedules
 @using VelrixWorkHub.Application.Tasks
 @using VelrixWorkHub.Domain
 
-<PageTitle>OA 工作台 - Velrix Work Hub</PageTitle>
+<PageTitle>@L.Text("OA 工作台") - Velrix Work Hub</PageTitle>
 
 <div class="task-page">
     <div class="task-page__header">
         <div>
-            <p class="eyebrow">协同办公 · Oa/Overview</p>
-            <h1>OA 工作台</h1>
-            <p class="task-page__intro">把个人待办、近期日程、通知和组织公告放在同一个工作入口。</p>
+            <p class="eyebrow">@L.Text("协同办公 · Oa/Overview")</p>
+            <h1>@L.Text("OA 工作台")</h1>
+            <p class="task-page__intro">@L.Text("把个人待办、近期日程、通知和组织公告放在同一个工作入口。")</p>
         </div>
-        <div class="task-page__summary"><strong>@UnreadNotificationCount</strong><span>条未读通知</span></div>
+        <div class="task-page__summary"><strong>@UnreadNotificationCount</strong><span>@L.Text("条未读通知")</span></div>
     </div>
 
     @if (LoadError is not null)
     {
-        <div class="alert alert-warning mt-3" role="alert">@LoadError</div>
+        <div class="alert alert-warning mt-3" role="alert">@L.Text(LoadError)</div>
     }
 
-    <section class="module-overview-grid" aria-label="协同办公摘要">
-        <a class="module-overview-stat" href="Oa/Task"><span>待处理任务</span><strong>@OpenTasks.Count</strong><small>进入我的任务</small></a>
-        <a class="module-overview-stat" href="Oa/Task"><span>已逾期任务</span><strong>@OverdueTasks.Count</strong><small>优先安排处理</small></a>
-        <a class="module-overview-stat" href="Oa/Schedule"><span>未来七日日程</span><strong>@UpcomingWeekSchedules.Count</strong><small>查看时间安排</small></a>
-        <a class="module-overview-stat" href="Oa/Announcement"><span>已发布公告</span><strong>@PublishedAnnouncements.Count</strong><small>查看组织信息</small></a>
+    <section class="module-overview-grid" aria-label="@L.Text("协同办公摘要")">
+        <a class="module-overview-stat" href="Oa/Task"><span>@L.Text("待处理任务")</span><strong>@OpenTasks.Count</strong><small>@L.Text("进入我的任务")</small></a>
+        <a class="module-overview-stat" href="Oa/Task"><span>@L.Text("已逾期任务")</span><strong>@OverdueTasks.Count</strong><small>@L.Text("优先安排处理")</small></a>
+        <a class="module-overview-stat" href="Oa/Schedule"><span>@L.Text("未来七日日程")</span><strong>@UpcomingWeekSchedules.Count</strong><small>@L.Text("查看时间安排")</small></a>
+        <a class="module-overview-stat" href="Oa/Announcement"><span>@L.Text("已发布公告")</span><strong>@PublishedAnnouncements.Count</strong><small>@L.Text("查看组织信息")</small></a>
     </section>
 
-    <section class="module-overview-grid module-overview-grid--details" aria-label="协同办公工作区">
+    <section class="module-overview-grid module-overview-grid--details" aria-label="@L.Text("协同办公工作区")">
         <article class="module-overview-panel">
-            <div class="module-overview-panel__header"><div><p class="eyebrow">下一步</p><h2>优先任务</h2></div><a href="Oa/Task">全部任务</a></div>
-            @if (!OpenTasks.Any()) { <p class="workhub-empty-line">暂时没有待处理任务。</p> }
+            <div class="module-overview-panel__header"><div><p class="eyebrow">@L.Text("下一步")</p><h2>@L.Text("优先任务")</h2></div><a href="Oa/Task">@L.Text("全部任务")</a></div>
+            @if (!OpenTasks.Any()) { <p class="workhub-empty-line">@L.Text("暂时没有待处理任务。")</p> }
             else { <ul class="workhub-list">@foreach (var task in OpenTasks.OrderBy(x => x.DueDate ?? DateOnly.MaxValue).Take(5)) { <li><span class="workhub-list__marker"></span><div><strong>@task.Title</strong><small>@TaskDueLabel(task)</small></div></li> }</ul> }
         </article>
         <article class="module-overview-panel">
-            <div class="module-overview-panel__header"><div><p class="eyebrow">时间安排</p><h2>未来七日</h2></div><a href="Oa/Schedule">全部日程</a></div>
-            @if (!UpcomingWeekSchedules.Any()) { <p class="workhub-empty-line">未来七日没有安排。</p> }
-            else { <ul class="workhub-list workhub-list--schedule">@foreach (var schedule in UpcomingWeekSchedules.Take(5)) { <li><time><strong>@schedule.StartTime.ToString("dd")</strong><small>@schedule.StartTime.ToString("MM月")</small></time><div><strong>@schedule.Title</strong><small>@schedule.StartTime.ToString("HH:mm") · @(schedule.Location ?? "未设置地点")</small></div></li> }</ul> }
+            <div class="module-overview-panel__header"><div><p class="eyebrow">@L.Text("时间安排")</p><h2>@L.Text("未来七日")</h2></div><a href="Oa/Schedule">@L.Text("全部日程")</a></div>
+            @if (!UpcomingWeekSchedules.Any()) { <p class="workhub-empty-line">@L.Text("未来七日没有安排。")</p> }
+            else { <ul class="workhub-list workhub-list--schedule">@foreach (var schedule in UpcomingWeekSchedules.Take(5)) { <li><time><strong>@schedule.StartTime.ToString("dd")</strong><small>@ScheduleMonthLabel(schedule.StartTime)</small></time><div><strong>@schedule.Title</strong><small>@schedule.StartTime.ToString("HH:mm") · @(schedule.Location ?? L.Text("未设置地点"))</small></div></li> }</ul> }
         </article>
         <article class="module-overview-panel">
-            <div class="module-overview-panel__header"><div><p class="eyebrow">组织信息</p><h2>最新公告</h2></div><a href="Oa/Announcement">全部公告</a></div>
-            @if (!PublishedAnnouncements.Any()) { <p class="workhub-empty-line">暂时没有已发布公告。</p> }
-            else { <ul class="workhub-list">@foreach (var announcement in PublishedAnnouncements.Take(5)) { <li><span class="workhub-list__marker"></span><div><strong>@announcement.Title</strong><small>@announcement.PublishedTime?.ToString("MM月dd日 HH:mm")</small></div></li> }</ul> }
+            <div class="module-overview-panel__header"><div><p class="eyebrow">@L.Text("组织信息")</p><h2>@L.Text("最新公告")</h2></div><a href="Oa/Announcement">@L.Text("全部公告")</a></div>
+            @if (!PublishedAnnouncements.Any()) { <p class="workhub-empty-line">@L.Text("暂时没有已发布公告。")</p> }
+            else { <ul class="workhub-list">@foreach (var announcement in PublishedAnnouncements.Take(5)) { <li><span class="workhub-list__marker"></span><div><strong>@announcement.Title</strong><small>@AnnouncementDateLabel(announcement.PublishedTime)</small></div></li> }</ul> }
         </article>
     </section>
 </div>
@@ -85,10 +86,14 @@
         }
     }
 
-    private static string TaskDueLabel(WorkTask task) => task.DueDate switch
+    private string TaskDueLabel(WorkTask task) => task.DueDate switch
     {
-        null => "暂无截止日期",
-        var due when due < DateOnly.FromDateTime(DateTime.Today) => $"已逾期 {due:MM月dd日}",
-        var due => $"截止 {due:MM月dd日}"
+        null => L.Text("暂无截止日期"),
+        var due when due < DateOnly.FromDateTime(DateTime.Today) => $"{L.Text("已逾期")} {DateLabel(due.Value)}",
+        var due => $"{L.Text("截止")} {DateLabel(due.Value)}"
     };
+
+    private string DateLabel(DateOnly date) => L.IsEnglish ? date.ToString("MMM dd") : date.ToString("MM月dd日");
+    private string ScheduleMonthLabel(DateTime date) => L.IsEnglish ? date.ToString("MMM") : date.ToString("MM月");
+    private string AnnouncementDateLabel(DateTime? date) => date is null ? string.Empty : L.IsEnglish ? date.Value.ToString("MMM dd HH:mm") : date.Value.ToString("MM月dd日 HH:mm");
 }

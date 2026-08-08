@@ -1,0 +1,50 @@
+@page "/Mom/ServiceEquipment/Label"
+@implements IDisposable
+@inject AdminBlazor.IAdminContext Admin
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
+@inject VelrixWorkHub.Application.Mom.MomServiceEquipmentService EquipmentService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@inject VelrixWorkHub.Application.Customers.CustomerService CustomerService
+@inject VelrixWorkHub.Application.SalesOrders.SalesOrderService SalesOrderService
+@inject VelrixWorkHub.Application.PmsProjects.PmsProjectService ProjectService
+@inject IJSRuntime Js
+@using Microsoft.AspNetCore.Components
+@using VelrixWorkHub.Domain
+
+<PageTitle>@L.Text("设备标签") - Velrix Work Hub</PageTitle>
+<div class="equipment-label-page">
+    <div class="equipment-label-toolbar no-print"><a class="task-secondary-button" href="/Mom/ServiceEquipment">@L.Text("返回售后设备档案")</a>@if (Equipment is not null && Admin.AuthButton("Mom/ServiceEquipment/PrintLabel")) { <button class="task-primary-button" @onclick="Print">@L.Text("打印标签")</button> }</div>
+    @if (Equipment is null)
+    {
+        <section class="task-empty"><i class="fa fa-tag"></i><strong>@L.Text("设备档案不存在。")</strong></section>
+    }
+    else
+    {
+        <article class="equipment-label-sheet" aria-label='@L.Text("设备标签")'>
+            <header class="equipment-label-sheet__header"><div><p class="eyebrow">@L.Text("客户设备")</p><h1>@L.Text("设备标签")</h1></div><span class="equipment-label-sheet__status">@StatusLabel(Equipment.Status)</span></header>
+            <div class="equipment-label-sheet__identity"><span>@L.Text("设备档案编号")</span><strong>@Equipment.EquipmentNo</strong><span>@L.Text("设备序列号")</span><strong class="equipment-label-sheet__serial">@Equipment.SerialNo</strong></div>
+            <dl class="equipment-label-sheet__facts"><dt>@L.Text("商品")</dt><dd>@ProductLabel(Equipment.ProductId)</dd><dt>@L.Text("设备型号")</dt><dd>@(Equipment.Model ?? L.Text("未填写"))</dd><dt>@L.Text("客户")</dt><dd>@CustomerLabel(Equipment.CustomerId)</dd><dt>@L.Text("销售订单")</dt><dd>@SalesOrderLabel(Equipment.SalesOrderId)</dd><dt>@L.Text("发运来源")</dt><dd>@Equipment.ShipmentSourceNo</dd><dt>@L.Text("安装信息")</dt><dd>@(Equipment.InstallationLocation ?? L.Text("待安装"))</dd><dt>@L.Text("保修期")</dt><dd>@WarrantyLabel(Equipment)</dd>@if (Equipment.PmsProjectId is Guid projectId) { <dt>@L.Text("关联 PMS 项目")</dt><dd>@ProjectLabel(projectId)</dd> }</dl>
+            <footer class="equipment-label-sheet__footer">@L.Text("标签说明") · @DateTime.Now.ToString("yyyy-MM-dd")</footer>
+        </article>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "equipmentId")] public Guid? EquipmentId { get; set; }
+    private MomServiceEquipment? Equipment;
+    protected override async Task OnInitializedAsync()
+    {
+        L.Changed += OnLanguageChanged;
+        await Admin.InitAsync();
+        Equipment = EquipmentId is Guid id ? EquipmentService.List().FirstOrDefault(x => x.Id == id) : null;
+    }
+    private async Task Print() { await Js.InvokeVoidAsync("workHubPrint"); }
+    private string ProductLabel(Guid id) => ProductService.List().FirstOrDefault(x => x.Id == id) is { } product ? $"{product.Code} · {product.Name}" : id.ToString();
+    private string CustomerLabel(Guid id) => CustomerService.List().FirstOrDefault(x => x.Id == id)?.Name ?? id.ToString();
+    private string SalesOrderLabel(Guid id) => SalesOrderService.List().FirstOrDefault(x => x.Id == id)?.OrderNo ?? id.ToString();
+    private string ProjectLabel(Guid id) => ProjectService.List().FirstOrDefault(x => x.Id == id) is { } project ? $"{project.Code} · {project.Name}" : id.ToString();
+    private string StatusLabel(MomServiceEquipmentStatus status) => L.Text(status switch { MomServiceEquipmentStatus.PendingInstallation => "待安装", MomServiceEquipmentStatus.Active => "在用", MomServiceEquipmentStatus.Retired => "已报废", _ => status.ToString() });
+    private string WarrantyLabel(MomServiceEquipment item) => $"{item.WarrantyStartDate?.ToString("yyyy-MM-dd") ?? "-"} ~ {item.WarrantyEndDate?.ToString("yyyy-MM-dd") ?? "-"}";
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => L.Changed -= OnLanguageChanged;
+}

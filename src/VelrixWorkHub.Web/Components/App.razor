@@ -14,6 +14,14 @@
 <body>
     <Routes @rendermode="new InteractiveServerRenderMode(prerender: false)" />
     <ReconnectModal />
+    <script>
+        window.workHubSetLanguage = function (language) {
+            document.documentElement.lang = language === 'en-US' ? 'en-US' : 'zh-CN';
+        };
+        window.workHubPrint = function () {
+            window.print();
+        };
+    </script>
     <script src="_content/BootstrapBlazor/js/bootstrap.blazor.bundle.min.js"></script>
     <script src="auth.js?v=20260718-profile-api"></script>
     <script src="other-info-ui.js?v=20260726-pms"></script>

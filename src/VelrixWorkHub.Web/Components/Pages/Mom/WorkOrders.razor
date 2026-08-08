@@ -1,0 +1,138 @@
+@page "/Mom/WorkOrder"
+@implements IDisposable
+@inject AdminBlazor.IAdminContext Admin
+@inject VelrixWorkHub.Web.Localization.UiLocalizationService L
+@inject VelrixWorkHub.Application.Mom.MomWorkOrderService WorkOrderService
+@inject VelrixWorkHub.Application.Mom.MomWorkCenterService WorkCenterService
+@inject VelrixWorkHub.Application.Mom.MomFactoryService FactoryService
+@inject VelrixWorkHub.Application.Products.ProductService ProductService
+@inject VelrixWorkHub.Application.SalesOrders.SalesOrderService SalesOrderService
+@inject VelrixWorkHub.Application.PmsProjects.PmsProjectService ProjectService
+@inject VelrixWorkHub.Application.Mom.MomFinishedGoodsReceiptService FinishedGoodsReceiptService
+@inject VelrixWorkHub.Application.Warehouses.WarehouseService WarehouseService
+@using VelrixWorkHub.Domain
+
+<PageTitle>@L.Text("生产工单") - Velrix Work Hub</PageTitle>
+<div class="customer-page">
+    <div class="task-page__header"><div><p class="eyebrow">@L.Text("MOM 制造运营 · Mom/WorkOrder")</p><h1>@L.Text("生产工单")</h1><p class="task-page__intro">@L.Text("把销售订单、PMS 项目或计划需求落成可执行的制造根单，为后续 MRP、领料、工序报工、质量和完工入库保留稳定追溯入口。")</p></div></div>
+    <section class="task-toolbar customer-toolbar"><div class="customer-search"><i class="fa fa-search"></i><input aria-label="@L.Text("搜索生产工单")" @bind="Keyword" @bind:event="oninput" placeholder="@L.Text("搜索工单号或来源单号")" /></div><select aria-label="@L.Text("状态")" @bind="StatusFilterText"><option value="">@L.Text("全部状态")</option>@foreach (var status in Enum.GetValues<MomWorkOrderStatus>()) { <option value="@status">@StatusLabel(status)</option> }</select>@if (Admin.AuthButton("Mom/WorkOrder/Create")) { <button class="task-primary-button" @onclick="OpenComposer"><i class="fa fa-plus"></i> @L.Text("新建生产工单")</button> }</section>
+    @if (ShowComposer)
+    {
+        <section class="task-composer" aria-label="@L.Text("新建生产工单")"><div class="task-composer__title">@L.Text("新建生产工单 · MOM-01 工单主数据")</div><div class="task-composer__fields"><label>@L.Text("工单号")<input aria-label="@L.Text("工单号")" @bind="WorkOrderNo" @bind:event="oninput" placeholder="MO-20260807-002" /></label><label>@L.Text("制造商品")<select aria-label="@L.Text("制造商品")" @bind="ProductIdText"><option value="">@L.Text("请选择启用商品")</option>@foreach (var product in ProductService.List(status: ProductStatus.Active)) { <option value="@product.Id">@product.Code · @product.Name</option> }</select></label></div><div class="task-composer__fields"><label>@L.Text("绑定工作中心")<select aria-label="@L.Text("绑定工作中心")" @bind="WorkCenterIdText"><option value="">@L.Text("请选择启用工作中心")</option>@foreach (var center in WorkCenterService.List(status: MomMasterDataStatus.Active)) { var factory = FactoryService.List().FirstOrDefault(x => x.Id == center.FactoryId); <option value="@center.Id">@(factory?.Code ?? "-") · @center.Code · @center.Name</option> }</select></label><label>@L.Text("来源类型")<select aria-label="@L.Text("来源类型")" @bind="SourceKindText"><option value="Manual">@L.Text("手工录入")</option><option value="SalesOrder">@L.Text("销售订单")</option><option value="PmsProject">@L.Text("PMS 项目")</option><option value="Planning">@L.Text("计划需求")</option></select></label></div><div class="task-composer__fields">@if (SourceKind == MomWorkOrderSourceKind.SalesOrder) { <label>@L.Text("销售订单来源")<select aria-label="@L.Text("销售订单来源")" @bind="SalesOrderIdText"><option value="">@L.Text("请选择销售订单")</option>@foreach (var order in SalesOrderService.List().Where(x => x.Status != SalesOrderStatus.Cancelled)) { <option value="@order.Id">@order.OrderNo · @order.Quantity.ToString("N2")</option> }</select></label> } else if (SourceKind == MomWorkOrderSourceKind.PmsProject) { <label>@L.Text("PMS 项目来源")<select aria-label="@L.Text("PMS 项目来源")" @bind="PmsProjectIdText"><option value="">@L.Text("请选择项目")</option>@foreach (var project in ProjectService.List().Where(x => x.Status != PmsProjectStatus.Cancelled)) { <option value="@project.Id">@project.Code · @project.Name</option> }</select></label> } else { <label>@L.Text("来源单号")<input aria-label="@L.Text("来源单号")" @bind="SourceDocumentNo" placeholder="@L.Text("计划或其他来源单号")" /></label> }</div><div class="task-composer__fields"><label>@L.Text("计划开始")<input aria-label="@L.Text("计划开始")" type="date" @bind="PlannedStart" /></label><label>@L.Text("计划结束")<input aria-label="@L.Text("计划结束")" type="date" @bind="PlannedEnd" /></label></div><div class="task-composer__fields"><label>@L.Text("计划数量")<input aria-label="@L.Text("计划数量")" type="number" step="0.0001" min="0.0001" @bind="PlannedQuantityText" @bind:event="oninput" /></label></div>@if (Error is not null) { <div class="task-error" role="alert">@Error</div> }<div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseComposer">@L.Text("取消")</button><button class="task-primary-button" @onclick="Save">@L.Text("保存工单")</button></div></section>
+    }
+    @if (CompletionEditing is not null)
+    {
+        <section class="task-composer" aria-label="@L.Text("登记工单完工")"><div class="task-composer__title">@L.Text("登记完工数量") · @CompletionEditing.WorkOrderNo</div><div class="task-composer__fields"><label>@L.Text("计划数量")<input value="@CompletionEditing.PlannedQuantity.ToString("N4")" readonly /></label><label>@L.Text("已完工")<input aria-label="@L.Text("已完工")" type="number" step="0.0001" min="0" @bind="CompletedQuantityText" @bind:event="oninput" /></label></div>@if (Error is not null) { <div class="task-error" role="alert">@Error</div> }<div class="task-composer__actions"><button class="task-secondary-button" @onclick="CloseCompletion">@L.Text("取消")</button><button class="task-primary-button" @onclick="SaveCompletion">@L.Text("确认完工")</button></div></section>
+    }
+    <section class="task-composer" aria-label='@L.Text("完工入库")'>
+        <div class="task-composer__title">@L.Text("完工入库")</div>
+        <p class="customer-note">@L.Text("完工入库只允许已完工工单，数量不能超过尚未入库的完工数量；库存流水和 MOM 入库记录在同一事务内保存。")</p>
+        <div class="task-composer__fields">
+            <label>@L.Text("已完工工单")<select aria-label='@L.Text("已完工工单")' @bind="ReceiptWorkOrderIdText"><option value="">@L.Text("请选择已完工工单")</option>@foreach (var order in CompletedWorkOrders()) { <option value="@order.Id">@order.WorkOrderNo · @L.Text("待入库") @FinishedGoodsRemaining(order).ToString("N4")</option> }</select></label>
+            <label>@L.Text("入库仓库")<select aria-label='@L.Text("入库仓库")' @bind="ReceiptWarehouseIdText"><option value="">@L.Text("请选择仓库")</option>@foreach (var warehouse in ActiveWarehouses()) { <option value="@warehouse.Id">@warehouse.Code · @warehouse.Name</option> }</select></label>
+        </div>
+        <div class="task-composer__fields">
+            <label>@L.Text("入库库位")<select aria-label='@L.Text("入库库位")' @bind="ReceiptLocationIdText"><option value="">@L.Text("不指定库位")</option>@foreach (var location in ReceiptLocations()) { <option value="@location.Id">@location.Code · @location.Name</option> }</select></label>
+            <label>@L.Text("入库数量")<input aria-label='@L.Text("入库数量")' type="number" min="0.000001" step="0.000001" @bind="ReceiptQuantityText" @bind:event="oninput" /></label>
+        </div>
+        <div class="task-composer__fields">
+            <label>@L.Text("来源单号")<input aria-label='@L.Text("来源单号")' @bind="ReceiptSourceNo" @bind:event="oninput" placeholder="MOM-FGR-20260807-001" /></label>
+            <label>@L.Text("入库日期")<input aria-label='@L.Text("入库日期")' type="date" @bind="ReceiptDate" /></label>
+        </div>
+        <div class="task-composer__fields">
+            <label>@L.Text("批次号")<input aria-label='@L.Text("批次号")' @bind="ReceiptBatchNo" @bind:event="oninput" /></label>
+            <label>@L.Text("保质期")<input aria-label='@L.Text("保质期")' type="date" @bind="ReceiptExpiryDate" /></label>
+        </div>
+        <div class="task-composer__fields"><label class="task-composer__field--full">@L.Text("序列号")<input aria-label='@L.Text("序列号")' @bind="ReceiptSerialNo" @bind:event="oninput" /></label></div>
+        @if (Error is not null) { <div class="task-error" role="alert">@Error</div> }
+        <div class="task-composer__actions">@if (Admin.AuthButton("Mom/WorkOrder/FinishedGoodsReceipt")) { <button class="task-primary-button" @onclick="SaveFinishedGoodsReceipt">@L.Text("保存完工入库")</button> }</div>
+    </section>
+    <section class="task-list" aria-label='@L.Text("完工入库记录")'>
+        <div class="task-composer__title">@L.Text("完工入库记录")</div>
+        @if (FinishedGoodsReceipts().Count == 0)
+        {
+            <div class="customer-note">@L.Text("暂无完工入库记录")</div>
+        }
+        else
+        {
+            @foreach (var receipt in FinishedGoodsReceipts())
+            {
+                <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-sign-in"></i></div><div class="task-card__body"><div class="task-card__meta"><span>@receipt.SourceNo</span><span>@receipt.ReceiptDate.ToString("yyyy-MM-dd")</span><span>@L.Text("已入库")</span></div><h2>@WorkOrderLabel(receipt.WorkOrderId)</h2><p>@L.Text("数量")：@receipt.Quantity.ToString("N4") · @L.Text("仓库")：@WarehouseLabel(receipt.WarehouseId) · @L.Text("库位")：@LocationLabel(receipt.WarehouseId, receipt.LocationId)</p><div class="customer-note">@L.Text("批次号")：@(receipt.BatchNo ?? L.Text("未填写")) · @L.Text("序列号")：@(receipt.SerialNo ?? L.Text("未填写"))</div></div></article>
+            }
+        }
+    </section>
+    <section class="task-list" aria-live="polite">
+        @foreach (var item in FilteredWorkOrders())
+        {
+            var product = ProductService.List().FirstOrDefault(x => x.Id == item.ProductId);
+            var center = item.WorkCenterId is Guid workCenterId ? WorkCenterService.List().FirstOrDefault(x => x.Id == workCenterId) : null;
+            var factory = center is null ? null : FactoryService.List().FirstOrDefault(x => x.Id == center.FactoryId);
+            <article class="task-card customer-card"><div class="customer-avatar"><i class="fa fa-industry"></i></div><div class="task-card__body"><div class="task-card__meta"><span class="task-status customer-status--@item.Status.ToString().ToLowerInvariant()">@StatusLabel(item.Status)</span><span>@item.WorkOrderNo</span><span>@SourceLabel(item.SourceKind)</span></div><h2>@(product?.Name ?? item.ProductId.ToString())</h2><p>@(product?.Code ?? item.ProductId.ToString()) · @L.Text("计划数量") @item.PlannedQuantity.ToString("N4") · @L.Text("已完工") @item.CompletedQuantity.ToString("N4") · @L.Text("已入库") @FinishedGoodsReceived(item).ToString("N4") · @L.Text("待入库") @FinishedGoodsRemaining(item).ToString("N4")</p><div class="customer-note">@L.Text("绑定工作中心")：@(factory?.Code ?? "-") · @(center?.Code ?? L.Text("未绑定")) · @(center?.Name ?? L.Text("未绑定")) · @L.Text("计划窗口")：@item.PlannedStart.ToString("yyyy-MM-dd") 至 @item.PlannedEnd.ToString("yyyy-MM-dd")@if (!string.IsNullOrWhiteSpace(item.SourceDocumentNo)) { <span> · @L.Text("来源") @item.SourceDocumentNo</span> }@if (item.SalesOrderId is Guid salesOrderId) { <span> · <a href="/Erp/SalesOrder?orderId=@salesOrderId">@L.Text("查看销售订单")</a></span> }@if (item.PmsProjectId is Guid projectId) { <span> · <a href="/Pms/Project?projectId=@projectId">@L.Text("查看 PMS 项目")</a></span> }</div></div><div class="task-card__actions">@if (Admin.AuthButton("Mom/WorkOrder/Status") && CanAdvance(item)) { <button title="@L.Text("推进生产工单")" @onclick="() => Advance(item)"><i class="fa fa-forward"></i></button> }@if (Admin.AuthButton("Mom/WorkOrder/Complete") && item.Status == MomWorkOrderStatus.InProgress) { <button title="@L.Text("登记工单完工")" @onclick="() => OpenCompletion(item)"><i class="fa fa-check"></i></button> }@if (Admin.AuthButton("Mom/WorkOrder/Status") && CanCancel(item)) { <button class="danger" title="@L.Text("取消生产工单")" @onclick="() => Cancel(item)"><i class="fa fa-ban"></i></button> }</div></article>
+        }
+    </section>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync() { L.Changed += OnLanguageChanged; await Admin.InitAsync(); }
+    private string Keyword = string.Empty, StatusFilterText = string.Empty, WorkOrderNo = string.Empty, ProductIdText = string.Empty, WorkCenterIdText = string.Empty, SourceKindText = "Manual", SourceDocumentNo = string.Empty, SalesOrderIdText = string.Empty, PmsProjectIdText = string.Empty, PlannedQuantityText = "1", CompletedQuantityText = "0";
+    private string ReceiptWorkOrderIdText = string.Empty, ReceiptWarehouseIdText = string.Empty, ReceiptLocationIdText = string.Empty, ReceiptQuantityText = "1", ReceiptSourceNo = string.Empty, ReceiptBatchNo = string.Empty, ReceiptSerialNo = string.Empty;
+    private DateTime PlannedStart = DateTime.Today, PlannedEnd = DateTime.Today.AddDays(14);
+    private DateTime ReceiptDate = DateTime.Today; private DateTime? ReceiptExpiryDate;
+    private string? Error; private bool ShowComposer; private MomWorkOrder? CompletionEditing;
+    private MomWorkOrderSourceKind SourceKind => Enum.TryParse<MomWorkOrderSourceKind>(SourceKindText, out var value) ? value : MomWorkOrderSourceKind.Manual;
+    private MomWorkOrderStatus? StatusFilter => Enum.TryParse<MomWorkOrderStatus>(StatusFilterText, out var value) ? value : null;
+    private IEnumerable<MomWorkOrder> FilteredWorkOrders() => WorkOrderService.List(Keyword, StatusFilter);
+    private IReadOnlyList<MomWorkOrder> CompletedWorkOrders() => WorkOrderService.List(status: MomWorkOrderStatus.Completed).Where(x => FinishedGoodsRemaining(x) > 0).ToArray();
+    private IReadOnlyList<MomFinishedGoodsReceipt> FinishedGoodsReceipts() => FinishedGoodsReceiptService.List();
+    private IReadOnlyList<Warehouse> ActiveWarehouses() => WarehouseService.List(status: WarehouseStatus.Active);
+    private IReadOnlyList<WarehouseLocation> ReceiptLocations() => Guid.TryParse(ReceiptWarehouseIdText, out var warehouseId) ? ActiveWarehouses().FirstOrDefault(x => x.Id == warehouseId)?.Locations ?? [] : [];
+    private decimal FinishedGoodsReceived(MomWorkOrder item) => FinishedGoodsReceiptService.ReceivedQuantity(item.Id);
+    private decimal FinishedGoodsRemaining(MomWorkOrder item) => Math.Max(0, item.CompletedQuantity - FinishedGoodsReceived(item));
+    private string WorkOrderLabel(Guid id) => WorkOrderService.List().FirstOrDefault(x => x.Id == id)?.WorkOrderNo ?? id.ToString();
+    private string WarehouseLabel(Guid id) => ActiveWarehouses().FirstOrDefault(x => x.Id == id) is { } warehouse ? $"{warehouse.Code} · {warehouse.Name}" : id.ToString();
+    private string LocationLabel(Guid warehouseId, Guid? locationId) => locationId is not Guid selected ? L.Text("未指定库位") : ActiveWarehouses().FirstOrDefault(x => x.Id == warehouseId)?.Locations.FirstOrDefault(x => x.Id == selected) is { } location ? $"{location.Code} · {location.Name}" : selected.ToString();
+    private void OnLanguageChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OpenComposer() { Error = null; ShowComposer = true; CompletionEditing = null; }
+    private void CloseComposer() { ShowComposer = false; Error = null; }
+    private void Save()
+    {
+        try
+        {
+            if (!Guid.TryParse(ProductIdText, out var productId)) throw new InvalidOperationException(L.Text("请选择制造商品。"));
+            if (!Guid.TryParse(WorkCenterIdText, out var workCenterId)) throw new InvalidOperationException(L.Text("请选择工作中心。"));
+            if (!decimal.TryParse(PlannedQuantityText, out var quantity)) throw new InvalidOperationException(L.Text("计划数量格式不正确。"));
+            Guid? salesOrderId = Guid.TryParse(SalesOrderIdText, out var orderId) ? orderId : null;
+            Guid? pmsProjectId = Guid.TryParse(PmsProjectIdText, out var projectId) ? projectId : null;
+            var sourceDocumentNo = SourceKind == MomWorkOrderSourceKind.SalesOrder ? SalesOrderService.List().FirstOrDefault(x => x.Id == salesOrderId)?.OrderNo : SourceKind == MomWorkOrderSourceKind.PmsProject ? ProjectService.List().FirstOrDefault(x => x.Id == pmsProjectId)?.Code : SourceDocumentNo;
+            WorkOrderService.Create(WorkOrderNo, productId, DateOnly.FromDateTime(PlannedStart), DateOnly.FromDateTime(PlannedEnd), quantity, SourceKind, sourceDocumentNo, salesOrderId, pmsProjectId, workCenterId);
+            ResetComposer();
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void Advance(MomWorkOrder item) { try { WorkOrderService.SetStatus(item, item.Status switch { MomWorkOrderStatus.Draft => MomWorkOrderStatus.Planned, MomWorkOrderStatus.Planned => MomWorkOrderStatus.Released, MomWorkOrderStatus.Released => MomWorkOrderStatus.InProgress, _ => item.Status }); } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void Cancel(MomWorkOrder item) { try { WorkOrderService.SetStatus(item, MomWorkOrderStatus.Cancelled); } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void OpenCompletion(MomWorkOrder item) { CompletionEditing = item; CompletedQuantityText = item.PlannedQuantity.ToString("0.####"); Error = null; ShowComposer = false; }
+    private void CloseCompletion() { CompletionEditing = null; Error = null; }
+    private void SaveCompletion() { if (CompletionEditing is null) return; try { if (!decimal.TryParse(CompletedQuantityText, out var quantity)) throw new InvalidOperationException(L.Text("完工数量格式不正确。")); WorkOrderService.Complete(CompletionEditing, quantity); CloseCompletion(); } catch (Exception ex) { Error = L.Text(ex.Message); } }
+    private void SaveFinishedGoodsReceipt()
+    {
+        try
+        {
+            var workOrderId = ParseRequired(ReceiptWorkOrderIdText, "请选择已完工工单");
+            var warehouseId = ParseRequired(ReceiptWarehouseIdText, "请选择仓库");
+            Guid? locationId = Guid.TryParse(ReceiptLocationIdText, out var selectedLocationId) ? selectedLocationId : null;
+            if (!decimal.TryParse(ReceiptQuantityText, out var quantity)) throw new InvalidOperationException(L.Text("入库数量格式不正确。"));
+            FinishedGoodsReceiptService.Create(workOrderId, warehouseId, locationId, quantity, ReceiptSourceNo, DateOnly.FromDateTime(ReceiptDate), ReceiptBatchNo, ReceiptExpiryDate is DateTime expiry ? DateOnly.FromDateTime(expiry) : null, ReceiptSerialNo);
+            ResetFinishedGoodsReceipt();
+        }
+        catch (Exception ex) { Error = L.Text(ex.Message); }
+    }
+    private void ResetComposer() { ShowComposer = false; Error = null; WorkOrderNo = ProductIdText = WorkCenterIdText = SourceDocumentNo = SalesOrderIdText = PmsProjectIdText = string.Empty; SourceKindText = "Manual"; PlannedQuantityText = "1"; PlannedStart = DateTime.Today; PlannedEnd = DateTime.Today.AddDays(14); }
+    private void ResetFinishedGoodsReceipt() { ReceiptWorkOrderIdText = ReceiptWarehouseIdText = ReceiptLocationIdText = ReceiptSourceNo = ReceiptBatchNo = ReceiptSerialNo = string.Empty; ReceiptQuantityText = "1"; ReceiptDate = DateTime.Today; ReceiptExpiryDate = null; Error = null; }
+    private bool CanAdvance(MomWorkOrder item) => item.Status is MomWorkOrderStatus.Draft or MomWorkOrderStatus.Planned or MomWorkOrderStatus.Released;
+    private bool CanCancel(MomWorkOrder item) => item.Status is MomWorkOrderStatus.Draft or MomWorkOrderStatus.Planned or MomWorkOrderStatus.Released or MomWorkOrderStatus.InProgress;
+    private string StatusLabel(MomWorkOrderStatus status) => L.Text(status switch { MomWorkOrderStatus.Draft => "草稿", MomWorkOrderStatus.Planned => "已计划", MomWorkOrderStatus.Released => "已下达", MomWorkOrderStatus.InProgress => "执行中", MomWorkOrderStatus.Completed => "已完工", MomWorkOrderStatus.Cancelled => "已取消", _ => status.ToString() });
+    private string SourceLabel(MomWorkOrderSourceKind source) => L.Text(source switch { MomWorkOrderSourceKind.Manual => "手工录入", MomWorkOrderSourceKind.SalesOrder => "销售订单", MomWorkOrderSourceKind.PmsProject => "PMS 项目", MomWorkOrderSourceKind.Planning => "计划需求", _ => source.ToString() });
+    private Guid ParseRequired(string value, string key) => Guid.TryParse(value, out var id) ? id : throw new InvalidOperationException(L.Text(key));
+    public void Dispose() => L.Changed -= OnLanguageChanged;
+}
